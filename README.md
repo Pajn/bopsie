@@ -40,7 +40,8 @@ Checks:
 pnpm typecheck
 pnpm lint
 pnpm test              # JavaScript unit tests
-pnpm test:native       # Kotlin unit tests for the player module, after prebuild
+pnpm test:native       # Kotlin unit tests for the native modules, after prebuild
+pnpm check:icons       # the generated icon assets match the installed Feather font
 ```
 
 ## Integration tests

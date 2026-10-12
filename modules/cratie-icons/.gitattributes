@@ -1,0 +1,2 @@
+# PDF cross-reference records have significant whitespace; treat them as assets.
+*.pdf binary

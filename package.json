@@ -14,13 +14,15 @@
     "lint:fix": "biome check --write .",
     "test": "jest",
     "test:integration": "jest -c test/integration/jest.config.js",
-    "test:native": "cd android && ./gradlew :cratie-player:testDebugUnitTest",
+    "test:native": "cd android && ./gradlew :cratie-player:testDebugUnitTest :cratie-icons:testDebugUnitTest",
     "ma:start": "scripts/ma-server.sh start",
     "ma:stop": "scripts/ma-server.sh stop",
     "e2e:build:android": "detox build -c android.emu",
     "e2e:android": "detox test -c android.emu",
     "e2e:build:android:debug": "detox build -c android.emu.debug",
-    "e2e:android:debug": "E2E_DEV_CLIENT=1 detox test -c android.emu.debug"
+    "e2e:android:debug": "E2E_DEV_CLIENT=1 detox test -c android.emu.debug",
+    "build:icons": "node scripts/build-icons.mjs",
+    "check:icons": "node scripts/build-icons.mjs --check"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
@@ -59,6 +61,7 @@
     "detox": "^20.51.4",
     "jest": "^30.5.1",
     "jest-expo": "^57.0.5",
+    "opentype.js": "2.0.0",
     "typescript": "~6.0.3"
   }
 }

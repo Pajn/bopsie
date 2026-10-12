@@ -1,11 +1,14 @@
 import Feather from '@expo/vector-icons/Feather';
-import type { ComponentProps } from 'react';
 import { type ColorValue, type StyleProp, View, type ViewStyle } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
+import type { IconName } from './iconNames';
 
-export type IconName = ComponentProps<typeof Feather>['name'];
+export type { IconName } from './iconNames';
 
-/** A Feather glyph sized to a square box, tinted with the theme's text color by default. */
+/**
+ * Font-backed web fallback. Android and iOS use Icon.native.tsx and bundled
+ * native vectors, so they do not wait for this font's async registration.
+ */
 export function Icon({
   name,
   size = 22,
