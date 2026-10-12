@@ -1,0 +1,24 @@
+# pnpm 12 reads its settings from here rather than package.json.
+# Build scripts are opt-in; unlisted packages fail the install.
+allowBuilds:
+  '@biomejs/biome': true
+  '@parcel/watcher': true
+  detox: true
+  esbuild: true
+  unrs-resolver: true
+  dtrace-provider: false
+
+# pnpm 12 refuses packages published less than a day ago as a supply-chain
+# guard. Expo ships coordinated patch releases across all of its packages, so
+# `expo install` regularly resolves to versions from the same day. Exempt them.
+minimumReleaseAgeExclude:
+  - expo
+  - 'expo-*'
+  - '@expo/*'
+  - babel-preset-expo
+  - jest-expo
+  - expo-router
+
+patchedDependencies:
+  '@expo/metro-config@57.0.13': patches/@expo__metro-config@57.0.13.patch
+  expo-router@57.0.21: patches/expo-router@57.0.21.patch

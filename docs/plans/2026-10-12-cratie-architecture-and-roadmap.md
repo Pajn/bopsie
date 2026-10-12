@@ -1,0 +1,136 @@
+# Cratie: architecture and roadmap
+
+Cratie is a [Music Assistant](https://www.music-assistant.io/) client for iOS and Android built
+with React Native and Expo. It is a sister project to Shelfie, the Audiobookshelf client, and
+shares its stack, structure and testing strategy. Where this document is silent, Shelfie's
+architecture document applies.
+
+Protocol facts, with sources, are in
+[the Music Assistant and Sendspin research](../research/music-assistant-and-sendspin.md).
+
+## Goals and non-goals
+
+Goals, in priority order:
+
+1. Play the Music Assistant library on the phone, with lock-screen and notification controls and
+   reliable background playback.
+2. Browse the library: artists, albums, playlists and tracks, with search.
+3. Control other Music Assistant players (remote control). Later phase.
+4. Testable core logic. Protocol framing, clock synchronization and playback scheduling are pure
+   modules with unit tests.
+
+Non-goals for now: server administration, provider setup, downloads, Android Auto, casting.
+
+## Server support
+
+Music Assistant 2.7.1 or later. 2.7 introduced authentication and Sendspin; 2.7.1 added the
+`/sendspin` route on the API port, which reaches the player through the same address as the API,
+including behind HTTPS reverse proxies. Integration tests pin the current stable release.
+
+## How the phone plays
+
+Music Assistant owns queues and streams audio to players. The phone becomes one of those players
+by connecting over [Sendspin](https://github.com/Sendspin/spec), Music Assistant's streaming
+protocol. The server then lists it like any other speaker, keeps its queue, and pushes
+timestamped audio frames over a WebSocket. Playing something on the phone is a
+`player_queues/play_media` call on the phone's own queue, which is the same call that later
+plays to any other player.
+
+Cratie speaks Sendspin's unencrypted wire, which every Music Assistant release from 2.7.1 accepts.
+Sendspin 1.0 adds Noise encryption and pairing; Music Assistant serves that from 2.10, but the
+wire names differ between releases. Moving to it is planned once a stable release implements the
+1.0 specification.
+
+The phone's player registers with `device_info.product_name` set to `Mobile Application`. Music
+Assistant registers any other product as a hidden protocol player that cannot be played to.
+
+## Stack
+
+As Shelfie, with these differences:
+
+| Concern | Choice |
+|---|---|
+| API client | A WebSocket command client over `/ws`. Music Assistant publishes no OpenAPI file, so response types are hand-written after `music-assistant/models` and checked with `zod/mini` at the boundary. |
+| Realtime | Server events arrive on the same WebSocket as commands and patch or invalidate TanStack Query caches. |
+| Audio, Android | A local Expo module (`modules/cratie-player`): a Media3 `MediaSessionService` around a Sendspin client and an `AudioTrack` output. |
+| Audio, iOS | Not yet. iOS builds and browses; playback needs an `AVAudioEngine` Sendspin output behind the same interface. |
+| Icons | `@expo/vector-icons` Feather glyphs until the set settles; Shelfie's bundled native vectors can replace them later. |
+| Database | None yet. Accounts and settings use the SQLite key-value store; nothing else needs persistence. |
+
+## Architecture
+
+```
+app/                 expo-router routes only. Thin. No business logic.
+src/
+  api/               WebSocket client, command envelopes, zod/mini schemas, endpoint modules, images
+  auth/              account store and repository, sign-in
+  connection/        the active account's API connection, event to query-cache bridge
+  player/            Player interface, native adapter, queue progress math
+  features/          one folder per feature: library, album, artist, playlist, search, player-ui
+  ui/                design system: theme, primitives
+  lib/               small shared utilities
+modules/
+  cratie-player/     Android Sendspin player: protocol, time filter, scheduler, service
+```
+
+The rules from Shelfie hold: features depend on the core modules and not the reverse, services
+are created once in a root provider and reached through hooks, nothing untyped crosses `src/api`,
+and branching logic without a platform dependency is a pure module with a test beside it.
+
+### Accounts and sign-in
+
+An account is a user on a server, identified by the server's id and the user's id. Sign-in uses
+the server's `auth/login` command with a username and password, then mints a long-lived token
+with `auth/token/create` so the app does not depend on the session token's sliding 30-day window.
+The token lives in the secure store. A token the server rejects marks the account expired and
+asks the user to sign in again.
+
+### API connection
+
+One WebSocket per active account. The client matches results to commands by `message_id`,
+concatenates `partial` result batches, rejects on error frames, and fans events out to listeners.
+Reconnection backs off and is capped, as in Shelfie. Every command waits for the connection to be
+authenticated, so screens never race the handshake.
+
+### The Android player
+
+The native module owns everything that has to keep running without the JavaScript runtime:
+
+- **Sendspin client.** Connects to `/sendspin` on the API origin, authenticates with the account
+  token, says hello with the `player`, `controller` and `metadata` roles, and reports its state.
+  Its `client_id` is generated once per install and persisted; it is also the Music Assistant
+  player id and queue id.
+- **Clock synchronization.** A port of Sendspin's two-dimensional Kalman time filter, fed by
+  bursts of `client/time` exchanges on the monotonic clock. The player reports itself available
+  only once the filter has converged.
+- **Output.** PCM to an `AudioTrack`. Each chunk carries the server time at which its first sample
+  must be heard; the scheduler converts that to local time, drops late audio, pads silence at
+  start, and corrects drift by dropping or repeating single frames. FLAC and Opus come later.
+- **Media session.** A Media3 `SimpleBasePlayer` presents the stream to the system: metadata from
+  the `metadata` role, transport controls sent as Sendspin `controller` commands. Notification
+  and lock-screen controls therefore work without JavaScript.
+
+The app drives the same player through the Music Assistant API (`player_queues/*` with the
+phone's queue id), which reports richer state than Sendspin and is the same code path remote
+control will use.
+
+## Testing
+
+| Layer | What runs |
+|---|---|
+| Unit, JavaScript | Jest for the API client, schemas, sign-in, accounts and queue math |
+| Unit, Kotlin | JUnit for protocol framing, the time filter and the scheduler (`pnpm test:native`) |
+| Integration | Jest against a disposable Music Assistant container (`pnpm ma:start`), with generated audio in a filesystem library |
+| End-to-end | Detox on an Android emulator against the same container |
+
+## Roadmap
+
+1. **Foundation.** Sign-in, library browsing, search, playback on Android through Sendspin with
+   notification controls, now-playing screen. *This phase.*
+2. **Player depth.** Queue view and editing, shuffle and repeat, FLAC transport, volume, audio
+   focus and becoming-noisy handling, reconnect without losing the queue.
+3. **Remote control.** Pick any Music Assistant player, transfer the queue, group players.
+4. **iOS playback.** A Swift Sendspin output behind the same `Player` interface.
+5. **Encrypted Sendspin.** Noise transport and pairing once Music Assistant ships Sendspin 1.0.
+6. **Platform.** Android Auto, home-screen and lock-screen polish, downloads if Music Assistant
+   gains a way to serve files to clients.

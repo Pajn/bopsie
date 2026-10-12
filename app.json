@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Cratie",
+    "slug": "cratie",
+    "version": "0.1.0",
+    "scheme": "cratie",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "io.github.pajn.cratie",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "io.github.pajn.cratie",
+      "versionCode": 1,
+      "permissions": ["android.permission.POST_NOTIFICATIONS"],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      "react-native-edge-to-edge",
+      "./plugins/withDetox.js",
+      "./plugins/withPinnedAndroidTools.js",
+      "./plugins/withGradleSettings.js",
+      "./plugins/withQuietDevMenu.js",
+      "./plugins/withUserCertificates.js",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          },
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ],
+      "./plugins/withDevLauncherWaiting.js"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
