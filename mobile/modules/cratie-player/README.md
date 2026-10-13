@@ -29,7 +29,7 @@ The client id is created once per install and stored in shared preferences. Musi
 it as the player id and the queue id, which is how the app addresses the phone through the API.
 
 The wire format, and how Music Assistant's releases differ, is described in
-[the research notes](../../docs/research/music-assistant-and-sendspin.md).
+[the research notes](../../../docs/research/music-assistant-and-sendspin.md).
 
 ## Verification
 

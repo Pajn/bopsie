@@ -6,45 +6,63 @@ on:
   pull_request:
 
 jobs:
-  check:
+  mobile-check:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: mobile/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm check:icons
       - run: pnpm typecheck
       - run: pnpm test -- --ci
 
-  integration:
+  mobile-integration:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: mobile/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm ma:start
       - run: eval "$(scripts/ma-server.sh env)" && pnpm test:integration -- --ci
       - if: always()
         run: pnpm ma:stop
 
-  native:
+  mobile-native:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: mobile/package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
