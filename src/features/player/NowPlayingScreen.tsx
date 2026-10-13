@@ -48,19 +48,33 @@ export function NowPlayingScreen() {
         <Text muted numberOfLines={2} style={styles.center}>
           {current.subtitle}
         </Text>
-        <Pressable
-          onPress={() => router.push('/outputs')}
-          style={({ pressed }) => [styles.where, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel={`Playing on ${active?.name ?? 'this phone'}. Choose where to play`}
-          testID="player-outputs"
-        >
-          <Icon name="speaker" size={14} color={theme.colors.accent} />
-          <Text variant="label" style={styles.whereText} numberOfLines={1}>
-            {active?.name ?? 'Choose a player'}
-          </Text>
-          <Icon name="chevron-down" size={14} color={theme.colors.accent} />
-        </Pressable>
+        <View style={styles.pills}>
+          <Pressable
+            onPress={() => router.push('/outputs')}
+            style={({ pressed }) => [styles.pill, styles.where, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`Playing on ${active?.name ?? 'this phone'}. Choose where to play`}
+            testID="player-outputs"
+          >
+            <Icon name="speaker" size={14} color={theme.colors.accent} />
+            <Text variant="label" style={styles.pillText} numberOfLines={1}>
+              {active?.name ?? 'Choose a player'}
+            </Text>
+            <Icon name="chevron-down" size={14} color={theme.colors.accent} />
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/queue')}
+            style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Queue"
+            testID="player-queue"
+          >
+            <Icon name="list" size={14} color={theme.colors.accent} />
+            <Text variant="label" style={styles.pillText}>
+              Queue
+            </Text>
+          </Pressable>
+        </View>
       </View>
       <View>
         <Slider
@@ -156,17 +170,23 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  where: {
+  pills: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'center',
     gap: theme.spacing.xs,
-    marginTop: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
     borderRadius: theme.radius.full,
     backgroundColor: theme.colors.surfaceVariant,
   },
-  whereText: { color: theme.colors.accent, flexShrink: 1 },
+  // The player's name gives way first when the two do not fit.
+  where: { flexShrink: 1 },
+  pillText: { color: theme.colors.accent, flexShrink: 1 },
   pressed: { opacity: 0.6 },
 }));

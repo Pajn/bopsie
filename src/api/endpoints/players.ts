@@ -1,6 +1,6 @@
 import * as z from 'zod/mini';
 import type { MaConnection } from '../client';
-import { player, playerQueue } from '../schemas/player';
+import { player, playerQueue, type QueueItem, queueItem } from '../schemas/player';
 
 /** `QueueOption`: where new media goes in the queue. */
 export type QueueOption = 'play' | 'replace' | 'next' | 'replace_next' | 'add';
@@ -72,6 +72,50 @@ export const getQueue = (connection: MaConnection, queueId: string) =>
     { queue_id: queueId },
     { schema: z.nullable(playerQueue) },
   );
+
+const ITEMS_PAGE = 500;
+
+/** Every item in a queue, in play order, a page at a time. */
+export async function getQueueItems(connection: MaConnection, queueId: string) {
+  const items: QueueItem[] = [];
+  for (;;) {
+    const page = await connection.command(
+      'player_queues/items',
+      { queue_id: queueId, limit: ITEMS_PAGE, offset: items.length },
+      { schema: z.array(queueItem) },
+    );
+    items.push(...page);
+    if (page.length < ITEMS_PAGE) return items;
+  }
+}
+
+/** Plays the queue from one of its items. */
+export const playQueueItem = (connection: MaConnection, queueId: string, queueItemId: string) =>
+  connection.command<void>('player_queues/play_index', { queue_id: queueId, index: queueItemId });
+
+/**
+ * Moves an item `shift` places later in the queue, or earlier when negative.
+ * The server refuses items the player already holds and ignores a move that
+ * would land among them.
+ */
+export const moveQueueItem = (
+  connection: MaConnection,
+  queueId: string,
+  queueItemId: string,
+  shift: number,
+) =>
+  connection.command<void>('player_queues/move_item', {
+    queue_id: queueId,
+    queue_item_id: queueItemId,
+    pos_shift: shift,
+  });
+
+/** Removes an item. The server ignores items the player already holds. */
+export const removeQueueItem = (connection: MaConnection, queueId: string, queueItemId: string) =>
+  connection.command<void>('player_queues/delete_item', {
+    queue_id: queueId,
+    item_id_or_index: queueItemId,
+  });
 
 /**
  * Plays media on a queue. `media` is one or more item URIs, such as

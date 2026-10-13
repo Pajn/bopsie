@@ -74,6 +74,12 @@ export const playerQueue = z.looseObject({
   shuffle_enabled: booleanOr(false),
   repeat_mode: stringOr('off'),
   current_index: z.nullish(z.number()),
+  /**
+   * The item the player has been handed, which is the current one or, near
+   * the end of it, the next. The server refuses to move or remove anything up
+   * to the later of this and `current_index`.
+   */
+  index_in_buffer: z.nullish(z.number()),
   /** Seconds into the current item at `elapsed_time_last_updated`. */
   elapsed_time: numberOr(0),
   /** Unix seconds. */

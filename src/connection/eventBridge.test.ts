@@ -72,6 +72,23 @@ describe('applyEvent', () => {
     });
   });
 
+  it('marks the cached items stale when they change', () => {
+    const { client } = setup();
+    const items = queryKeys.queueItems('acct', 'phone');
+    client.setQueryData(items, []);
+    applyEvent(client, 'acct', { event: 'queue_items_updated', object_id: 'phone', data: QUEUE });
+    expect(client.getQueryData<PlayerQueue>(queryKeys.queue('acct', 'phone'))?.items).toBe(2);
+    expect(client.getQueryState(items)?.isInvalidated).toBe(true);
+  });
+
+  it('leaves the cached items alone on other queue updates', () => {
+    const { client } = setup();
+    const items = queryKeys.queueItems('acct', 'phone');
+    client.setQueryData(items, []);
+    applyEvent(client, 'acct', { event: 'queue_updated', object_id: 'phone', data: QUEUE });
+    expect(client.getQueryState(items)?.isInvalidated).toBe(false);
+  });
+
   it('replaces an updated player in the cached list', () => {
     const { client } = setup();
     const key = queryKeys.players('acct');

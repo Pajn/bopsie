@@ -19,6 +19,10 @@ players: set each member's volume or the group's, remove members, and for any ot
 to join it to the group, move the queue to it, or control it instead. On iOS this is how music
 plays.
 
+The full player opens the group's queue: play any track in it, drag tracks into a new order, move
+one up to play next, or remove it. The track playing, and the next one once the player has it, stay
+where they are, as Music Assistant requires.
+
 ## Requirements
 
 - Node 24 and pnpm 12. The Nix dev shell provides both.

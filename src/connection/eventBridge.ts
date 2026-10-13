@@ -16,7 +16,8 @@ const LIBRARY_EVENTS = new Set([
  * queue and replace the cached one; time updates move only the position, and
  * arrive often enough that refetching on each would be wasteful. Only queues
  * already cached are kept, so the cache holds the queues the app shows rather
- * than every queue on the server. Player updates carry the whole player and
+ * than every queue on the server. A change to a queue's items carries the
+ * queue but not the items, so they are fetched again. Player updates carry the whole player and
  * replace it in the cached list.
  */
 export function applyEvent(
@@ -67,6 +68,11 @@ export function applyEvent(
       const parsed = playerQueue.safeParse(event.data);
       if (parsed.success) queryClient.setQueryData(key, parsed.data);
       else void queryClient.invalidateQueries({ queryKey: key });
+      if (event.event === 'queue_items_updated') {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.queueItems(accountId, event.object_id),
+        });
+      }
       return;
     }
     case 'queue_time_updated': {

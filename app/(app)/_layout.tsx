@@ -13,6 +13,7 @@ export default function AppLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="player" options={{ title: 'Now playing', ...modalScreenOptions }} />
           <Stack.Screen name="outputs" options={{ title: 'Play on', ...modalScreenOptions }} />
+          <Stack.Screen name="queue" options={{ title: 'Queue', ...modalScreenOptions }} />
         </Stack>
       </ActiveGroupProvider>
     </ConnectionProvider>

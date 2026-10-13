@@ -1,5 +1,5 @@
 import type { WithImages } from '@/api/schemas/media';
-import type { PlayerQueue } from '@/api/schemas/player';
+import type { PlayerQueue, QueueItem } from '@/api/schemas/player';
 
 export interface NowPlaying {
   title: string;
@@ -11,8 +11,11 @@ export interface NowPlaying {
 
 /** Display fields for the queue's current item, or null when nothing is loaded. */
 export function nowPlaying(queue: PlayerQueue): NowPlaying | null {
-  const item = queue.current_item;
-  if (!item) return null;
+  return queue.current_item ? describeItem(queue.current_item) : null;
+}
+
+/** Display fields for any item in a queue. */
+export function describeItem(item: QueueItem): NowPlaying {
   const media = item.media_item;
   const artists = media ? media.artists.map((artist) => artist.name).join(', ') : '';
   const album = media?.album?.name;
