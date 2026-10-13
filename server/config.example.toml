@@ -1,0 +1,14 @@
+# Every key is optional; these are the defaults.
+
+[server]
+# Address and port for the API, /ws and /sendspin. 8095 is Music Assistant's port, so clients
+# that assume it find this server.
+bind = "0.0.0.0:8095"
+# The name clients show for this server.
+name = "Bopsie"
+# The URL clients reach the server at, reported in server info. Unset, none is reported.
+# base_url = "http://music.local:8095"
+
+[storage]
+# Where the database lives, relative to the working directory unless absolute.
+data_dir = "data"

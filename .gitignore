@@ -7,3 +7,4 @@ result
 
 # rust
 /server/target/
+/server/data/

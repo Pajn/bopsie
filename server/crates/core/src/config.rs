@@ -108,6 +108,12 @@ mod tests {
     }
 
     #[test]
+    fn the_example_config_is_the_defaults() {
+        let example = include_str!("../../../config.example.toml");
+        assert_eq!(Config::parse(example).unwrap(), Config::default());
+    }
+
+    #[test]
     fn unknown_keys_are_rejected() {
         assert!(Config::parse("[server]\nport = 9000\n").is_err());
         assert!(Config::parse("[stroage]\n").is_err());

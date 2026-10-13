@@ -23,6 +23,31 @@ unchanged. The design and the milestones are in
 Traits live in `bopsie-players` and `bopsie-library`, so protocol and provider crates depend
 inward only. `bopsie-server` is the only crate that knows the concrete list of providers.
 
+## Running
+
+```sh
+cargo run -p bopsie-server -- --config config.toml
+```
+
+The config file is optional; [`config.example.toml`](config.example.toml) lists every key with
+its default. The server listens on port 8095 and keeps its database in `data/`. Logging follows
+`RUST_LOG`, at `info` by default.
+
+A new server has no users. Create the first, an admin, before signing in:
+
+```sh
+curl -X POST http://localhost:8095/setup -H 'Content-Type: application/json' \
+  -d '{"username": "admin", "password": "at-least-8-characters"}'
+```
+
+To run Bopsie's integration suites against this server:
+
+```sh
+cd ../mobile
+MA_URL=http://localhost:8095 MA_USERNAME=admin MA_PASSWORD=at-least-8-characters \
+  pnpm test:integration
+```
+
 ## Development
 
 Requires a stable Rust toolchain with clippy and rustfmt. The Nix dev shell at the repository
