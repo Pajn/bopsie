@@ -76,28 +76,50 @@ pub fn write_library(root: &Path, seconds: u32) -> io::Result<()> {
 
 /// A sine tone as 16-bit stereo PCM.
 fn write_tone(path: &Path, frequency: f32, seconds: u32) -> io::Result<()> {
-    let frames = SAMPLE_RATE * seconds;
-    let data_len = frames * 4;
+    let samples: Vec<i16> = (0..SAMPLE_RATE * seconds)
+        .flat_map(|frame| {
+            let t = frame as f32 / SAMPLE_RATE as f32;
+            let sample = ((TAU * frequency * t).sin() * 0.25 * f32::from(i16::MAX)) as i16;
+            [sample, sample]
+        })
+        .collect();
+    write_wav(path, SAMPLE_RATE, 2, &samples)
+}
+
+/// Writes interleaved 16-bit samples as a WAV file.
+pub fn write_wav(path: &Path, sample_rate: u32, channels: u16, samples: &[i16]) -> io::Result<()> {
+    let data_len = (samples.len() * 2) as u32;
+    let block_align = channels * 2;
     let mut bytes = Vec::with_capacity(44 + data_len as usize);
     bytes.extend_from_slice(b"RIFF");
     bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
     bytes.extend_from_slice(b"WAVEfmt ");
     bytes.extend_from_slice(&16u32.to_le_bytes());
     bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
-    bytes.extend_from_slice(&2u16.to_le_bytes()); // channels
-    bytes.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    bytes.extend_from_slice(&(SAMPLE_RATE * 4).to_le_bytes()); // byte rate
-    bytes.extend_from_slice(&4u16.to_le_bytes()); // block align
+    bytes.extend_from_slice(&channels.to_le_bytes());
+    bytes.extend_from_slice(&sample_rate.to_le_bytes());
+    bytes.extend_from_slice(&(sample_rate * u32::from(block_align)).to_le_bytes());
+    bytes.extend_from_slice(&block_align.to_le_bytes());
     bytes.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_len.to_le_bytes());
-    for frame in 0..frames {
-        let t = frame as f32 / SAMPLE_RATE as f32;
-        let sample = ((TAU * frequency * t).sin() * 0.25 * f32::from(i16::MAX)) as i16;
-        bytes.extend_from_slice(&sample.to_le_bytes());
+    for sample in samples {
         bytes.extend_from_slice(&sample.to_le_bytes());
     }
     fs::write(path, bytes)
+}
+
+/// Deterministic noise: different in every sample, so a dropped or repeated sample shows.
+pub fn noise(seed: u32, len: usize) -> Vec<i16> {
+    let mut state = seed.wrapping_mul(2_654_435_761).max(1);
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            (state >> 16) as i16
+        })
+        .collect()
 }
 
 /// A solid square, a different colour per album.

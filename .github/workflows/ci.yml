@@ -84,6 +84,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: server
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+        env:
+          BOPSIE_REQUIRE_FFMPEG: '1'

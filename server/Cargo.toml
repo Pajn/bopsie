@@ -32,6 +32,7 @@ bopsie-api = { path = "crates/api" }
 bopsie-fixtures = { path = "crates/fixtures" }
 
 argon2 = "0.6"
+audioadapter-buffers = "5.2"
 axum = { version = "0.8", features = ["ws"] }
 clap = { version = "4.6", features = ["derive"] }
 futures = "0.3"
@@ -40,11 +41,13 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
 lofty = "0.25"
 rand = "0.10"
+rubato = "5.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
 schemars = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
+symphonia = { version = "0.6", features = ["all"] }
 tempfile = "3.27"
 thiserror = "2.0"
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
