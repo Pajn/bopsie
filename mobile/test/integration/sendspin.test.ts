@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { MaConnection } from '@/api/client';
 import { getPlayer, getQueue, playMedia, queueCommand } from '@/api/endpoints/players';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
-import { connect, describeServer } from './server';
+import { albumUri, connect, describeServer } from './server';
 
 describeServer('Sendspin player', () => {
   let connection: MaConnection;
@@ -27,7 +27,7 @@ describeServer('Sendspin player', () => {
   });
 
   it('streams PCM with big-endian server timestamps when the API plays to it', async () => {
-    await playMedia(connection, clientId, 'library://album/1');
+    await playMedia(connection, clientId, await albumUri(connection, 'First Album'));
     const start = await player.message('stream/start');
     expect(start.payload?.player).toMatchObject({ codec: 'pcm', channels: 2, bit_depth: 16 });
 

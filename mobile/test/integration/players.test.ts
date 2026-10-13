@@ -12,7 +12,7 @@ import {
 } from '@/api/endpoints/players';
 import { activeLeaderId, describeOutputs } from '@/features/outputs/outputs';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
-import { connect, describeServer } from './server';
+import { albumUri, connect, describeServer } from './server';
 
 async function eventually(check: () => Promise<boolean>, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -57,7 +57,7 @@ describeServer('remote control', () => {
   });
 
   it('joins a player to a playing group and follows control to the leader', async () => {
-    await playMedia(connection, kitchen, 'library://album/1');
+    await playMedia(connection, kitchen, await albumUri(connection, 'First Album'));
     await joinGroup(connection, bedroom, kitchen);
     await eventually(async () => (await getPlayer(connection, bedroom))?.synced_to === kitchen);
 

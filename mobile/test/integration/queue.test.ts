@@ -12,7 +12,7 @@ import {
 import type { QueueItem } from '@/api/schemas/player';
 import { describeQueue } from '@/features/queue/queue';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
-import { connect, describeServer } from './server';
+import { albumUri, connect, describeServer } from './server';
 
 async function eventually(check: () => Promise<boolean>, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -43,7 +43,10 @@ describeServer('queue', () => {
     const session = await connect();
     connection = session.connection;
     player = await registerPlayer(session, id, 'Queue test');
-    await playMedia(connection, id, ['library://album/1', 'library://album/2']);
+    await playMedia(connection, id, [
+      await albumUri(connection, 'First Album'),
+      await albumUri(connection, 'Second Album'),
+    ]);
     await eventually(async () => (await getQueue(connection, id))?.state === 'playing');
     await queueCommand(connection, id, 'stop');
     await eventually(async () => (await getQueue(connection, id))?.state === 'idle');

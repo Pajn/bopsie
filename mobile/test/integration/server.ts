@@ -1,4 +1,5 @@
 import { MaConnection, type SocketLike } from '@/api/client';
+import { libraryItems } from '@/api/endpoints/library';
 import { signIn } from '@/auth/signIn';
 
 export const MA_URL = process.env.MA_URL;
@@ -25,4 +26,15 @@ export async function connect(deviceName = 'Bopsie integration tests') {
   const connection = new MaConnection({ serverUrl: account.serverUrl, token, createSocket });
   await connection.ready();
   return { account, token, connection };
+}
+
+/**
+ * The URI of the fixture album named `name`. Item ids are the server's to assign, so tests
+ * look albums up rather than assume an id.
+ */
+export async function albumUri(connection: MaConnection, name: string): Promise<string> {
+  const albums = await libraryItems(connection, 'albums', { limit: 500, offset: 0 });
+  const album = albums.find((item) => item.name === name);
+  if (!album) throw new Error(`No album named ${name}`);
+  return album.uri;
 }
