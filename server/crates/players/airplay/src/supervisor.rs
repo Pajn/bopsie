@@ -28,6 +28,8 @@ const START_TIMEOUT: Duration = Duration::from_secs(8);
 /// How long to wait for buffered audio before starting anyway.
 const AUDIO_TIMEOUT: Duration = Duration::from_secs(2);
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
+/// How much later than asked a start may be and still count as on time.
+pub const LATE_TOLERANCE_MS: u64 = 20;
 /// How long after a failed start the next attempt waits.
 const BACKOFF: Duration = Duration::from_secs(5);
 
@@ -72,12 +74,34 @@ pub struct Signals {
     pub started: Option<(u64, u64)>,
     /// FLUSHes acknowledged.
     pub flushes: u64,
-    pub clock: Option<(String, String)>,
+    /// The speaker's clock: `ptp` or `ntp`, its state, and when it will be ready.
+    pub clock: Option<Clock>,
     pub error: Option<(String, String)>,
     pub exited: bool,
     /// STARTs the process moved later than asked.
     pub corrections: u64,
 }
+
+/// When a speaker can start, by its clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClockStart {
+    /// It has not said yet.
+    Unknown,
+    /// Its clock is not measured (NTP), or does not follow ours: start when the timeline says.
+    NotMeasured,
+    /// From this Unix time.
+    From(u64),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Clock {
+    pub mode: String,
+    pub state: String,
+    pub ready_at_unix_ms: Option<u64>,
+}
+
+/// How long after its clock is ready a speaker can start, as Music Assistant plans it.
+const CLOCK_MARGIN_MS: u64 = 500;
 
 struct Running {
     child: Child,
@@ -98,6 +122,10 @@ struct Inner {
     /// A START has been sent and not flushed since.
     streaming: Mutex<bool>,
     failed_at: Mutex<Option<Instant>>,
+    /// A background connection is under way.
+    connecting: std::sync::atomic::AtomicBool,
+    /// Why the last connection failed, until one succeeds.
+    last_failure: Mutex<Option<Failure>>,
 }
 
 #[derive(Clone)]
@@ -129,6 +157,8 @@ impl Supervisor {
                 generation: Mutex::new(0),
                 streaming: Mutex::new(false),
                 failed_at: Mutex::default(),
+                connecting: std::sync::atomic::AtomicBool::new(false),
+                last_failure: Mutex::default(),
             }),
         }
     }
@@ -179,9 +209,46 @@ impl Supervisor {
         if !self.is_running() {
             self.spawn()?;
         }
-        self.wait("the connection", CONNECT_TIMEOUT, |s| s.connected)
+        let result = self
+            .wait("the connection", CONNECT_TIMEOUT, |s| s.connected)
             .inspect_err(|_| self.failed())
-            .map(drop)
+            .map(drop);
+        *self.inner.last_failure.lock().unwrap() = result.clone().err();
+        result
+    }
+
+    /// Whether the process runs, has connected, and takes commands.
+    pub fn is_connected(&self) -> bool {
+        self.is_running() && self.inner.pipe.lock().unwrap().is_some() && self.signals().connected
+    }
+
+    /// Connects on another thread, unless that is already under way, so the caller need not
+    /// wait. [`Supervisor::failure`] says how it went if it failed.
+    pub fn connect_in_background(&self) {
+        use std::sync::atomic::Ordering;
+        if self.inner.connecting.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let supervisor = self.clone();
+        std::thread::Builder::new()
+            .name("cliairplay-connect".into())
+            .spawn(move || {
+                let _ = supervisor.ensure_connected();
+                supervisor.inner.connecting.store(false, Ordering::SeqCst);
+            })
+            .expect("spawning a connecting thread");
+    }
+
+    /// Whether a connection is under way.
+    pub fn is_connecting(&self) -> bool {
+        self.inner
+            .connecting
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Why the last connection failed, if it did and none has succeeded since.
+    pub fn failure(&self) -> Option<Failure> {
+        self.inner.last_failure.lock().unwrap().clone()
     }
 
     fn failed(&self) {
@@ -282,12 +349,11 @@ impl Supervisor {
             .spawn(move || {
                 for line in BufReader::new(stream).lines() {
                     let Ok(line) = line else { break };
-                    match status::parse(&line) {
-                        Some(status) => supervisor.observe(generation, status),
-                        None if !line.trim().is_empty() => {
-                            tracing::debug!(speaker = supervisor.inner.id, "{line}");
-                        }
-                        None => {}
+                    if !line.trim().is_empty() {
+                        tracing::debug!(speaker = supervisor.inner.id, "{line}");
+                    }
+                    if let Some(status) = status::parse(&line) {
+                        supervisor.observe(generation, status);
                     }
                 }
                 // stderr closes when the process exits.
@@ -322,8 +388,16 @@ impl Supervisor {
                     signals.flushes += 1;
                     signals.audio = false;
                 }
-                Status::ClockReady { mode, state, .. } => {
-                    signals.clock = Some((mode.clone(), state.clone()));
+                Status::ClockReady {
+                    mode,
+                    state,
+                    ready_at_unix_ms,
+                } => {
+                    signals.clock = Some(Clock {
+                        mode: mode.clone(),
+                        state: state.clone(),
+                        ready_at_unix_ms: *ready_at_unix_ms,
+                    });
                 }
                 Status::Error { code, detail, .. } => {
                     tracing::warn!(
@@ -371,8 +445,35 @@ impl Supervisor {
         stdin.write_all(data)
     }
 
+    /// When the speaker can start playing in step with our clock, as far as is known now.
+    ///
+    /// A speaker that has just connected starts following our PTP clock a few seconds later,
+    /// on its own schedule; a start before then plays out of step or not at all.
+    pub fn clock_start(&self) -> ClockStart {
+        let signals = self.signals();
+        let Some(clock) = signals.clock else {
+            return ClockStart::Unknown;
+        };
+        match (
+            clock.mode.as_str(),
+            clock.state.as_str(),
+            clock.ready_at_unix_ms,
+        ) {
+            ("ntp", _, _) => ClockStart::NotMeasured,
+            (_, "stalled", _) => {
+                tracing::warn!(
+                    speaker = self.inner.id,
+                    "the speaker does not follow our clock"
+                );
+                ClockStart::NotMeasured
+            }
+            (_, _, Some(ms)) => ClockStart::From(ms + CLOCK_MARGIN_MS),
+            _ => ClockStart::Unknown,
+        }
+    }
+
     /// Commands the first sample buffered since the last FLUSH to be audible at `unix_ms`,
-    /// and returns when it really will be.
+    /// and returns when it really will be: later when the speaker could not make it.
     pub fn start(&self, unix_ms: u64) -> Result<u64, Failure> {
         // Start once audio is buffered; a speaker that never says so is started anyway.
         let _ = self.wait("buffered audio", AUDIO_TIMEOUT, |s| s.audio);
@@ -382,7 +483,7 @@ impl Supervisor {
         *self.inner.streaming.lock().unwrap() = true;
         let signals = self.wait("the start", START_TIMEOUT, |s| s.started.is_some())?;
         let (_, at) = signals.started.expect("waited for it");
-        if at > unix_ms + 20 {
+        if at > unix_ms + LATE_TOLERANCE_MS {
             self.signals_mut().corrections += 1;
             tracing::warn!(
                 speaker = self.inner.id,

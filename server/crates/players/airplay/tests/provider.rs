@@ -135,18 +135,11 @@ async fn streams_share_the_ptp_daemon_when_it_runs() {
     let provider = s.provider(true).await;
     provider.discover().unwrap();
     provider.see(sighting("0x4"));
-    // A stream starts the speaker's process; its arguments show the shared clock.
+    // Getting a speaker ready starts its process; its arguments show the shared clock.
     let endpoint = s.players.get(ID).unwrap();
-    tokio::task::spawn_blocking(move || {
-        let mut sink = endpoint.output(
-            bopsie_players_airplay::endpoint::FORMAT,
-            bopsie_audio::timeline::Timeline::new(44_100, bopsie_core::clock::now()),
-        );
-        sink.write(0, &[0u8; 4 * 4410]).unwrap();
-        sink.stop().unwrap();
-    })
-    .await
-    .unwrap();
+    tokio::task::spawn_blocking(move || endpoint.prepare())
+        .await
+        .unwrap();
     let args = std::fs::read_to_string(s.dir.path().join("capture/args")).unwrap();
     assert!(args.lines().any(|a| a == "--ptp-shared"), "{args}");
     provider.shutdown();

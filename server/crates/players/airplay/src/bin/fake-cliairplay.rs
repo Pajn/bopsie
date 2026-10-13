@@ -7,11 +7,13 @@
 //! many audio bytes had arrived when it did). Other variables shape its behaviour:
 //! `FAKE_CLIAIRPLAY_FAIL=<code>` fails to connect with that error code,
 //! `FAKE_CLIAIRPLAY_CONNECT_MS` delays the connection, and `FAKE_CLIAIRPLAY_START_LATE_MS`
-//! moves every START that much later than asked. With `--pair-setup` it pairs on PIN 1234;
+//! moves every START that much later than asked, and `FAKE_CLIAIRPLAY_CLOCK_READY_MS` reports
+//! a PTP clock that is ready that long after connecting. With `--pair-setup` it pairs on PIN 1234;
 //! with `--ptp-daemon` it runs until stopped.
 //!
 //! Like the real binary, it takes audio no faster than it would play it, after a buffer's
-//! worth, so a caller writing audio is paced by it.
+//! worth, so a caller writing audio is paced by it. It ends when the process that started it
+//! does, so tests that never stop it leave nothing behind.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -47,8 +49,22 @@ fn status(line: &str) {
     eprintln!("[STATUS] {line}");
 }
 
+/// Exits once the parent has gone and this process has been handed to another.
+fn exit_with_parent() {
+    let parent = std::os::unix::process::parent_id();
+    std::thread::spawn(move || {
+        loop {
+            if std::os::unix::process::parent_id() != parent {
+                std::process::exit(0);
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    exit_with_parent();
     if args.iter().any(|a| a == "--check") {
         println!("cliairplay fake check");
         return;
@@ -91,9 +107,15 @@ fn main() {
     }
     std::thread::sleep(Duration::from_millis(env_u64("FAKE_CLIAIRPLAY_CONNECT_MS")));
     status("connected");
-    status(
-        "clock_ready mode=ntp state=cold streak_ms=0 exchanges=0 ready_in_ms=0 ready_at_unix_ms=0",
-    );
+    match env_u64("FAKE_CLIAIRPLAY_CLOCK_READY_MS") {
+        0 => status(
+            "clock_ready mode=ntp state=cold streak_ms=0 exchanges=0 ready_in_ms=0 ready_at_unix_ms=0",
+        ),
+        ready_in => status(&format!(
+            "clock_ready mode=ptp state=probing streak_ms=0 exchanges=1 ready_in_ms={ready_in} ready_at_unix_ms={}",
+            now_ms() + ready_in
+        )),
+    }
     println!(
         "[STATUS] latency lead_ms=2000 device_min_frames=11025 device_max_frames=88200 device_render_ms=0 warm_lead_ms=600"
     );

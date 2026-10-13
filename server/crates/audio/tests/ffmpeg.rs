@@ -109,7 +109,10 @@ fn mp4_tracks_play_gaplessly_through_ffmpeg() {
         realtime: None,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);
-    handle.send(Command::Restart { epoch: 1 });
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before: None,
+    });
     while !matches!(
         handle.events.blocking_recv().map(|t| t.event),
         Some(Event::Idle { .. }) | None

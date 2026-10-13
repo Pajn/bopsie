@@ -400,11 +400,12 @@ async fn the_queue_sheet_edits_around_what_the_player_holds() {
             json!({"queue_id": "phone", "media": [first, second], "option": "replace"}),
         )
         .await;
+    // Playing, with the next item handed over too.
     until(
         &mut client,
         "player_queues/get",
         json!({"queue_id": "phone"}),
-        |q| q["state"] == "playing",
+        |q| q["state"] == "playing" && q["index_in_buffer"] == 1,
     )
     .await;
     client

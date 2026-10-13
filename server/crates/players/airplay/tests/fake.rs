@@ -116,8 +116,15 @@ impl TrackSource for Tracks {
     }
 }
 
-/// Plays `samples` (44.1 kHz stereo) to the fake speaker in a real-time session.
+/// Plays `samples` (44.1 kHz stereo) to the fake speaker in a real-time session, prepared as
+/// playback prepares a session's speakers.
 fn session(fake: &Fake, samples: &[i16]) -> (engine::EngineHandle, Timeline) {
+    session_with(fake, samples, true)
+}
+
+/// As [`session`]; unprepared, the speaker gets ready while the session plays, as one that
+/// joins a playing group does.
+fn session_with(fake: &Fake, samples: &[i16], prepare: bool) -> (engine::EngineHandle, Timeline) {
     let path = fake.dir.path().join(format!("track-{}.wav", samples.len()));
     write_wav(&path, 44_100, 2, samples).unwrap();
     let timeline = Timeline::new(44_100, clock::now());
@@ -142,9 +149,18 @@ fn session(fake: &Fake, samples: &[i16]) -> (engine::EngineHandle, Timeline) {
         }]
         .into(),
     );
+    // As playback does: the speaker gets ready, and playback starts when it can.
+    let not_before = if prepare {
+        fake.endpoint.prepare()
+    } else {
+        None
+    };
     let sinks = vec![("kitchen".to_owned(), fake.endpoint.output(FORMAT, timeline))];
     let handle = engine::spawn(settings, Box::new(source), sinks);
-    handle.send(Command::Restart { epoch: 1 });
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before,
+    });
     (handle, timeline)
 }
 
@@ -289,12 +305,91 @@ fn volume_and_metadata_go_to_a_running_process() {
 }
 
 #[test]
-fn a_late_start_is_counted() {
+fn a_session_starts_when_the_speakers_clock_is_ready() {
+    let fake = fake_with(&[("FAKE_CLIAIRPLAY_CLOCK_READY_MS", "1500")], "0x4");
+    let connected = clock::unix_ms(clock::now());
+    let samples = noise(5, 4_410 * 2);
+    let (mut handle, timeline) = session(&fake, &samples);
+    let events = until_idle(&mut handle);
+    let Event::TrackStarted { at: first, .. } = events[0] else {
+        panic!("{events:?}")
+    };
+    handle.shutdown();
+    let start_ms: u64 = fake
+        .commands()
+        .iter()
+        .find_map(|(_, c)| c.strip_prefix("START_UNIX_MS=")?.parse().ok())
+        .unwrap();
+    assert!(
+        start_ms >= connected + 1_500 + 500,
+        "after the clock is ready"
+    );
+    assert!(
+        start_ms.abs_diff(clock::unix_ms(timeline.instant_of(first))) <= 2,
+        "and from the first frame: nothing is skipped"
+    );
+    assert!(eventually(|| fake.audio() == bytes(&samples)));
+}
+
+#[test]
+fn a_speaker_whose_clock_is_not_ready_joins_the_timeline_later() {
+    let fake = fake_with(&[("FAKE_CLIAIRPLAY_CLOCK_READY_MS", "1500")], "0x4");
+    let samples = noise(5, 44_100 * 4 * 2);
+    let connected = clock::unix_ms(clock::now());
+    let (mut handle, timeline) = session_with(&fake, &samples, false);
+    let events = until_idle(&mut handle);
+    let Event::TrackStarted { at: first, .. } = events[0] else {
+        panic!("{events:?}")
+    };
+    handle.shutdown();
+
+    let start_ms: u64 = fake
+        .commands()
+        .iter()
+        .find_map(|(_, c)| c.strip_prefix("START_UNIX_MS=")?.parse().ok())
+        .expect("a start was commanded");
+    assert!(
+        start_ms >= connected + 1_500 + 500,
+        "after the clock is ready, with a margin: {} ms after connecting",
+        start_ms - connected
+    );
+    // What reached the speaker is the timeline from that instant on, sample for sample: the
+    // audio before it was skipped, not delayed. The fake takes audio at real-time speed, so
+    // compare what it has so far.
+    let all = bytes(&samples);
+    assert!(eventually(|| fake.audio().len() > 44_100 * 4));
+    let audio = fake.audio();
+    let offset = all
+        .windows(64)
+        .position(|window| window == &audio[..64])
+        .expect("the audio comes from the track");
+    assert!(
+        all[offset..].starts_with(&audio),
+        "contiguous from where it joined"
+    );
+    let late_ms = start_ms - clock::unix_ms(timeline.instant_of(first));
+    let expected_frames = late_ms * 441 / 10;
+    assert!(
+        (offset as i64 / 4 - expected_frames as i64).abs() <= 50,
+        "skipped {} frames for a start {late_ms} ms late",
+        offset / 4
+    );
+}
+
+#[test]
+fn a_start_the_speaker_moves_later_is_started_again_in_step() {
     let fake = fake_with(&[("FAKE_CLIAIRPLAY_START_LATE_MS", "300")], "0x4");
-    let (mut handle, _) = session(&fake, &noise(5, 4_410 * 2));
+    let samples = noise(5, 44_100 * 3 * 2);
+    let (mut handle, _) = session(&fake, &samples);
     let _ = until_idle(&mut handle);
     handle.shutdown();
-    assert_eq!(fake.endpoint.supervisor().signals().corrections, 1);
+    assert!(fake.endpoint.supervisor().signals().corrections >= 1);
+    let actions = fake.actions();
+    assert_eq!(
+        &actions[..3],
+        ["ACTION=START", "ACTION=FLUSH", "ACTION=START"],
+        "{actions:?}"
+    );
 }
 
 #[test]

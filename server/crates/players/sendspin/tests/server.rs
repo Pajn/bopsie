@@ -181,7 +181,10 @@ fn play(
         start: Duration::ZERO,
     }));
     let handle = engine::spawn(settings, Box::new(source), sinks);
-    handle.send(Command::Restart { epoch: 1 });
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before: None,
+    });
     handle
 }
 

@@ -6,12 +6,14 @@ use std::sync::{Arc, Mutex, Weak};
 use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
+use bopsie_core::clock;
 use bopsie_players::{DeviceInfo, Endpoint, EndpointState, NowPlaying, Players};
 
 use crate::sink::AirplaySink;
+use crate::sink::CLOCK_PATIENCE;
 use crate::speaker::{Speaker, StreamOptions};
 use crate::status::Status;
-use crate::supervisor::{Launch, Supervisor};
+use crate::supervisor::{ClockStart, Launch, Supervisor};
 
 /// The format `cliairplay` takes on every route: 16-bit stereo at 44.1 kHz.
 pub const FORMAT: OutputFormat = OutputFormat {
@@ -280,5 +282,25 @@ impl Endpoint for AirplayEndpoint {
 
     fn set_group(&self, _playing: bool, _group_id: &str) {
         // AirPlay speakers are not told about each other: each plays its own stream.
+    }
+
+    fn prepare(&self) -> Option<Micros> {
+        if let Err(error) = self.supervisor.ensure_connected() {
+            tracing::warn!(speaker = self.shared.id, %error, "cannot connect");
+            return None;
+        }
+        // Wait a while for the speaker to say when its clock will follow ours.
+        let deadline = std::time::Instant::now() + CLOCK_PATIENCE;
+        loop {
+            match self.supervisor.clock_start() {
+                ClockStart::From(unix_ms) => {
+                    let now_ms = clock::unix_ms(clock::now()) as i64;
+                    return Some(clock::now() + (unix_ms as i64 - now_ms) * 1_000);
+                }
+                ClockStart::NotMeasured => return None,
+                ClockStart::Unknown if std::time::Instant::now() >= deadline => return None,
+                ClockStart::Unknown => std::thread::sleep(std::time::Duration::from_millis(25)),
+            }
+        }
     }
 }

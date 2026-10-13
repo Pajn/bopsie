@@ -351,24 +351,77 @@ impl Playback {
         Ok(())
     }
 
-    /// Runs `f` on the queue `queue_id` plays from, starting its engine first if playback
-    /// may begin, then announces the change.
+    /// Runs `f` on the queue `queue_id` plays from, then announces the change.
     fn update<T>(
         &self,
         queue_id: &str,
-        may_play: bool,
         f: impl FnOnce(&mut Queue, &mut StdRng) -> (T, Effect),
     ) -> Result<T> {
         let leader = self
             .leader_of(queue_id)
             .ok_or_else(|| not_found(queue_id))?;
-        if may_play {
-            self.ensure_engine(&leader)?;
-        }
         let session = self.entry(&leader)?.session;
         let value = session.update(|queue| f(queue, &mut self.inner.rng.lock().unwrap()));
         self.changed(&leader);
         Ok(value)
+    }
+
+    /// Runs `f`, which may start playback, on the queue `queue_id` plays from. The queue
+    /// changes at once; the group's players get ready and playback starts in the background,
+    /// as with Music Assistant, where a play request returns before the music does. Anything
+    /// done to the queue in the meantime, such as a stop, supersedes the start.
+    fn begin(
+        &self,
+        queue_id: &str,
+        f: impl FnOnce(&mut Queue, &mut StdRng) -> ((), Effect),
+    ) -> Result<()> {
+        let leader = self
+            .leader_of(queue_id)
+            .ok_or_else(|| not_found(queue_id))?;
+        if !self.endpoint(&leader)?.state().available {
+            return Err(unavailable());
+        }
+        let session = self.entry(&leader)?.session;
+        let ((), held) = session.update_held(|queue| f(queue, &mut self.inner.rng.lock().unwrap()));
+        self.changed(&leader);
+        let Some(epoch) = held else {
+            return Ok(());
+        };
+        let playback = self.clone();
+        tokio::spawn(async move {
+            let not_before = playback.prepare(&leader).await;
+            match playback.ensure_engine(&leader) {
+                Ok(()) => session.release(epoch, not_before),
+                Err(error) => {
+                    tracing::warn!(queue = leader, %error, "cannot start playback");
+                    session.abandon(epoch);
+                    playback.changed(&leader);
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Gets every player in the group ready, together, and returns when the slowest can
+    /// start, if any needs longer than its lead.
+    async fn prepare(&self, leader: &str) -> Option<bopsie_audio::timeline::Micros> {
+        let endpoints: Vec<Arc<dyn Endpoint>> = self
+            .group_of(leader)
+            .iter()
+            .filter_map(|id| self.endpoint(id).ok())
+            .filter(|endpoint| endpoint.state().available)
+            .collect();
+        let preparing: Vec<_> = endpoints
+            .into_iter()
+            .map(|endpoint| tokio::task::spawn_blocking(move || endpoint.prepare()))
+            .collect();
+        let mut latest = None;
+        for prepared in preparing {
+            if let Ok(Some(at)) = prepared.await {
+                latest = latest.max(Some(at));
+            }
+        }
+        latest
     }
 
     pub fn play_media(
@@ -378,8 +431,7 @@ impl Playback {
         option: QueueOption,
         start_at: Option<usize>,
     ) -> Result<()> {
-        let plays = matches!(option, QueueOption::Play | QueueOption::Replace);
-        self.update(queue_id, plays, |queue, rng| {
+        let enqueue = move |queue: &mut Queue, rng: &mut StdRng| {
             let effect = queue.enqueue(tracks, option, rng);
             match (effect, start_at) {
                 (Effect::PlayFrom(first), Some(offset)) if offset > 0 => {
@@ -387,7 +439,12 @@ impl Playback {
                 }
                 _ => ((), effect),
             }
-        })
+        };
+        if matches!(option, QueueOption::Play | QueueOption::Replace) {
+            self.begin(queue_id, enqueue)
+        } else {
+            self.update(queue_id, enqueue)
+        }
     }
 
     pub fn command(&self, queue_id: &str, command: QueueCommand) -> Result<()> {
@@ -396,20 +453,20 @@ impl Playback {
             .ok_or_else(|| not_found(queue_id))?;
         let session = self.entry(&leader)?.session;
         match command {
-            QueueCommand::Play => self.update(&leader, true, |q, _| ((), q.play()))?,
+            QueueCommand::Play => self.begin(&leader, |q, _| ((), q.play()))?,
             QueueCommand::Pause => session.pause(),
             QueueCommand::PlayPause => {
                 if session.snapshot().state == PlaybackState::Playing {
                     session.pause();
                 } else {
-                    self.update(&leader, true, |q, _| ((), q.play()))?;
+                    self.begin(&leader, |q, _| ((), q.play()))?;
                 }
             }
             QueueCommand::Stop => session.stop(),
-            QueueCommand::Next => self.update(&leader, true, |q, _| ((), q.next_track()))?,
+            QueueCommand::Next => self.begin(&leader, |q, _| ((), q.next_track()))?,
             QueueCommand::Previous => {
                 let elapsed = session.position(clock::now()).as_secs_f64();
-                self.update(&leader, true, |q, _| ((), q.previous_track(elapsed)))?;
+                self.begin(&leader, move |q, _| ((), q.previous_track(elapsed)))?;
             }
             QueueCommand::Seek(seconds) => {
                 session.seek(Duration::from_secs_f64(seconds.max(0.0)));
@@ -419,12 +476,12 @@ impl Playback {
                 session.seek(Duration::from_secs_f64(at.max(0.0)));
             }
             QueueCommand::Shuffle(enabled) => {
-                self.update(&leader, false, |q, rng| ((), q.set_shuffle(enabled, rng)))?;
+                self.update(&leader, |q, rng| ((), q.set_shuffle(enabled, rng)))?;
             }
             QueueCommand::Repeat(mode) => {
-                self.update(&leader, false, |q, _| ((), q.set_repeat(mode)))?;
+                self.update(&leader, |q, _| ((), q.set_repeat(mode)))?;
             }
-            QueueCommand::Clear => self.update(&leader, false, |q, _| ((), q.clear()))?,
+            QueueCommand::Clear => self.update(&leader, |q, _| ((), q.clear()))?,
         }
         self.changed(&leader);
         Ok(())
@@ -442,18 +499,18 @@ impl Playback {
             .filter(|i| *i < queue.items.len())
             .or_else(|| queue.index_of(item))
             .ok_or_else(|| queue_error(QueueError::NotFound(item.to_owned())))?;
-        self.update(&leader, true, |q, _| ((), q.play_index(index)))
+        self.begin(&leader, move |q, _| ((), q.play_index(index)))
     }
 
     pub fn move_item(&self, queue_id: &str, queue_item_id: &str, shift: i64) -> Result<()> {
-        self.update(queue_id, false, |q, _| {
+        self.update(queue_id, |q, _| {
             (q.move_item(queue_item_id, shift), Effect::None)
         })?
         .map_err(queue_error)
     }
 
     pub fn delete_item(&self, queue_id: &str, item: &str) -> Result<()> {
-        self.update(queue_id, false, |q, _| {
+        self.update(queue_id, |q, _| {
             let id = item
                 .parse::<usize>()
                 .ok()
@@ -474,15 +531,20 @@ impl Playback {
         let moved = from.snapshot();
         let position = from.position(clock::now());
         let was_playing = moved.state == PlaybackState::Playing;
-        self.update(source, false, |q, _| ((), q.clear()))?;
-        self.update(target, was_playing, move |q, _| {
+        self.update(source, |q, _| ((), q.clear()))?;
+        let take_over = move |q: &mut Queue, _: &mut StdRng| {
             *q = moved;
             q.state = PlaybackState::Idle;
             q.index_in_buffer = None;
             q.resume_position = position;
             let effect = if was_playing { q.play() } else { Effect::None };
             ((), effect)
-        })
+        };
+        if was_playing {
+            self.begin(target, take_over)
+        } else {
+            self.update(target, take_over)
+        }
     }
 
     /// Adds `player` to the group `target` plays in. The player stops what it was playing.

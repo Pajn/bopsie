@@ -214,3 +214,31 @@ async fn repeat_all_goes_round_until_stopped() {
             .all(|chunk| round.starts_with(chunk))
     );
 }
+
+#[tokio::test]
+async fn a_held_start_plays_when_released_unless_stopped_first() {
+    let f = fixture(&[1_001, 2_002]);
+    let session = f.session();
+    let mut notices = session.notices();
+    let mut rng = StdRng::seed_from_u64(1);
+    session.update(|queue| ((), queue.enqueue(f.tracks(), QueueOption::Add, &mut rng)));
+
+    // Stopped while its players got ready: the start comes to nothing.
+    let ((), held) = session.update_held(|queue| ((), queue.play_index(0)));
+    let stale = held.expect("a start is held");
+    session.stop();
+    session.release(stale, None);
+
+    let ((), held) = session.update_held(|queue| ((), queue.play_index(1)));
+    session.release(held.expect("a start is held"), None);
+
+    let seen = until_finished(&mut notices).await;
+    assert_eq!(
+        seen.into_iter()
+            .filter(|n| *n != Notice::Stopped)
+            .collect::<Vec<_>>(),
+        [Notice::Started(1), Notice::Finished]
+    );
+    session.shutdown();
+    assert!(f.played() == f.expected(&[1]));
+}

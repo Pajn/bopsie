@@ -61,7 +61,10 @@ fn play(dir: &Path, tracks: Vec<TrackRequest>, bits: &[u16]) -> (Vec<Event>, Vec
         realtime: None,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);
-    handle.send(Command::Restart { epoch: 1 });
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before: None,
+    });
     let mut events = Vec::new();
     loop {
         let event = handle
@@ -221,7 +224,10 @@ fn stopping_and_restarting() {
     };
     let source = Tracks(vec![request("a", &dir.path().join("a.wav")); 1].into());
     let mut handle = engine::spawn(settings, Box::new(source), Vec::new());
-    handle.send(Command::Restart { epoch: 1 });
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before: None,
+    });
     // With nothing left the engine idles and waits for commands.
     loop {
         if let Event::Idle { .. } = handle.events.blocking_recv().unwrap().event {
@@ -232,7 +238,10 @@ fn stopping_and_restarting() {
     let stopped = handle.events.blocking_recv().unwrap();
     assert_eq!(stopped.epoch, 2, "events carry the epoch of the last stop");
     assert!(matches!(stopped.event, Event::Idle { .. }));
-    handle.send(Command::Restart { epoch: 3 });
+    handle.send(Command::Restart {
+        epoch: 3,
+        not_before: None,
+    });
     // The source is empty, so a restart idles again at once.
     let restarted = handle.events.blocking_recv().unwrap();
     assert_eq!(restarted.epoch, 3);
@@ -310,7 +319,10 @@ mod realtime {
         let (sink, writes) = recorder(Duration::ZERO);
         let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
         let mut handle = engine::spawn(settings(), Box::new(source), vec![("a".to_owned(), sink)]);
-        handle.send(Command::Restart { epoch: 1 });
+        handle.send(Command::Restart {
+            epoch: 1,
+            not_before: None,
+        });
 
         let due = Timeline::new(44_100, 0).frame_at(clock() + LEAD);
         let started = handle.events.blocking_recv().unwrap().event;
@@ -353,7 +365,10 @@ mod realtime {
             Box::new(source),
             vec![("first".to_owned(), first)],
         );
-        handle.send(Command::Restart { epoch: 1 });
+        handle.send(Command::Restart {
+            epoch: 1,
+            not_before: None,
+        });
         assert!(matches!(
             handle.events.blocking_recv().unwrap().event,
             Event::TrackStarted { .. }

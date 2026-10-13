@@ -166,18 +166,50 @@ impl QueueSession {
 
     /// Runs `f` on the queue and carries out what it asks of the player.
     pub fn update<T>(&self, f: impl FnOnce(&mut Queue) -> (T, Effect)) -> T {
-        let (value, effect) = {
-            let mut queue = self.queue.lock().unwrap();
-            let (value, effect) = f(&mut queue);
-            match effect {
-                Effect::PlayFrom(_) => queue.state = PlaybackState::Playing,
-                Effect::Stop => queue.stopped(),
-                Effect::Pause | Effect::None | Effect::NextChanged => {}
-            }
-            (value, effect)
-        };
+        let (value, effect) = self.change(f);
         self.apply(effect);
         value
+    }
+
+    /// Runs `f` on the queue like [`QueueSession::update`], but holds back a start it asks
+    /// for until [`QueueSession::release`], so that the outputs can get ready first. Returns
+    /// the held start's epoch.
+    pub fn update_held<T>(&self, f: impl FnOnce(&mut Queue) -> (T, Effect)) -> (T, Option<u64>) {
+        let (value, effect) = self.change(f);
+        if let Effect::PlayFrom(_) = effect {
+            return (value, Some(self.next_epoch()));
+        }
+        self.apply(effect);
+        (value, None)
+    }
+
+    /// Starts playback held back by [`QueueSession::update_held`], no earlier than
+    /// `not_before`, unless something else has happened since.
+    pub fn release(&self, epoch: u64, not_before: Option<Micros>) {
+        // Held while sending, so that a stop cannot come between the check and the start.
+        let current = self.epoch.lock().unwrap();
+        if *current == epoch {
+            self.send(Command::Restart { epoch, not_before });
+        }
+    }
+
+    /// Gives up a start held back by [`QueueSession::update_held`], unless something else has
+    /// happened since.
+    pub fn abandon(&self, epoch: u64) {
+        if *self.epoch.lock().unwrap() == epoch {
+            self.stop();
+        }
+    }
+
+    fn change<T>(&self, f: impl FnOnce(&mut Queue) -> (T, Effect)) -> (T, Effect) {
+        let mut queue = self.queue.lock().unwrap();
+        let (value, effect) = f(&mut queue);
+        match effect {
+            Effect::PlayFrom(_) => queue.state = PlaybackState::Playing,
+            Effect::Stop => queue.stopped(),
+            Effect::Pause | Effect::None | Effect::NextChanged => {}
+        }
+        (value, effect)
     }
 
     fn next_epoch(&self) -> u64 {
@@ -191,7 +223,10 @@ impl QueueSession {
             Effect::None => {}
             Effect::PlayFrom(_) => {
                 let epoch = self.next_epoch();
-                self.send(Command::Restart { epoch });
+                self.send(Command::Restart {
+                    epoch,
+                    not_before: None,
+                });
             }
             Effect::NextChanged => self.send(Command::NextChanged),
             Effect::Stop | Effect::Pause => {

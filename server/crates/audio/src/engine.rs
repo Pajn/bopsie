@@ -49,8 +49,12 @@ pub enum Command {
     /// Moves within the current track.
     Seek(Duration),
     /// Abandons the current and prepared tracks and asks the source again, as after the
-    /// listener picks another track. Events from then on carry `epoch`.
-    Restart { epoch: u64 },
+    /// listener picks another track. Events from then on carry `epoch`. Playback starts no
+    /// earlier than `not_before`, when the outputs need longer than the lead to be ready.
+    Restart {
+        epoch: u64,
+        not_before: Option<Micros>,
+    },
     /// Forgets the prepared next track, because what follows the current one changed.
     NextChanged,
     /// Stops playing. A later `Restart` resumes from the source. Events from then on carry
@@ -212,6 +216,8 @@ struct Engine {
     idle: bool,
     /// The next track follows on from the last without a break.
     continuous: bool,
+    /// The earliest playback may start after a restart.
+    not_before: Option<Micros>,
 }
 
 impl Engine {
@@ -234,6 +240,7 @@ impl Engine {
             prepared: None,
             idle: true,
             continuous: false,
+            not_before: None,
         };
         for (key, sink) in sinks {
             engine.add_sink(key, sink);
@@ -287,8 +294,9 @@ impl Engine {
     fn handle(&mut self, command: Command) -> bool {
         match command {
             Command::Seek(position) => self.seek(position),
-            Command::Restart { epoch } => {
+            Command::Restart { epoch, not_before } => {
                 self.epoch = epoch;
+                self.not_before = not_before;
                 self.current = None;
                 self.prepared = None;
                 self.idle = false;
@@ -357,12 +365,13 @@ impl Engine {
         }
     }
 
-    /// Moves the write head to one lead from now, if it is behind that.
+    /// Moves the write head to one lead from now, or to when the outputs are ready if later,
+    /// if it is behind that.
     fn anchor(&mut self) {
         if let Some(realtime) = self.settings.realtime {
-            let due = realtime
-                .timeline
-                .frame_at((realtime.clock)() + realtime.lead);
+            let earliest =
+                ((realtime.clock)() + realtime.lead).max(self.not_before.take().unwrap_or(0));
+            let due = realtime.timeline.frame_at(earliest);
             self.head = self.head.max(due);
         }
     }

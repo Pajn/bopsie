@@ -68,6 +68,12 @@ pub trait Endpoint: Send + Sync {
     fn set_now_playing(&self, now_playing: Option<&NowPlaying>);
     /// Whether the group the endpoint is in is playing, and which group that is.
     fn set_group(&self, playing: bool, group_id: &str);
+    /// Gets ready to play, and says when it can start, on the server's clock, if that needs
+    /// longer than its lead: a speaker that has to connect, or whose clock has yet to follow
+    /// ours. May block for seconds.
+    fn prepare(&self) -> Option<Micros> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
