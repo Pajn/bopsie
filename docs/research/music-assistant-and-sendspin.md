@@ -167,7 +167,7 @@ Tokens are JWTs (HS256, `sub` = user_id, `jti` = token_id); the server's databas
 
 ### 1.4 Artwork (imageproxy)
 
-`MediaItemImage` ([`media_items/metadata.py`](https://github.com/music-assistant/models/blob/1.1.205/music_assistant_models/media_items/metadata.py)) has `type`, `path`, `provider`, `remotely_accessible`, and — when serialized by the server — `proxy_id` (64 lowercase hex chars, `sha256(provider+path)`). Images live in `item.metadata.images[]` (and `QueueItem.image`).
+`MediaItemImage` ([`media_items/metadata.py`](https://github.com/music-assistant/models/blob/1.1.205/music_assistant_models/media_items/metadata.py)) has `type`, `path`, `provider`, `remotely_accessible`, and — when serialized by the server — `proxy_id` (64 lowercase hex chars, `sha256(f"{provider}/{path}")`, `create_thumb_hash` in [`helpers/images.py`](https://github.com/music-assistant/server/blob/2.10.6/music_assistant/helpers/images.py)). Images live in `item.metadata.images[]` (and `QueueItem.image`).
 
 Current form (2.10.x, [`controllers/metadata/images.py`](https://github.com/music-assistant/server/blob/2.10.6/music_assistant/controllers/metadata/images.py)):
 

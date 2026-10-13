@@ -1,0 +1,13 @@
+[package]
+name = "bopsie-fixtures"
+description = "Writes the small music library the tests and the Bopsie integration suites use."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+image.workspace = true
+lofty.workspace = true
+
+[lints]
+workspace = true
