@@ -1,5 +1,13 @@
 import { type Player, player } from '@/api/schemas/player';
-import { addPending, applyPending, dropPending, PENDING_MS, settlePending } from './pending';
+import {
+  addPending,
+  applyPending,
+  dropPending,
+  joiningOrLeaving,
+  MEMBERSHIP_PENDING_MS,
+  PENDING_MS,
+  settlePending,
+} from './pending';
 
 const make = (id: string, fields: Record<string, unknown> = {}): Player =>
   player.parse({ player_id: id, provider: 'sendspin', name: id, available: true, ...fields });
@@ -62,5 +70,33 @@ describe('pending changes', () => {
     const shown = applyPending(players, pending);
     expect(shown[0]?.group_members).toEqual(['kitchen', 'den']);
     expect(shown[1]?.synced_to).toBeNull();
+  });
+
+  it('waits longer for a slow change when asked', () => {
+    const pending = addPending(
+      server,
+      [],
+      { kitchen: { synced_to: 'living' } },
+      0,
+      MEMBERSHIP_PENDING_MS,
+    );
+    expect(settlePending(server, pending, PENDING_MS)).toBe(pending);
+    expect(settlePending(server, pending, MEMBERSHIP_PENDING_MS)).toEqual([]);
+  });
+
+  it('names the players joining or leaving a group, not those changing volume', () => {
+    const pending = addPending(
+      server,
+      [],
+      { kitchen: { synced_to: 'living' }, living: { volume_level: 5, group_members: ['living'] } },
+      0,
+    );
+    expect([...joiningOrLeaving(pending)]).toEqual(['kitchen']);
+  });
+
+  it('waits for nothing when the player already has the value', () => {
+    expect(addPending(server, [], { kitchen: { synced_to: null, volume_level: 40 } }, 0)).toEqual(
+      [],
+    );
   });
 });

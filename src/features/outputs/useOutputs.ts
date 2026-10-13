@@ -14,7 +14,7 @@ import { queryKeys } from '@/connection/queryKeys';
 import { describeError } from '@/lib/errors';
 import { useActiveGroup } from './ActiveGroupProvider';
 import { describeOutputs, type Member, type Outputs } from './outputs';
-import type { PlayerChanges } from './pending';
+import { MEMBERSHIP_PENDING_MS, type PlayerChanges } from './pending';
 import { predictGroupVolume, predictJoin, predictLeave, predictVolume } from './predict';
 
 /** The active group and every other player, as the output sheet shows them. */
@@ -43,8 +43,8 @@ export function useOutputActions() {
 
   return useMemo(() => {
     /** Sends a command whose predicted changes are `changes`. */
-    const send = (changes: PlayerChanges, work: Promise<void>) => {
-      predict(changes);
+    const send = (changes: PlayerChanges, work: Promise<void>, waitMs?: number) => {
+      predict(changes, waitMs);
       work.catch((error) => {
         forget(Object.keys(changes));
         report(error);
@@ -86,7 +86,11 @@ export function useOutputActions() {
       /** Adds a lone player to the active group. */
       join: (playerId: string) => {
         if (!activeId || !players) return;
-        send(predictJoin(players, playerId, activeId), joinGroup(connection, playerId, activeId));
+        send(
+          predictJoin(players, playerId, activeId),
+          joinGroup(connection, playerId, activeId),
+          MEMBERSHIP_PENDING_MS,
+        );
       },
 
       /** Takes a member out of the active group. Control stays with the music. */
@@ -98,6 +102,7 @@ export function useOutputActions() {
         send(
           predictLeave(players, member.id, activeId, next?.id),
           leaveGroup(connection, member.id),
+          MEMBERSHIP_PENDING_MS,
         );
       },
 

@@ -3,6 +3,12 @@ import type { Player } from '@/api/schemas/player';
 /** How long a change may go unconfirmed before the server's state wins. */
 export const PENDING_MS = 5000;
 
+/** Joining and leaving a group can take players a while. */
+export const MEMBERSHIP_PENDING_MS = 10_000;
+
+/** Fields that say which group a player is in. */
+const MEMBERSHIP_FIELDS: ReadonlySet<keyof Player> = new Set(['synced_to', 'active_group']);
+
 /** Fields the app predicts, and the values it predicts for them. */
 export type PlayerChanges = Record<string, Partial<Player>>;
 
@@ -19,17 +25,20 @@ export interface Pending {
   until: number;
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** Equal values; a field the server leaves out counts as null. */
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 /**
  * Adds predicted changes. A new prediction for a field replaces the one
- * before it, which joins the values that count as stale.
+ * before it, which joins the values that count as stale. Values a player
+ * already has are not predicted.
  */
 export function addPending(
   players: Player[],
   pending: Pending[],
   changes: PlayerChanges,
   now: number,
+  waitMs: number = PENDING_MS,
 ): Pending[] {
   let next = pending;
   for (const [playerId, fields] of Object.entries(changes)) {
@@ -38,10 +47,12 @@ export function addPending(
     for (const [field, value] of Object.entries(fields)) {
       const key = field as keyof Player;
       const earlier = next.find((p) => p.playerId === playerId && p.field === key);
+      // Nothing to wait for when the player already has the value.
+      if (!earlier && same(player[key], value)) continue;
       const stale = earlier ? [...earlier.stale, earlier.value] : [player[key]];
       next = [
         ...next.filter((p) => p !== earlier),
-        { playerId, field: key, value, stale, until: now + PENDING_MS },
+        { playerId, field: key, value, stale, until: now + waitMs },
       ];
     }
   }
@@ -67,6 +78,11 @@ export function settlePending(players: Player[], pending: Pending[], now: number
     return !same(reported, p.value) && p.stale.some((value) => same(value, reported));
   });
   return kept.length === pending.length ? pending : kept;
+}
+
+/** Players whose move into or out of a group the server has not confirmed. */
+export function joiningOrLeaving(pending: Pending[]): ReadonlySet<string> {
+  return new Set(pending.filter((p) => MEMBERSHIP_FIELDS.has(p.field)).map((p) => p.playerId));
 }
 
 /** The players as they will be once the pending changes land. */

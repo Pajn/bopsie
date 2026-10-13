@@ -19,6 +19,7 @@ import {
   addPending,
   applyPending,
   dropPending,
+  joiningOrLeaving,
   type Pending,
   type PlayerChanges,
   settlePending,
@@ -31,8 +32,10 @@ interface ActiveGroupValue {
   activeId: string | null;
   /** Makes the group `playerId` belongs to the one the app controls. */
   choose: (playerId: string) => void;
-  /** Shows changes the app has asked for until the server confirms them. */
-  predict: (changes: PlayerChanges) => void;
+  /** Players whose move into or out of a group the server has not confirmed. */
+  unconfirmed: ReadonlySet<string>;
+  /** Shows changes the app has asked for until the server confirms them, or `waitMs` passes. */
+  predict: (changes: PlayerChanges, waitMs?: number) => void;
   /** Withdraws predictions for these players, as when the server refused a command. */
   forget: (playerIds: string[]) => void;
 }
@@ -83,9 +86,9 @@ export function ActiveGroupProvider({ children }: { children: ReactNode }) {
     },
     [account.id],
   );
-  const predict = useCallback((changes: PlayerChanges) => {
+  const predict = useCallback((changes: PlayerChanges, waitMs?: number) => {
     const players = latest.current;
-    if (players) setPending((current) => addPending(players, current, changes, Date.now()));
+    if (players) setPending((current) => addPending(players, current, changes, Date.now(), waitMs));
   }, []);
   const forget = useCallback(
     (playerIds: string[]) => setPending((current) => dropPending(current, playerIds)),
@@ -93,10 +96,11 @@ export function ActiveGroupProvider({ children }: { children: ReactNode }) {
   );
 
   const players = useMemo(() => server && applyPending(server, pending), [server, pending]);
+  const unconfirmed = useMemo(() => joiningOrLeaving(pending), [pending]);
   const activeId = activeLeaderId(players, chosenId, phoneId);
   const value = useMemo(
-    () => ({ players, activeId, choose, predict, forget }),
-    [players, activeId, choose, predict, forget],
+    () => ({ players, activeId, choose, unconfirmed, predict, forget }),
+    [players, activeId, choose, unconfirmed, predict, forget],
   );
   return <ActiveGroupContext.Provider value={value}>{children}</ActiveGroupContext.Provider>;
 }

@@ -9,6 +9,7 @@ import { nowPlaying } from '@/features/player/nowPlaying';
 import { useQueue } from '@/features/player/usePlayback';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
+import { useActiveGroup } from './ActiveGroupProvider';
 import type { ActiveGroup, OtherOutput } from './outputs';
 import { useOutputActions, useOutputs } from './useOutputs';
 
@@ -114,6 +115,7 @@ function ActiveCard({
   artwork: WithImages | null;
 }) {
   const actions = useOutputActions();
+  const { unconfirmed } = useActiveGroup();
   const grouped = active.members.length > 1;
   return (
     <View style={styles.card}>
@@ -160,7 +162,11 @@ function ActiveCard({
               <View style={styles.end} />
             );
             return (
-              <View key={member.id}>
+              <View
+                key={member.id}
+                style={unconfirmed.has(member.id) && styles.unconfirmed}
+                testID={`member-${member.id}`}
+              >
                 <View style={styles.memberName}>
                   <Text variant="label" style={styles.grow} numberOfLines={1}>
                     {member.name}
@@ -251,10 +257,11 @@ function OtherRow({
   onChosen: () => void;
 }) {
   const actions = useOutputActions();
+  const { unconfirmed } = useActiveGroup();
   const icon: IconName = other.isPhone ? 'smartphone' : 'speaker';
   const what = other.isGroup ? 'group' : 'player';
   return (
-    <View>
+    <View style={unconfirmed.has(other.id) && styles.unconfirmed}>
       <Pressable
         onPress={onToggle}
         disabled={!other.available}
@@ -395,6 +402,8 @@ const styles = StyleSheet.create((theme) => ({
     justifyContent: 'center',
   },
   unavailable: { opacity: 0.45 },
+  // Joining or leaving the group, until the server confirms it.
+  unconfirmed: { opacity: 0.6 },
   actions: {
     backgroundColor: theme.colors.surfaceVariant,
     borderRadius: theme.radius.md,
