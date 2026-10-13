@@ -4,3 +4,6 @@
 # nix / direnv
 .direnv/
 result
+
+# rust
+/server/target/

@@ -1,0 +1,9 @@
+[package]
+name = "bopsie-core"
+description = "Ids, media and player models, events, errors, the timeline, config loading and the event bus."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

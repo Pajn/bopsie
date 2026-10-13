@@ -1,0 +1,12 @@
+[package]
+name = "bopsie-players-sendspin"
+description = "The Sendspin PlayerProvider: the server role of the Sendspin protocol."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+bopsie-players.workspace = true
+
+[lints]
+workspace = true

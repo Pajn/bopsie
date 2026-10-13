@@ -1,5 +1,5 @@
 {
-  description = "Bopsie development shell (Node, pnpm, JDK, Android SDK)";
+  description = "Bopsie development shell (Node, pnpm, JDK, Android SDK, Rust)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
@@ -70,6 +70,11 @@
                 pkgs.nodejs_24
                 pkgs.pnpm
                 pkgs.watchman
+                pkgs.cargo
+                pkgs.rustc
+                pkgs.clippy
+                pkgs.rustfmt
+                pkgs.rust-analyzer
               ];
 
               JAVA_HOME = jdk.home;

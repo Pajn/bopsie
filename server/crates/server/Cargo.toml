@@ -1,0 +1,20 @@
+[package]
+name = "bopsie-server"
+description = "The Bopsie music server."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+bopsie-core.workspace = true
+bopsie-audio.workspace = true
+bopsie-library.workspace = true
+bopsie-providers-filesystem.workspace = true
+bopsie-players.workspace = true
+bopsie-players-airplay.workspace = true
+bopsie-players-sendspin.workspace = true
+bopsie-queues.workspace = true
+bopsie-api.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "bopsie-players"
+description = "PlayerProvider and Output traits, the device registry, linking, quirks, the group planner and health."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+bopsie-core.workspace = true
+bopsie-audio.workspace = true
+
+[lints]
+workspace = true

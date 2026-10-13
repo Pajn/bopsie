@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/core",
+    "crates/audio",
+    "crates/library",
+    "crates/providers/filesystem",
+    "crates/players",
+    "crates/players/airplay",
+    "crates/players/sendspin",
+    "crates/queues",
+    "crates/api",
+    "crates/server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+bopsie-core = { path = "crates/core" }
+bopsie-audio = { path = "crates/audio" }
+bopsie-library = { path = "crates/library" }
+bopsie-providers-filesystem = { path = "crates/providers/filesystem" }
+bopsie-players = { path = "crates/players" }
+bopsie-players-airplay = { path = "crates/players/airplay" }
+bopsie-players-sendspin = { path = "crates/players/sendspin" }
+bopsie-queues = { path = "crates/queues" }
+bopsie-api = { path = "crates/api" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
