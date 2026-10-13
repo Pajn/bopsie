@@ -157,8 +157,9 @@ impl Registry {
         (entry.handler)(ctx, args).await
     }
 
-    pub fn contains(&self, command: &str) -> bool {
-        self.entries.contains_key(command)
+    /// Who may run `command`, if it exists.
+    pub fn access(&self, command: &str) -> Option<Access> {
+        self.entries.get(command).map(|entry| entry.access)
     }
 
     /// Every command, sorted by name.

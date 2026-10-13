@@ -3,6 +3,12 @@
 
 pub mod auth;
 pub mod command;
+pub mod commands;
+mod http;
+pub mod info;
+mod ws;
+
+pub use http::router;
 
 use std::sync::Arc;
 
