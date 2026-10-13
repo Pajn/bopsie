@@ -25,7 +25,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm check:icons
       - run: pnpm typecheck
-      - run: pnpm test -- --ci
+      - run: pnpm test --ci
 
   mobile-integration:
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
           cache-dependency-path: mobile/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm ma:start
-      - run: eval "$(scripts/ma-server.sh env)" && pnpm test:integration -- --ci
+      - run: eval "$(scripts/ma-server.sh env)" && pnpm test:integration --ci
       - if: always()
         run: pnpm ma:stop
 

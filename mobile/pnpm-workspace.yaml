@@ -1,4 +1,8 @@
-# pnpm 12 reads its settings from here rather than package.json.
+# pnpm 12 reads its settings from here rather than package.json or .npmrc.
+
+# A flat, npm-style node_modules.
+nodeLinker: hoisted
+
 # Build scripts are opt-in; unlisted packages fail the install.
 allowBuilds:
   '@biomejs/biome': true
