@@ -40,6 +40,8 @@ hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
 lofty = "0.25"
+mdns-sd = "0.21"
+nix = { version = "0.31", features = ["fs", "signal"] }
 rand = "0.10"
 rubato = "5.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
