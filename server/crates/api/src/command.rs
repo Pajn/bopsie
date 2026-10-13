@@ -49,6 +49,9 @@ pub trait Command: 'static {
     const ACCESS: Access;
     /// One line for the API docs.
     const SUMMARY: &'static str;
+    /// Whether a list result is streamed to `/ws` clients in batches, as Music Assistant does
+    /// for its async generator commands.
+    const PARTIAL: bool = false;
     /// The arguments, with Music Assistant's field names. Field doc comments become parameter
     /// descriptions in the API docs.
     type Args: DeserializeOwned + JsonSchema + Send;
@@ -75,6 +78,7 @@ type Handler = Box<dyn Fn(Context, Value) -> BoxFuture<'static, Result<Value>> +
 
 struct Entry {
     access: Access,
+    partial: bool,
     handler: Handler,
     doc: CommandDoc,
 }
@@ -129,6 +133,7 @@ impl Registry {
             C::NAME,
             Entry {
                 access: C::ACCESS,
+                partial: C::PARTIAL,
                 handler,
                 doc: describe::<C>(),
             },
@@ -160,6 +165,11 @@ impl Registry {
     /// Who may run `command`, if it exists.
     pub fn access(&self, command: &str) -> Option<Access> {
         self.entries.get(command).map(|entry| entry.access)
+    }
+
+    /// Whether `command` streams its result in batches.
+    pub fn partial(&self, command: &str) -> bool {
+        self.entries.get(command).is_some_and(|entry| entry.partial)
     }
 
     /// Every command, sorted by name.

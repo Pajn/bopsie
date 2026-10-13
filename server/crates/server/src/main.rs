@@ -3,11 +3,16 @@
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bopsie_api::{Api, commands, router};
 use bopsie_core::config::Config;
 use bopsie_core::db::Database;
+use bopsie_core::events::EventBus;
+use bopsie_library::Library;
+use bopsie_library::provider::MusicProvider;
+use bopsie_providers_filesystem::FilesystemProvider;
 use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -43,11 +48,37 @@ async fn main() -> ExitCode {
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load(args.config.as_deref())?;
     std::fs::create_dir_all(&config.storage.data_dir)?;
-    let db = Database::open(
-        &config.storage.data_dir.join("bopsie.db"),
-        bopsie_api::MIGRATIONS,
-    )?;
-    let api = Api::new(db, config.server.clone(), commands::registry()).await?;
+    let migrations = [bopsie_api::MIGRATIONS, &[bopsie_library::MIGRATIONS]].concat();
+    let db = Database::open(&config.storage.data_dir.join("bopsie.db"), &migrations)?;
+    let events = EventBus::default();
+
+    let providers: Vec<Arc<dyn MusicProvider>> = config
+        .library
+        .folders
+        .iter()
+        .map(|folder| Arc::new(FilesystemProvider::new(folder.clone())) as Arc<dyn MusicProvider>)
+        .collect();
+    let library = Library::new(
+        db.clone(),
+        events.clone(),
+        providers,
+        config.storage.data_dir.join("artwork"),
+    );
+    let api = Api::new(
+        db,
+        config.server.clone(),
+        library.clone(),
+        events,
+        commands::registry(),
+    )
+    .await?;
+
+    // The API serves the library as it was while the scan catches up.
+    tokio::spawn(async move {
+        if let Err(error) = library.sync().await {
+            tracing::error!(%error, "library sync failed");
+        }
+    });
 
     let listener = TcpListener::bind(config.server.bind).await?;
     tracing::info!(address = %listener.local_addr()?, "listening");

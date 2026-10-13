@@ -183,8 +183,26 @@ pub struct Album {
     #[serde(flatten)]
     pub fields: ItemFields,
     pub year: Option<i32>,
-    pub artists: Vec<ItemMapping>,
+    pub artists: Vec<ArtistRef>,
     pub album_type: &'static str,
+}
+
+/// How an album names its artists: in full when the album is fetched on its own, as
+/// references in lists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum ArtistRef {
+    Full(Box<Artist>),
+    Mapping(Box<ItemMapping>),
+}
+
+impl ArtistRef {
+    pub fn name(&self) -> &str {
+        match self {
+            ArtistRef::Full(artist) => &artist.fields.name,
+            ArtistRef::Mapping(mapping) => &mapping.name,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

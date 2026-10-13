@@ -12,3 +12,7 @@ name = "Bopsie"
 [storage]
 # Where the database lives, relative to the working directory unless absolute.
 data_dir = "data"
+
+[library]
+# Folders of music to scan, at startup and on request.
+folders = []

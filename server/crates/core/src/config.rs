@@ -11,6 +11,7 @@ use serde::Deserialize;
 pub struct Config {
     pub server: ServerConfig,
     pub storage: StorageConfig,
+    pub library: LibraryConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -30,6 +31,13 @@ pub struct ServerConfig {
 pub struct StorageConfig {
     /// Where the database lives. Relative paths are relative to the working directory.
     pub data_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LibraryConfig {
+    /// Folders of music to scan. Each is a filesystem provider of its own.
+    pub folders: Vec<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -105,12 +113,22 @@ mod tests {
         );
         assert_eq!(config.server.name, "Bopsie");
         assert_eq!(config.storage, StorageConfig::default());
+        assert!(config.library.folders.is_empty());
     }
 
     #[test]
     fn the_example_config_is_the_defaults() {
         let example = include_str!("../../../config.example.toml");
         assert_eq!(Config::parse(example).unwrap(), Config::default());
+    }
+
+    #[test]
+    fn library_folders() {
+        let config = Config::parse("[library]\nfolders = [\"/music\", \"/more\"]\n").unwrap();
+        assert_eq!(
+            config.library.folders,
+            [PathBuf::from("/music"), PathBuf::from("/more")]
+        );
     }
 
     #[test]

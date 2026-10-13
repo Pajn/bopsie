@@ -2,8 +2,8 @@
 //! the database thread.
 
 use bopsie_core::media::{
-    Album, Artist, AudioFormat, Image, ItemFields, ItemMapping, LIBRARY, MediaItem, MediaType,
-    Metadata, Playlist, ProviderMapping, Track, library_uri,
+    Album, Artist, ArtistRef, AudioFormat, Image, ItemFields, ItemMapping, LIBRARY, MediaItem,
+    MediaType, Metadata, Playlist, ProviderMapping, Track, library_uri,
 };
 use rusqlite::{Connection, OptionalExtension, Result, params};
 use time::OffsetDateTime;
@@ -115,7 +115,7 @@ fn items(conn: &Connection, media_type: MediaType, ids: &[i64]) -> Result<Vec<Me
 pub fn item(conn: &Connection, media_type: MediaType, id: i64) -> Result<Option<MediaItem>> {
     Ok(match media_type {
         MediaType::Artist => artist(conn, id)?.map(|item| MediaItem::Artist(Box::new(item))),
-        MediaType::Album => album(conn, id)?.map(|item| MediaItem::Album(Box::new(item))),
+        MediaType::Album => album_in_full(conn, id)?.map(|item| MediaItem::Album(Box::new(item))),
         MediaType::Track => track(conn, id)?.map(|item| MediaItem::Track(Box::new(item))),
         MediaType::Playlist => playlist(conn, id)?.map(|item| MediaItem::Playlist(Box::new(item))),
     })
@@ -333,9 +333,38 @@ pub fn album(conn: &Connection, id: i64) -> Result<Option<Album>> {
     Ok(Some(Album {
         fields: fields(conn, MediaType::Album, id, common, image)?,
         year,
-        artists: credited_artists(conn, "album_artists", "album_id", id)?,
+        artists: credited_artists(conn, "album_artists", "album_id", id)?
+            .into_iter()
+            .map(|mapping| ArtistRef::Mapping(Box::new(mapping)))
+            .collect(),
         album_type: "unknown",
     }))
+}
+
+/// An album with its artists in full, as an album fetched on its own is.
+pub fn album_in_full(conn: &Connection, id: i64) -> Result<Option<Album>> {
+    let Some(mut album) = album(conn, id)? else {
+        return Ok(None);
+    };
+    let mut artists = Vec::with_capacity(album.artists.len());
+    for credited in album.artists {
+        let ArtistRef::Mapping(mapping) = &credited else {
+            artists.push(credited);
+            continue;
+        };
+        match mapping
+            .item_id
+            .parse()
+            .ok()
+            .map(|id| artist(conn, id))
+            .transpose()?
+        {
+            Some(Some(full)) => artists.push(ArtistRef::Full(Box::new(full))),
+            _ => artists.push(credited),
+        }
+    }
+    album.artists = artists;
+    Ok(Some(album))
 }
 
 fn album_mapping(conn: &Connection, id: i64) -> Result<Option<ItemMapping>> {

@@ -1,0 +1,125 @@
+{
+    "artists": [],
+    "albums": [],
+    "genres": [],
+    "tracks": [
+        {
+            "item_id": "5",
+            "provider": "library",
+            "name": "Gamma",
+            "version": "",
+            "sort_name": "gamma",
+            "uri": "library://track/5",
+            "external_ids": [],
+            "is_playable": true,
+            "media_type": "track",
+            "provider_mappings": [
+                {
+                    "item_id": "Other Artist/Second Album/03 - Gamma.flac",
+                    "provider_domain": "filesystem_local",
+                    "provider_instance": "filesystem_local--v9jzS3CL",
+                    "available": true,
+                    "in_library": true,
+                    "is_unique": null,
+                    "audio_format": {
+                        "content_type": "flac",
+                        "codec_type": "flac",
+                        "sample_rate": 44100,
+                        "bit_depth": 16,
+                        "channels": 2,
+                        "output_format_str": "flac",
+                        "bit_rate": 102
+                    },
+                    "url": null,
+                    "details": "1791916985"
+                }
+            ],
+            "metadata": {
+                "description": null,
+                "description_language": null,
+                "life_span": null,
+                "artist_entity_type": null,
+                "review": null,
+                "explicit": null,
+                "images": [
+                    {
+                        "type": "thumb",
+                        "path": "Other Artist/Second Album/cover.jpg",
+                        "provider": "filesystem_local--v9jzS3CL",
+                        "remotely_accessible": false,
+                        "proxy_id": "c45b71308ff338d02c497cc472bc848e7484e3da1f6c02fd51a4c21dc24fbe9a"
+                    }
+                ],
+                "grouping": null,
+                "genres": [],
+                "mood": null,
+                "style": null,
+                "copyright": null,
+                "lyrics": null,
+                "lrc_lyrics": null,
+                "transcript": null,
+                "transcript_cues": null,
+                "has_transcript": null,
+                "label": null,
+                "links": null,
+                "performers": null,
+                "preview": null,
+                "popularity": null,
+                "release_date": null,
+                "languages": null,
+                "chapters": null,
+                "collections": null,
+                "last_refresh": null
+            },
+            "favorite": false,
+            "position": null,
+            "date_added": "2026-10-13T18:43:05+00:00",
+            "duration": 30,
+            "artists": [
+                {
+                    "item_id": "2",
+                    "provider": "library",
+                    "name": "Other Artist",
+                    "version": "",
+                    "sort_name": "other artist",
+                    "uri": "library://artist/2",
+                    "external_ids": [],
+                    "is_playable": true,
+                    "media_type": "artist",
+                    "available": true,
+                    "image": null,
+                    "year": null
+                }
+            ],
+            "last_played": 0,
+            "album": {
+                "item_id": "2",
+                "provider": "library",
+                "name": "Second Album",
+                "version": "",
+                "sort_name": "second album",
+                "uri": "library://album/2",
+                "external_ids": [],
+                "is_playable": true,
+                "media_type": "album",
+                "available": true,
+                "image": {
+                    "type": "thumb",
+                    "path": "Other Artist/Second Album/cover.jpg",
+                    "provider": "filesystem_local--v9jzS3CL",
+                    "remotely_accessible": false,
+                    "proxy_id": "c45b71308ff338d02c497cc472bc848e7484e3da1f6c02fd51a4c21dc24fbe9a"
+                },
+                "year": 2023
+            },
+            "disc_number": 0,
+            "track_number": 3,
+            "audio_metadata": null
+        }
+    ],
+    "playlists": [],
+    "radio": [],
+    "audiobooks": [],
+    "podcasts": [],
+    "sound_effects": []
+}

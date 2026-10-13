@@ -9,6 +9,9 @@ use axum::http::{Request, StatusCode, header};
 use bopsie_api::{Api, MIGRATIONS, commands, router};
 use bopsie_core::config::ServerConfig;
 use bopsie_core::db::Database;
+use bopsie_core::events::EventBus;
+use bopsie_library::Library;
+use bopsie_providers_filesystem::FilesystemProvider;
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -22,22 +25,47 @@ const PASSWORD: &str = "bopsie-test";
 struct Server {
     api: Arc<Api>,
     addr: SocketAddr,
+    _dir: tempfile::TempDir,
 }
 
+/// A server over the fixture library, not yet scanned.
 async fn start() -> Server {
-    let db = Database::open_in_memory(MIGRATIONS).unwrap();
-    let api = Api::new(db, ServerConfig::default(), commands::registry())
-        .await
-        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    let db =
+        Database::open_in_memory(&[MIGRATIONS, &[bopsie_library::MIGRATIONS]].concat()).unwrap();
+    let events = EventBus::default();
+    let provider = Arc::new(FilesystemProvider::new(music));
+    let library = Library::new(
+        db.clone(),
+        events.clone(),
+        vec![provider],
+        dir.path().join("artwork"),
+    );
+    let api = Api::new(
+        db,
+        ServerConfig::default(),
+        library,
+        events,
+        commands::registry(),
+    )
+    .await
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(axum::serve(listener, router(api.clone())).into_future());
-    Server { api, addr }
+    Server {
+        api,
+        addr,
+        _dir: dir,
+    }
 }
 
-/// A server with the test user, and a session token for them.
+/// A server with its library scanned and the test user, and a session token for them.
 async fn start_set_up() -> (Server, String) {
     let server = start().await;
+    server.api.library.sync().await.unwrap();
     let (status, body) = server
         .post(
             "/setup",
@@ -307,33 +335,196 @@ async fn commands_need_auth_and_must_exist() {
     );
 }
 
-/// What Bopsie asks for as it opens, answered as an empty server would.
+/// What Bopsie's library suite asks of Music Assistant, asked of this server.
 #[tokio::test]
-async fn an_empty_library_and_no_players() {
+async fn browsing_the_library() {
     let (server, token) = start_set_up().await;
     let mut client = server.connect().await;
     client.result("auth", json!({"token": token})).await;
+    let names = |items: &Value| -> Vec<String> {
+        items
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["name"].as_str().unwrap().to_owned())
+            .collect()
+    };
 
-    let page = json!({"limit": 100, "offset": 0, "order_by": "sort_name"});
-    for kind in ["artists", "albums", "tracks", "playlists"] {
-        let items = client
-            .result(&format!("music/{kind}/library_items"), page.clone())
-            .await;
-        assert_eq!(items, json!([]), "{kind}");
-        let count = client
-            .result(&format!("music/{kind}/count"), json!({}))
-            .await;
-        assert_eq!(count, 0, "{kind}");
-    }
+    let page = json!({"limit": 10, "offset": 0, "order_by": "sort_name"});
+    let albums = client.result("music/albums/library_items", page).await;
+    assert_eq!(names(&albums), ["First Album", "Second Album"]);
+    assert_eq!(albums[0]["artists"][0]["name"], "Test Artist");
+    assert_eq!(albums[0]["provider"], "library");
+    let second = client
+        .result(
+            "music/albums/library_items",
+            json!({"limit": 1, "offset": 1}),
+        )
+        .await;
+    assert_eq!(names(&second), ["Second Album"]);
+    let artists = client
+        .result(
+            "music/artists/library_items",
+            json!({"album_artists_only": true}),
+        )
+        .await;
+    assert_eq!(names(&artists), ["Other Artist", "Test Artist"]);
+    assert_eq!(client.result("music/tracks/count", json!({})).await, 6);
+
+    let first =
+        json!({"item_id": albums[0]["item_id"], "provider_instance_id_or_domain": "library"});
+    let album = client.result("music/albums/get", first.clone()).await;
+    assert_eq!(album["year"], 2021);
+    assert_eq!(album["uri"], albums[0]["uri"]);
+    let tracks = client.result("music/albums/album_tracks", first).await;
+    assert_eq!(names(&tracks), ["Opening", "Middle", "Closing"]);
+    assert_eq!(tracks[0]["duration"], 1);
+
+    let artist = json!({"item_id": albums[0]["artists"][0]["item_id"], "provider_instance_id_or_domain": "library"});
+    let artist_albums = client
+        .result("music/artists/artist_albums", artist.clone())
+        .await;
+    assert_eq!(names(&artist_albums), ["First Album"]);
+    assert_eq!(
+        client
+            .result("music/artists/artist_tracks", artist)
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+
+    let search = json!({"search_query": "Gamma", "media_types": ["artist", "album", "track", "playlist"], "limit": 25});
+    let found = client.result("music/search", search).await;
+    assert_eq!(names(&found["tracks"]), ["Gamma"]);
+    assert_eq!(found["albums"], json!([]));
+
+    let playlists = client
+        .result("music/playlists/library_items", json!({}))
+        .await;
+    assert_eq!(names(&playlists), ["Mix"]);
+    let mix =
+        json!({"item_id": playlists[0]["item_id"], "provider_instance_id_or_domain": "library"});
+    let entries = client.result("music/playlists/playlist_tracks", mix).await;
+    assert_eq!(names(&entries), ["Opening", "Gamma"]);
+
+    let track = client
+        .result("music/item_by_uri", json!({"uri": tracks[1]["uri"]}))
+        .await;
+    assert_eq!(track["name"], "Middle");
+
+    let missing = json!({"item_id": "999", "provider_instance_id_or_domain": "library"});
+    assert_eq!(
+        client.error_code("music/albums/get", missing.clone()).await,
+        2
+    );
+    assert_eq!(
+        client
+            .error_code("music/albums/album_tracks", missing)
+            .await,
+        2
+    );
+    assert_eq!(
+        client
+            .error_code("music/item_by_uri", json!({"uri": "spotify://track/1"}))
+            .await,
+        14
+    );
+
+    // Bopsie asks for these before any player exists.
     let players = json!({"return_unavailable": true, "return_disabled": false});
     assert_eq!(client.result("players/all", players).await, json!([]));
     let queue = json!({"queue_id": "phone"});
     assert_eq!(client.result("player_queues/get", queue).await, Value::Null);
-    let search = json!({"search_query": "Gamma", "limit": 25});
+}
+
+#[tokio::test]
+async fn artwork_is_served_without_a_token_and_resized() {
+    let (server, token) = start_set_up().await;
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let albums = client.result("music/albums/library_items", json!({})).await;
+    let proxy_id = albums[0]["metadata"]["images"][0]["proxy_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let get = |query: String| {
+        let server = &server;
+        async move {
+            let request = Request::get(query).body(Body::empty()).unwrap();
+            let response = router(server.api.clone()).oneshot(request).await.unwrap();
+            let status = response.status();
+            let content_type = response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .map(|v| v.to_str().unwrap().to_owned());
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            (status, content_type, bytes)
+        }
+    };
+    let (status, content_type, bytes) =
+        get(format!("/imageproxy/{proxy_id}?size=160&fmt=jpeg")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type.as_deref(), Some("image/jpeg"));
+    let picture = image::load_from_memory(&bytes).unwrap();
+    assert_eq!((picture.width(), picture.height()), (160, 160));
+
+    let (status, content_type, _) = get(format!("/imageproxy/{proxy_id}?size=0&fmt=png")).await;
     assert_eq!(
-        client.result("music/search", search).await["tracks"],
-        json!([])
+        (status, content_type.as_deref()),
+        (StatusCode::OK, Some("image/jpeg"))
     );
+    assert_eq!(
+        get(format!("/imageproxy/{proxy_id}?size=100")).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        get("/imageproxy/nothex?size=80".to_owned()).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    let unknown = "0".repeat(64);
+    assert_eq!(
+        get(format!("/imageproxy/{unknown}?size=80")).await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn a_sync_tells_authenticated_connections_what_changed() {
+    let server = start().await;
+    let (_, body) = server
+        .post(
+            "/setup",
+            None,
+            json!({"username": USERNAME, "password": PASSWORD}),
+        )
+        .await;
+    let token = body["token"].as_str().unwrap().to_owned();
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let mut anonymous = server.connect().await;
+
+    assert_eq!(client.result("music/sync", json!({})).await, Value::Null);
+    let mut added = Vec::new();
+    loop {
+        let event = client.receive().await.unwrap();
+        match event["event"].as_str().unwrap() {
+            "media_item_added" => added.push(event["object_id"].as_str().unwrap().to_owned()),
+            "music_sync_completed" => break,
+            other => panic!("unexpected {other}"),
+        }
+    }
+    assert_eq!(added.len(), 2 + 2 + 6 + 1);
+    assert!(added.iter().any(|uri| uri.starts_with("library://album/")));
+
+    // Connections that have not authenticated hear nothing.
+    let quiet =
+        tokio::time::timeout(std::time::Duration::from_millis(200), anonymous.receive()).await;
+    assert!(quiet.is_err(), "{quiet:?}");
 }
 
 #[tokio::test]
@@ -363,7 +554,7 @@ async fn http_commands_take_a_bearer_token_and_return_the_bare_result() {
             json!({"message_id": "1", "command": "music/tracks/count", "args": {}}),
         )
         .await;
-    assert_eq!((status, body), (StatusCode::OK, json!(0)));
+    assert_eq!((status, body), (StatusCode::OK, json!(6)));
 
     let (status, body) = server
         .post("/api", Some(&token), json!({"command": "nope"}))
@@ -431,17 +622,83 @@ async fn info_and_the_command_list_need_no_auth() {
             "auth/logout",
             "auth/me",
             "auth/token/create",
+            "music/albums/album_tracks",
             "music/albums/count",
+            "music/albums/get",
             "music/albums/library_items",
+            "music/artists/artist_albums",
+            "music/artists/artist_tracks",
             "music/artists/count",
+            "music/artists/get",
             "music/artists/library_items",
+            "music/item_by_uri",
             "music/playlists/count",
+            "music/playlists/get",
             "music/playlists/library_items",
+            "music/playlists/playlist_tracks",
             "music/search",
+            "music/sync",
             "music/tracks/count",
+            "music/tracks/get",
             "music/tracks/library_items",
             "player_queues/get",
             "players/all",
         ]
     );
+}
+
+/// Every key path in a JSON value, with array elements as `[]` (the first element stands for
+/// all of them).
+fn key_paths(value: &Value, prefix: &str, paths: &mut std::collections::BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map {
+                let path = format!("{prefix}{key}");
+                key_paths(child, &format!("{path}."), paths);
+                paths.insert(path);
+            }
+        }
+        Value::Array(items) => {
+            if let Some(first) = items.first() {
+                key_paths(first, &format!("{prefix}[]."), paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Responses have the shape Music Assistant 2.10.6 gives the same commands, captured in
+/// `tests/golden`.
+#[tokio::test]
+async fn responses_have_music_assistants_shape() {
+    let (server, token) = start_set_up().await;
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let albums = client.result("music/albums/library_items", json!({})).await;
+    let first = &albums[0];
+    assert_eq!(first["name"], "First Album");
+    let album = json!({"item_id": first["item_id"], "provider_instance_id_or_domain": "library"});
+    let artist = json!({"item_id": first["artists"][0]["item_id"], "provider_instance_id_or_domain": "library"});
+    let search = json!({"search_query": "Gamma", "media_types": ["artist", "album", "track", "playlist"], "limit": 25});
+
+    for (golden, command, args) in [
+        ("album_get", "music/albums/get", album.clone()),
+        ("album_tracks", "music/albums/album_tracks", album),
+        ("artist_get", "music/artists/get", artist),
+        ("search", "music/search", search),
+    ] {
+        let path = format!("{}/tests/golden/{golden}.json", env!("CARGO_MANIFEST_DIR"));
+        let expected: Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let actual = client.result(command, args).await;
+        let (mut want, mut got) = (Default::default(), Default::default());
+        key_paths(&expected, "", &mut want);
+        key_paths(&actual, "", &mut got);
+        let missing: Vec<_> = want.difference(&got).collect();
+        let extra: Vec<_> = got.difference(&want).collect();
+        assert!(
+            missing.is_empty() && extra.is_empty(),
+            "{command}: missing {missing:?}, extra {extra:?}"
+        );
+    }
 }

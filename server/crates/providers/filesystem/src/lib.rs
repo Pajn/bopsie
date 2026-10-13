@@ -2,8 +2,8 @@
 //! files for decoding.
 //!
 //! Item ids are paths relative to the root with `/` separators, which is also how Music
-//! Assistant's filesystem provider names them. Album art is a `cover`, `folder` or `front`
-//! image beside the tracks, or else the art embedded in the file. Playlists are `.m3u` and
+//! Assistant's filesystem provider names them. Album art is a `cover`, `folder`, `front` or
+//! `album` image beside the tracks, or else the art embedded in the file. Playlists are `.m3u` and
 //! `.m3u8` files whose entries are paths relative to the playlist or absolute paths inside
 //! the root.
 

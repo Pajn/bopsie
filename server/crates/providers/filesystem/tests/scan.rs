@@ -100,7 +100,7 @@ async fn a_first_scan_builds_the_library() {
     };
     assert_eq!(album.fields.name, "First Album");
     assert_eq!(album.year, Some(2021));
-    assert_eq!(album.artists[0].name, "Test Artist");
+    assert_eq!(album.artists[0].name(), "Test Artist");
     let image = &album.fields.metadata.images.as_ref().unwrap()[0];
     assert_eq!(image.path, "Test Artist/First Album/cover.jpg");
     assert_eq!(

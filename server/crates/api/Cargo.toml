@@ -14,6 +14,7 @@ bopsie-queues.workspace = true
 argon2.workspace = true
 axum.workspace = true
 futures.workspace = true
+image.workspace = true
 jsonwebtoken.workspace = true
 rand.workspace = true
 rusqlite.workspace = true
@@ -27,6 +28,9 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+bopsie-fixtures.workspace = true
+bopsie-providers-filesystem.workspace = true
+tempfile.workspace = true
 tokio-tungstenite.workspace = true
 tower.workspace = true
 

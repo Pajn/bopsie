@@ -19,6 +19,7 @@ unchanged. The design and the milestones are in
 | `bopsie-queues` | `crates/queues` | The queue state machine |
 | `bopsie-api` | `crates/api` | The Music Assistant compatible API |
 | `bopsie-server` | `crates/server` | The binary that wires it all together |
+| `bopsie-fixtures` | `crates/fixtures` | The test library, for tests and for Bopsie's integration suites |
 
 Traits live in `bopsie-players` and `bopsie-library`, so protocol and provider crates depend
 inward only. `bopsie-server` is the only crate that knows the concrete list of providers.
@@ -33,6 +34,11 @@ The config file is optional; [`config.example.toml`](config.example.toml) lists 
 its default. The server listens on port 8095 and keeps its database in `data/`. Logging follows
 `RUST_LOG`, at `info` by default.
 
+Music comes from the folders under `[library]`. The server scans them at startup and on
+`music/sync`; a rescan reads only files whose size or modification time changed. Album art is a
+`cover`, `folder`, `front` or `album` image beside the tracks, or else the art embedded in them.
+Playlists are `.m3u` and `.m3u8` files.
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh
@@ -40,9 +46,10 @@ curl -X POST http://localhost:8095/setup -H 'Content-Type: application/json' \
   -d '{"username": "admin", "password": "at-least-8-characters"}'
 ```
 
-To run Bopsie's integration suites against this server:
+To run Bopsie's integration suites against this server, give it the library they expect:
 
 ```sh
+cargo run -p bopsie-fixtures -- /tmp/bopsie-music   # then add the folder under [library]
 cd ../mobile
 MA_URL=http://localhost:8095 MA_USERNAME=admin MA_PASSWORD=at-least-8-characters \
   pnpm test:integration

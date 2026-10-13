@@ -5,6 +5,7 @@ pub mod auth;
 pub mod command;
 pub mod commands;
 mod http;
+mod imageproxy;
 pub mod info;
 mod ws;
 
@@ -15,6 +16,8 @@ use std::sync::Arc;
 use bopsie_core::Result;
 use bopsie_core::config::ServerConfig;
 use bopsie_core::db::{self, Database, Migrations};
+use bopsie_core::events::EventBus;
+use bopsie_library::Library;
 
 use auth::Auth;
 use command::Registry;
@@ -25,14 +28,23 @@ pub const MIGRATIONS: &[Migrations] = &[auth::MIGRATIONS];
 /// Everything a request handler can reach.
 pub struct Api {
     pub auth: Auth,
+    pub library: Library,
+    pub events: EventBus,
     /// Generated on first start and stable after, so clients can tell servers apart.
     pub server_id: String,
     pub config: ServerConfig,
     pub commands: Registry,
+    thumbnails: imageproxy::Thumbnails,
 }
 
 impl Api {
-    pub async fn new(db: Database, config: ServerConfig, commands: Registry) -> Result<Arc<Self>> {
+    pub async fn new(
+        db: Database,
+        config: ServerConfig,
+        library: Library,
+        events: EventBus,
+        commands: Registry,
+    ) -> Result<Arc<Self>> {
         let server_id = db
             .call(|conn| {
                 Ok(db::setting_or_init(conn, "server_id", || {
@@ -42,9 +54,12 @@ impl Api {
             .await?;
         Ok(Arc::new(Self {
             auth: Auth::open(db).await?,
+            library,
+            events,
             server_id,
             config,
             commands,
+            thumbnails: imageproxy::Thumbnails::default(),
         }))
     }
 }
@@ -54,9 +69,18 @@ pub(crate) mod tests {
     use super::*;
 
     pub async fn api() -> Arc<Api> {
-        let db = Database::open_in_memory(MIGRATIONS).unwrap();
-        Api::new(db, ServerConfig::default(), Registry::default())
-            .await
-            .unwrap()
+        let db = Database::open_in_memory(&[MIGRATIONS, &[bopsie_library::MIGRATIONS]].concat())
+            .unwrap();
+        let events = EventBus::default();
+        let library = Library::new(db.clone(), events.clone(), Vec::new(), "artwork".into());
+        Api::new(
+            db,
+            ServerConfig::default(),
+            library,
+            events,
+            Registry::default(),
+        )
+        .await
+        .unwrap()
     }
 }
