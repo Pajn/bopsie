@@ -8,6 +8,13 @@ use tokio::sync::broadcast;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
+    PlayerAdded,
+    PlayerUpdated,
+    PlayerRemoved,
+    QueueAdded,
+    QueueUpdated,
+    QueueItemsUpdated,
+    QueueTimeUpdated,
     MediaItemAdded,
     MediaItemUpdated,
     MediaItemDeleted,

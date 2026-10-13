@@ -1,12 +1,21 @@
 //! A queue wired to a stream engine. The engine asks the queue for tracks in order; the queue
-//! learns from the engine's events which item is playing and when it has run out.
+//! learns from the engine's events which item is playing, how far in, and when it has run
+//! out.
+//!
+//! The engine writes ahead of what can be heard. Events about real-time sessions take effect
+//! when what they describe becomes audible, so the current item changes when the listener hears
+//! the new track, not when the engine starts writing it.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
+use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{
-    self, Command, EngineHandle, Event, Settings, TrackRequest, TrackSource,
+    self, Command, EngineHandle, Event, Settings, Tagged, TrackRequest, TrackSource,
 };
 use bopsie_audio::sink::Sink;
+use bopsie_audio::timeline::{Micros, Timeline};
+use bopsie_core::clock;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::state::{Effect, PlaybackState, Queue};
@@ -14,8 +23,10 @@ use crate::state::{Effect, PlaybackState, Queue};
 /// What changed in a session, for whoever reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
-    /// The item at this index started playing.
+    /// The item at this index became audible.
     Started(usize),
+    /// Playback moved within the current item.
+    Seeked,
     /// A track could not be played and was skipped.
     Failed {
         queue_item_id: String,
@@ -23,6 +34,26 @@ pub enum Notice {
     },
     /// The queue played to its end.
     Finished,
+    /// Playback was stopped or paused.
+    Stopped,
+}
+
+/// Where playback is in the current item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Position {
+    /// How far into the item playback was at `since`.
+    pub offset: Duration,
+    /// When `offset` was audible, while playback advances.
+    pub since: Option<Micros>,
+}
+
+impl Position {
+    pub fn at(&self, now: Micros) -> Duration {
+        match self.since {
+            Some(since) => self.offset + Duration::from_micros((now - since).max(0) as u64),
+            None => self.offset,
+        }
+    }
 }
 
 /// Hands the queue's items to the engine, while the queue is meant to be playing.
@@ -33,55 +64,104 @@ struct Source {
 impl TrackSource for Source {
     fn next(&mut self) -> Option<TrackRequest> {
         let mut queue = self.queue.lock().unwrap();
-        if queue.state == PlaybackState::Idle {
+        if queue.state != PlaybackState::Playing {
             return None;
         }
-        let item = queue.hand_over_next()?;
+        let (item, start) = queue.hand_over_next()?;
         Some(TrackRequest {
             id: item.queue_item_id.clone(),
             path: item.path.clone(),
-            start: std::time::Duration::ZERO,
+            start,
         })
     }
 }
 
+struct Running {
+    handle: EngineHandle,
+    format: PcmFormat,
+    timeline: Option<Timeline>,
+}
+
+#[derive(Clone)]
 pub struct QueueSession {
     queue: Arc<Mutex<Queue>>,
-    engine: std::sync::mpsc::Sender<Command>,
+    running: Arc<Mutex<Option<Running>>>,
     /// The epoch of the last `Restart` or `Stop`; older events are ignored.
     epoch: Arc<Mutex<u64>>,
+    position: Arc<Mutex<Position>>,
     notices: broadcast::Sender<Notice>,
-    handle: EngineHandle,
+}
+
+impl Default for QueueSession {
+    fn default() -> Self {
+        Self::new(Queue::default())
+    }
 }
 
 impl QueueSession {
-    /// Starts an engine for `queue`, idle until told to play. Needs a Tokio runtime.
+    /// A session for `queue`, with no engine until one is attached.
+    pub fn new(queue: Queue) -> Self {
+        Self {
+            queue: Arc::new(Mutex::new(queue)),
+            running: Arc::default(),
+            epoch: Arc::default(),
+            position: Arc::default(),
+            notices: broadcast::channel(256).0,
+        }
+    }
+
+    /// A session with an engine already attached. Needs a Tokio runtime.
     pub fn start(queue: Queue, settings: Settings, sinks: Vec<(String, Box<dyn Sink>)>) -> Self {
-        let queue = Arc::new(Mutex::new(queue));
+        let session = Self::new(queue);
+        session.attach(settings, sinks);
+        session
+    }
+
+    /// Starts an engine for the session, replacing any it had. Needs a Tokio runtime.
+    pub fn attach(&self, settings: Settings, sinks: Vec<(String, Box<dyn Sink>)>) {
+        let format = settings.format;
+        let timeline = settings.realtime.map(|realtime| realtime.timeline);
         let mut handle = engine::spawn(
             settings,
             Box::new(Source {
-                queue: queue.clone(),
+                queue: self.queue.clone(),
             }),
             sinks,
         );
-        let engine = handle.commander();
-        let epoch = Arc::new(Mutex::new(0));
-        let (notices, _) = broadcast::channel(64);
         let events = std::mem::replace(&mut handle.events, mpsc::unbounded_channel().1);
-        tokio::spawn(follow(
-            events,
-            queue.clone(),
-            epoch.clone(),
-            notices.clone(),
-        ));
-        Self {
-            queue,
-            engine,
-            epoch,
-            notices,
+        tokio::spawn(follow(events, self.clone(), timeline));
+        if let Some(old) = self.running.lock().unwrap().replace(Running {
             handle,
+            format,
+            timeline,
+        }) {
+            old.handle.send(Command::Shutdown);
         }
+    }
+
+    /// The running engine's format and timeline, if one is attached.
+    pub fn engine(&self) -> Option<(PcmFormat, Option<Timeline>)> {
+        self.running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|r| (r.format, r.timeline))
+    }
+
+    fn send(&self, command: Command) {
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.handle.send(command);
+        }
+    }
+
+    pub fn add_sink(&self, key: String, sink: Box<dyn Sink>) {
+        self.send(Command::AddSink { key, sink });
+    }
+
+    pub fn remove_sink(&self, key: &str) {
+        self.send(Command::RemoveSink {
+            key: key.to_owned(),
+        });
     }
 
     /// Runs `f` on the queue and carries out what it asks of the player.
@@ -92,7 +172,7 @@ impl QueueSession {
             match effect {
                 Effect::PlayFrom(_) => queue.state = PlaybackState::Playing,
                 Effect::Stop => queue.stopped(),
-                Effect::None | Effect::NextChanged => {}
+                Effect::Pause | Effect::None | Effect::NextChanged => {}
             }
             (value, effect)
         };
@@ -107,22 +187,59 @@ impl QueueSession {
     }
 
     fn apply(&self, effect: Effect) {
-        let command = match effect {
-            Effect::None => return,
-            Effect::PlayFrom(_) => Command::Restart {
-                epoch: self.next_epoch(),
-            },
-            Effect::NextChanged => Command::NextChanged,
-            Effect::Stop => Command::Stop {
-                epoch: self.next_epoch(),
-            },
-        };
-        let _ = self.engine.send(command);
+        match effect {
+            Effect::None => {}
+            Effect::PlayFrom(_) => {
+                let epoch = self.next_epoch();
+                self.send(Command::Restart { epoch });
+            }
+            Effect::NextChanged => self.send(Command::NextChanged),
+            Effect::Stop | Effect::Pause => {
+                let epoch = self.next_epoch();
+                {
+                    let mut position = self.position.lock().unwrap();
+                    if effect == Effect::Stop {
+                        *position = Position::default();
+                    } else {
+                        position.offset = position.at(clock::now());
+                        position.since = None;
+                    }
+                }
+                self.send(Command::Stop { epoch });
+                let _ = self.notices.send(Notice::Stopped);
+            }
+        }
+    }
+
+    /// Pauses where playback is now.
+    pub fn pause(&self) {
+        let position = self.position(clock::now());
+        self.update(|queue| ((), queue.pause(position)));
     }
 
     /// Stops playing, keeping the queue as it is.
     pub fn stop(&self) {
         self.update(|_| ((), Effect::Stop));
+    }
+
+    /// Moves to `position` in the current item.
+    pub fn seek(&self, position: Duration) {
+        let state = self.queue.lock().unwrap().state;
+        if state == PlaybackState::Playing {
+            self.send(Command::Seek(position));
+            return;
+        }
+        self.queue.lock().unwrap().resume_position = position;
+        *self.position.lock().unwrap() = Position {
+            offset: position,
+            since: None,
+        };
+        let _ = self.notices.send(Notice::Seeked);
+    }
+
+    /// How far into the current item playback is at `now`.
+    pub fn position(&self, now: Micros) -> Duration {
+        self.position.lock().unwrap().at(now)
     }
 
     /// A copy of the queue as it stands.
@@ -134,42 +251,74 @@ impl QueueSession {
         self.notices.subscribe()
     }
 
-    /// Ends the session, waiting until every sink has finished.
+    /// Ends the session's engine, waiting until every sink has finished.
     pub fn shutdown(self) {
-        self.handle.shutdown();
+        let running = self.running.lock().unwrap().take();
+        if let Some(running) = running {
+            running.handle.shutdown();
+        }
     }
 }
 
 async fn follow(
-    mut events: mpsc::UnboundedReceiver<engine::Tagged>,
-    queue: Arc<Mutex<Queue>>,
-    epoch: Arc<Mutex<u64>>,
-    notices: broadcast::Sender<Notice>,
+    mut events: mpsc::UnboundedReceiver<Tagged>,
+    session: QueueSession,
+    timeline: Option<Timeline>,
 ) {
+    let current = || *session.epoch.lock().unwrap();
     while let Some(tagged) = events.recv().await {
-        if tagged.epoch != *epoch.lock().unwrap() {
+        if tagged.epoch != current() {
             continue;
         }
+        // Real-time sessions report each change when it can be heard.
+        let when = match &tagged.event {
+            Event::TrackStarted { at, .. } | Event::Seeked { at, .. } | Event::Idle { at } => {
+                timeline.map(|t| t.instant_of(*at))
+            }
+            Event::TrackEnded { .. } | Event::TrackFailed { .. } => None,
+        };
+        if let Some(when) = when {
+            let wait = when - clock::now();
+            if wait > 0 {
+                tokio::time::sleep(Duration::from_micros(wait as u64)).await;
+            }
+            if tagged.epoch != current() {
+                continue;
+            }
+        }
+        let since = when.unwrap_or_else(clock::now);
         let notice = {
-            let mut queue = queue.lock().unwrap();
+            let mut queue = session.queue.lock().unwrap();
             match tagged.event {
-                Event::TrackStarted { id, .. } => queue.index_of(&id).map(|index| {
+                Event::TrackStarted { id, start, .. } => queue.index_of(&id).map(|index| {
                     queue.started(index);
+                    *session.position.lock().unwrap() = Position {
+                        offset: start,
+                        since: Some(since),
+                    };
                     Notice::Started(index)
                 }),
+                Event::Seeked { position, .. } => {
+                    *session.position.lock().unwrap() = Position {
+                        offset: position,
+                        since: Some(since),
+                    };
+                    Some(Notice::Seeked)
+                }
                 Event::TrackFailed { id, error } => Some(Notice::Failed {
                     queue_item_id: id,
                     error,
                 }),
                 Event::Idle { .. } if queue.state == PlaybackState::Playing => {
                     queue.finished();
+                    *session.position.lock().unwrap() = Position::default();
                     Some(Notice::Finished)
                 }
-                Event::Idle { .. } | Event::TrackEnded { .. } | Event::Seeked { .. } => None,
+                Event::Idle { .. } | Event::TrackEnded { .. } => None,
             }
         };
         if let Some(notice) = notice {
-            let _ = notices.send(notice);
+            let _ = session.notices.send(notice);
         }
     }
 }

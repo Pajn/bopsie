@@ -6,6 +6,7 @@
 //! never pulls the next track out from under the player.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use bopsie_core::media::Track;
 use rand::Rng;
@@ -66,6 +67,8 @@ pub enum Effect {
     NextChanged,
     /// Stop playing.
     Stop,
+    /// Stop playing, keeping the position to resume from.
+    Pause,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -87,6 +90,8 @@ pub struct Queue {
     pub state: PlaybackState,
     /// The queue played to its end; `current_index` rests on the last item.
     pub ended: bool,
+    /// Where in the current item playback resumes.
+    pub resume_position: Duration,
     next_sort_index: u64,
 }
 
@@ -258,6 +263,7 @@ impl Queue {
         if index >= self.items.len() {
             return Effect::None;
         }
+        self.resume_position = Duration::ZERO;
         self.current_index = Some(index);
         self.index_in_buffer = None;
         self.ended = false;
@@ -367,17 +373,48 @@ impl Queue {
         Effect::NextChanged
     }
 
-    /// The player wants the item after the one it was handed last: the current item first.
-    pub fn hand_over_next(&mut self) -> Option<&QueueItem> {
-        let index = match self.index_in_buffer {
+    /// The player wants the item after the one it was handed last: the current item first,
+    /// from where it was left. Returns the item and where in it to start.
+    pub fn hand_over_next(&mut self) -> Option<(&QueueItem, Duration)> {
+        let (index, start) = match self.index_in_buffer {
             None => {
                 self.ensure_current();
-                self.current_index?
+                let start = std::mem::take(&mut self.resume_position);
+                (self.current_index?, start)
             }
-            Some(buffered) => self.next_index(buffered, false)?,
+            Some(buffered) => (self.next_index(buffered, false)?, Duration::ZERO),
         };
         self.index_in_buffer = Some(index);
-        self.items.get(index)
+        Some((self.items.get(index)?, start))
+    }
+
+    /// Pauses at `position` in the current item.
+    pub fn pause(&mut self, position: Duration) -> Effect {
+        if self.state != PlaybackState::Playing {
+            return Effect::None;
+        }
+        self.state = PlaybackState::Paused;
+        self.resume_position = position;
+        self.index_in_buffer = None;
+        Effect::Pause
+    }
+
+    /// Plays from where the queue is: the paused position, the current item, or the start of
+    /// a queue that played to its end.
+    pub fn play(&mut self) -> Effect {
+        if self.state == PlaybackState::Playing || self.items.is_empty() {
+            return Effect::None;
+        }
+        if self.ended {
+            self.ended = false;
+            self.resume_position = Duration::ZERO;
+            return self.play_index(0);
+        }
+        let index = self.current_index.unwrap_or(0);
+        let resume = self.resume_position;
+        let effect = self.play_index(index);
+        self.resume_position = resume;
+        effect
     }
 
     /// The player started playing the item at `index`.
@@ -400,6 +437,7 @@ impl Queue {
     pub fn stopped(&mut self) {
         self.state = PlaybackState::Idle;
         self.index_in_buffer = None;
+        self.resume_position = Duration::ZERO;
     }
 }
 
@@ -543,8 +581,11 @@ mod tests {
     fn the_player_is_handed_items_in_order_with_repeat() {
         let mut queue = Queue::default();
         queue.enqueue(tracks("abc"), QueueOption::Replace, &mut rng());
-        let handed =
-            |queue: &mut Queue| queue.hand_over_next().map(|i| i.track.fields.name.clone());
+        let handed = |queue: &mut Queue| {
+            queue
+                .hand_over_next()
+                .map(|(i, _)| i.track.fields.name.clone())
+        };
         assert_eq!(handed(&mut queue).as_deref(), Some("a"));
         assert_eq!(handed(&mut queue).as_deref(), Some("b"));
         assert_eq!(handed(&mut queue).as_deref(), Some("c"));
@@ -564,7 +605,7 @@ mod tests {
         assert_eq!(queue.index_in_buffer, Some(1));
         assert_eq!(queue.set_repeat(RepeatMode::One), Effect::NextChanged);
         assert_eq!(queue.index_in_buffer, Some(0));
-        assert_eq!(queue.hand_over_next().unwrap().track.fields.name, "a");
+        assert_eq!(queue.hand_over_next().unwrap().0.track.fields.name, "a");
         assert_eq!(queue.set_repeat(RepeatMode::One), Effect::None, "unchanged");
     }
 
@@ -641,6 +682,39 @@ mod tests {
         queue.set_shuffle(true, &mut rng());
         queue.enqueue(tracks("xyz"), QueueOption::Next, &mut rng());
         assert_eq!(&names(&queue)[..3], "abx");
+    }
+
+    #[test]
+    fn pausing_and_playing_resume_where_they_left_off() {
+        let mut queue = playing("abc");
+        assert_eq!(queue.pause(Duration::from_secs(7)), Effect::Pause);
+        assert_eq!(queue.state, PlaybackState::Paused);
+        assert_eq!(queue.index_in_buffer, None);
+        assert_eq!(
+            queue.pause(Duration::from_secs(9)),
+            Effect::None,
+            "already paused"
+        );
+
+        assert_eq!(queue.play(), Effect::PlayFrom(0));
+        let (item, start) = queue.hand_over_next().unwrap();
+        assert_eq!(
+            (item.track.fields.name.as_str(), start),
+            ("a", Duration::from_secs(7))
+        );
+        let (item, start) = queue.hand_over_next().unwrap();
+        assert_eq!(
+            (item.track.fields.name.as_str(), start),
+            ("b", Duration::ZERO)
+        );
+    }
+
+    #[test]
+    fn playing_a_finished_queue_starts_it_over() {
+        let mut queue = playing("ab");
+        queue.finished();
+        assert_eq!(queue.play(), Effect::PlayFrom(0));
+        assert!(!queue.ended);
     }
 
     #[test]

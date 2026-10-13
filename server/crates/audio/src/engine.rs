@@ -27,6 +27,9 @@ use crate::ring::Ring;
 use crate::sink::Sink;
 use crate::timeline::{Micros, Timeline};
 
+/// How far beyond its lead a real-time session may run ahead of real time.
+const MAX_AHEAD: Micros = 10_000_000;
+
 /// A track to play, and where in it to start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackRequest {
@@ -475,9 +478,11 @@ impl Engine {
         if samples.is_empty() {
             return;
         }
+        self.keep_pace();
         let at = self.head;
         self.ring.push(at, samples);
         let mut by_format: HashMap<OutputFormat, Vec<u8>> = HashMap::new();
+        let mut failed = Vec::new();
         for (key, sink) in &mut self.sinks {
             let format = sink.format();
             let packed = by_format.entry(format).or_insert_with(|| {
@@ -486,9 +491,30 @@ impl Engine {
                 packed
             });
             if let Err(error) = sink.write(at, packed) {
-                tracing::warn!(sink = key, %error, "an output failed to take audio");
+                tracing::warn!(sink = key, %error, "an output failed; dropping it");
+                failed.push(key.clone());
             }
         }
+        for key in failed {
+            self.sinks.remove(&key);
+        }
         self.head += (samples.len() / usize::from(self.settings.format.channels)) as u64;
+    }
+
+    /// Sinks pace a real-time session by taking audio no faster than they can hold it. Without
+    /// one that does, the session waits rather than run more than a little past its lead.
+    fn keep_pace(&self) {
+        let Some(realtime) = self.settings.realtime else {
+            return;
+        };
+        loop {
+            let limit = realtime
+                .timeline
+                .frame_at((realtime.clock)() + realtime.lead + MAX_AHEAD);
+            if self.head <= limit {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 }

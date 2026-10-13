@@ -376,9 +376,11 @@ dependencies = [
  "bopsie-players",
  "rand 0.10.3",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
