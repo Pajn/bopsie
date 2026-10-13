@@ -13,6 +13,12 @@ albums, artists and playlists; search; and, on Android, play on the phone itself
 Music Assistant as a player over Sendspin, so the server keeps its queue and other clients see it,
 with notification and lock-screen controls. iOS browses but does not play yet.
 
+The app also controls any other Music Assistant player. It works on one active group at a time —
+the phone until you choose another — and the speaker button on the mini player opens the list of
+players: set each member's volume or the group's, remove members, and for any other player choose
+to join it to the group, move the queue to it, or control it instead. On iOS this is how music
+plays.
+
 ## Requirements
 
 - Node 24 and pnpm 12. The Nix dev shell provides both.

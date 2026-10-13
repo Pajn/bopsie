@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 import { useCallback, useMemo } from 'react';
 import { Alert } from 'react-native';
 import {
@@ -10,15 +11,17 @@ import {
 } from '@/api/endpoints/players';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { queryKeys } from '@/connection/queryKeys';
+import { useActiveGroup } from '@/features/outputs/ActiveGroupProvider';
 import { describeError } from '@/lib/errors';
 
-/** The phone's own queue: what it is playing and where. */
+/** The active group's queue: what it is playing and where. */
 export function useQueue() {
-  const { connection, account, queueId } = useConnection();
+  const { connection, account } = useConnection();
+  const { activeId } = useActiveGroup();
   return useQuery({
-    queryKey: queryKeys.queue(account.id, queueId ?? 'none'),
-    queryFn: () => (queueId ? getQueue(connection, queueId) : null),
-    enabled: queueId !== null,
+    queryKey: queryKeys.queue(account.id, activeId ?? 'none'),
+    queryFn: () => (activeId ? getQueue(connection, activeId) : null),
+    enabled: activeId !== null,
     // Events keep the cached queue current.
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -28,19 +31,22 @@ function report(error: unknown) {
   Alert.alert('Could not play', describeError(error));
 }
 
-/** Plays media on the phone and controls what it plays, through the Music Assistant API. */
+/** Plays media on the active group and controls what it plays, through the Music Assistant API. */
 export function usePlaybackActions() {
-  const { connection, queueId, player } = useConnection();
+  const { connection } = useConnection();
+  const { activeId } = useActiveGroup();
+  const router = useRouter();
 
   const run = useCallback(
     (work: (id: string) => Promise<void>) => {
-      if (!queueId || !player.supported) {
-        Alert.alert('Not yet', 'Playing on this device is Android-only for now.');
+      // Only where the phone cannot play itself and no other player is chosen yet.
+      if (!activeId) {
+        router.push('/outputs');
         return;
       }
-      work(queueId).catch(report);
+      work(activeId).catch(report);
     },
-    [queueId, player],
+    [activeId, router],
   );
 
   return useMemo(

@@ -63,13 +63,14 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       }
       connection = new MaConnection({ serverUrl: account.serverUrl, token });
       unsubscribes.push(
-        connection.onEvent((event) => applyEvent(queryClient, account.id, queueId, event)),
+        connection.onEvent((event) => applyEvent(queryClient, account.id, event)),
         connection.onStatus((next) => {
           setStatus(next);
           if (next === 'unauthorized') markExpired(account.id);
           // Events were missed while disconnected.
-          if (next === 'ready' && queueId) {
-            void queryClient.invalidateQueries({ queryKey: queryKeys.queue(account.id, queueId) });
+          if (next === 'ready') {
+            void queryClient.invalidateQueries({ queryKey: queryKeys.queues(account.id) });
+            void queryClient.invalidateQueries({ queryKey: queryKeys.players(account.id) });
           }
         }),
       );
@@ -94,7 +95,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       setState(null);
       void player.disconnect();
     };
-  }, [account, repository, markExpired, queryClient, queueId]);
+  }, [account, repository, markExpired, queryClient]);
 
   useEffect(() => {
     if (account && playerStatus === 'unauthorized') markExpired(account.id);

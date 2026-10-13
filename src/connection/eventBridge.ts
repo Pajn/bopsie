@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { MaEvent } from '@/api/client';
-import { type PlayerQueue, playerQueue } from '@/api/schemas/player';
+import { type Player, type PlayerQueue, player, playerQueue } from '@/api/schemas/player';
 import { queryKeys } from './queryKeys';
 
 /** Library changes that make cached listings stale. */
@@ -14,12 +14,14 @@ const LIBRARY_EVENTS = new Set([
 /**
  * Applies a server event to the query cache. Queue updates carry the whole
  * queue and replace the cached one; time updates move only the position, and
- * arrive often enough that refetching on each would be wasteful.
+ * arrive often enough that refetching on each would be wasteful. Only queues
+ * already cached are kept, so the cache holds the queues the app shows rather
+ * than every queue on the server. Player updates carry the whole player and
+ * replace it in the cached list.
  */
 export function applyEvent(
   queryClient: QueryClient,
   accountId: string,
-  queueId: string | null,
   event: MaEvent,
   nowMs: number = Date.now(),
 ): void {
@@ -27,8 +29,36 @@ export function applyEvent(
     void queryClient.invalidateQueries({ queryKey: queryKeys.library(accountId) });
     return;
   }
-  if (!queueId || event.object_id !== queueId) return;
-  const key = queryKeys.queue(accountId, queueId);
+  if (!event.object_id) return;
+
+  switch (event.event) {
+    case 'player_added':
+    case 'player_updated': {
+      const key = queryKeys.players(accountId);
+      if (!queryClient.getQueryData(key)) return;
+      const parsed = player.safeParse(event.data);
+      if (!parsed.success) {
+        void queryClient.invalidateQueries({ queryKey: key });
+        return;
+      }
+      const updated = parsed.data;
+      queryClient.setQueryData<Player[]>(key, (players = []) => [
+        ...players.filter((p) => p.player_id !== updated.player_id),
+        updated,
+      ]);
+      return;
+    }
+    case 'player_removed': {
+      const id = event.object_id;
+      queryClient.setQueryData<Player[]>(queryKeys.players(accountId), (players) =>
+        players?.filter((p) => p.player_id !== id),
+      );
+      return;
+    }
+  }
+
+  const key = queryKeys.queue(accountId, event.object_id);
+  if (queryClient.getQueryState(key) === undefined) return;
 
   switch (event.event) {
     case 'queue_added':

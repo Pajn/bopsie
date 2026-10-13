@@ -1,8 +1,10 @@
 import Slider from '@react-native-community/slider';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Artwork } from '@/features/library/Artwork';
+import { useOutputs } from '@/features/outputs/useOutputs';
 import { formatDuration, queuePosition } from '@/player/progress';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
@@ -18,6 +20,8 @@ export function NowPlayingScreen() {
   const now = useNow(playing);
   const [dragging, setDragging] = useState<number | null>(null);
   const current = queue ? nowPlaying(queue) : null;
+  const router = useRouter();
+  const active = useOutputs()?.active;
 
   if (!queue || !current) {
     return (
@@ -44,6 +48,19 @@ export function NowPlayingScreen() {
         <Text muted numberOfLines={2} style={styles.center}>
           {current.subtitle}
         </Text>
+        <Pressable
+          onPress={() => router.push('/outputs')}
+          style={({ pressed }) => [styles.where, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`Playing on ${active?.name ?? 'this phone'}. Choose where to play`}
+          testID="player-outputs"
+        >
+          <Icon name="speaker" size={14} color={theme.colors.accent} />
+          <Text variant="label" style={styles.whereText} numberOfLines={1}>
+            {active?.name ?? 'Choose a player'}
+          </Text>
+          <Icon name="chevron-down" size={14} color={theme.colors.accent} />
+        </Pressable>
       </View>
       <View>
         <Slider
@@ -139,5 +156,17 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  where: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.surfaceVariant,
+  },
+  whereText: { color: theme.colors.accent, flexShrink: 1 },
   pressed: { opacity: 0.6 },
 }));

@@ -1,0 +1,418 @@
+import Slider from '@react-native-community/slider';
+import { type ReactNode, useEffect, useState } from 'react';
+import { Pressable, ScrollView, View } from 'react-native';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import type { WithImages } from '@/api/schemas/media';
+import { useConnection } from '@/connection/ConnectionProvider';
+import { Artwork } from '@/features/library/Artwork';
+import { nowPlaying } from '@/features/player/nowPlaying';
+import { useQueue } from '@/features/player/usePlayback';
+import { Icon, type IconName } from '@/ui/Icon';
+import { Text } from '@/ui/primitives';
+import type { ActiveGroup, OtherOutput } from './outputs';
+import { useOutputActions, useOutputs } from './useOutputs';
+
+const UNDO_MS = 6000;
+
+/**
+ * Where the music plays. The active group is on top with its volumes; every
+ * other player or group opens to the three things it can do: join the active
+ * group, take over its queue, or become the one the app controls.
+ */
+export function OutputsScreen() {
+  const outputs = useOutputs();
+  const { queueId: phoneId } = useConnection();
+  const queue = useQueue().data;
+  const [open, setOpen] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ name: string; run: () => void } | null>(null);
+
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [undo]);
+
+  if (!outputs) {
+    return (
+      <View style={styles.screen}>
+        <Text muted style={styles.notice}>
+          Looking for players…
+        </Text>
+      </View>
+    );
+  }
+
+  const { active, others } = outputs;
+  const hasQueue = (queue?.items ?? 0) > 0;
+  const current = queue ? nowPlaying(queue) : null;
+
+  return (
+    <View style={styles.screen}>
+      <ScrollView contentContainerStyle={styles.content} testID="outputs">
+        {phoneId === null ? (
+          <Text muted style={styles.notice}>
+            This phone cannot play music itself yet. Choose a player to control.
+          </Text>
+        ) : null}
+        {active ? (
+          <ActiveCard
+            active={active}
+            title={current?.title ?? null}
+            artwork={current?.artwork ?? null}
+          />
+        ) : null}
+        {others.length > 0 ? (
+          <Text variant="label" muted style={styles.section}>
+            Other players
+          </Text>
+        ) : null}
+        {others.map((other) => (
+          <OtherRow
+            key={other.id}
+            other={other}
+            active={active}
+            open={open === other.id}
+            onToggle={() => setOpen(open === other.id ? null : other.id)}
+            canMove={hasQueue}
+            onMoved={(run) => {
+              setOpen(null);
+              setUndo({ name: other.name, run });
+            }}
+            onChosen={() => setOpen(null)}
+          />
+        ))}
+      </ScrollView>
+      {undo ? (
+        <View style={styles.toast}>
+          <Text style={styles.toastText} numberOfLines={1}>
+            Moved to {undo.name}
+          </Text>
+          <Pressable
+            onPress={() => {
+              undo.run();
+              setUndo(null);
+            }}
+            hitSlop={12}
+            accessibilityRole="button"
+            testID="outputs-undo"
+          >
+            <Text style={styles.toastAction}>Undo</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function ActiveCard({
+  active,
+  title,
+  artwork,
+}: {
+  active: ActiveGroup;
+  title: string | null;
+  artwork: WithImages | null;
+}) {
+  const actions = useOutputActions();
+  const grouped = active.members.length > 1;
+  return (
+    <View style={styles.card}>
+      <View style={styles.row}>
+        <Artwork
+          item={artwork ?? { image: null }}
+          size={44}
+          imageSize={160}
+          placeholder="speaker"
+        />
+        <View style={styles.grow}>
+          <Text style={styles.strong} numberOfLines={1} testID="outputs-active-name">
+            {active.name}
+          </Text>
+          <Text variant="caption" muted numberOfLines={1}>
+            {!active.available ? 'Unavailable' : (title ?? 'Nothing playing')}
+          </Text>
+        </View>
+      </View>
+      {active.volume !== null ? (
+        <Volume
+          value={active.volume}
+          label={grouped ? `Volume of ${active.name}` : 'Volume'}
+          onChange={actions.setGroupVolume}
+          testID="outputs-volume"
+          trailing={grouped}
+        />
+      ) : null}
+      {grouped
+        ? active.members.map((member) => (
+            <View key={member.id} style={styles.member}>
+              <View style={styles.grow}>
+                <Text variant="label">{member.name}</Text>
+                {member.volume !== null ? (
+                  <Volume
+                    value={member.volume}
+                    label={`Volume of ${member.name}`}
+                    onChange={(level) => actions.setVolume(member.id, level)}
+                    testID={`member-volume-${member.id}`}
+                    small
+                  />
+                ) : null}
+              </View>
+              {member.removable ? (
+                <Pressable
+                  onPress={() => actions.remove(member, active.members)}
+                  hitSlop={8}
+                  style={styles.remove}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${member.name} from the group`}
+                  testID={`member-remove-${member.id}`}
+                >
+                  <Icon name="x" size={16} />
+                </Pressable>
+              ) : (
+                <View style={styles.remove} />
+              )}
+            </View>
+          ))
+        : null}
+    </View>
+  );
+}
+
+/** A volume slider that holds its own value while dragged and sends it on release. */
+function Volume({
+  value,
+  label,
+  onChange,
+  testID,
+  small,
+  trailing,
+}: {
+  value: number;
+  label: string;
+  onChange: (level: number) => void;
+  testID: string;
+  small?: boolean;
+  /** Leaves room on the right to line up with the members' remove buttons. */
+  trailing?: boolean;
+}) {
+  const { theme } = useUnistyles();
+  const [dragging, setDragging] = useState<number | null>(null);
+  const shown = dragging ?? value;
+  return (
+    <View style={styles.volume}>
+      <Slider
+        style={styles.grow}
+        minimumValue={0}
+        maximumValue={100}
+        step={1}
+        value={shown}
+        onSlidingStart={(next) => setDragging(next)}
+        onValueChange={(next) => dragging !== null && setDragging(next)}
+        onSlidingComplete={(next) => {
+          setDragging(null);
+          onChange(next);
+        }}
+        minimumTrackTintColor={theme.colors.accent}
+        maximumTrackTintColor={theme.colors.border}
+        thumbTintColor={small ? theme.colors.textMuted : theme.colors.accent}
+        accessibilityLabel={label}
+        testID={testID}
+      />
+      <Text variant="caption" muted style={styles.level}>
+        {Math.round(shown)}
+      </Text>
+      {trailing ? <View style={styles.remove} /> : null}
+    </View>
+  );
+}
+
+function OtherRow({
+  other,
+  active,
+  open,
+  onToggle,
+  canMove,
+  onMoved,
+  onChosen,
+}: {
+  other: OtherOutput;
+  active: ActiveGroup | null;
+  open: boolean;
+  onToggle: () => void;
+  canMove: boolean;
+  onMoved: (undo: () => void) => void;
+  onChosen: () => void;
+}) {
+  const actions = useOutputActions();
+  const icon: IconName = other.isPhone ? 'smartphone' : 'speaker';
+  const what = other.isGroup ? 'group' : 'player';
+  return (
+    <View>
+      <Pressable
+        onPress={onToggle}
+        disabled={!other.available}
+        style={({ pressed }) => [styles.row, styles.other, pressed && styles.pressed]}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open, disabled: !other.available }}
+        testID={`output-${other.id}`}
+      >
+        <View style={[styles.icon, !other.available && styles.unavailable]}>
+          <Icon name={icon} size={16} />
+        </View>
+        <View style={[styles.grow, !other.available && styles.unavailable]}>
+          <Text style={open ? styles.strong : undefined} numberOfLines={1}>
+            {other.name}
+          </Text>
+          <Text variant="caption" muted numberOfLines={1}>
+            {other.status}
+          </Text>
+        </View>
+        {other.available ? <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} /> : null}
+      </Pressable>
+      {open ? (
+        <View style={styles.actions}>
+          {active && other.canJoin ? (
+            <Action
+              icon="plus"
+              title="Join this group"
+              testID="output-join"
+              onPress={() => {
+                actions.join(other.id);
+                onChosen();
+              }}
+            >
+              {`${other.name} plays along with ${active.name}.`}
+              {other.playing ? (
+                <Text style={styles.warning}>{` ${other.playing} stops.`}</Text>
+              ) : null}
+            </Action>
+          ) : null}
+          {active && canMove ? (
+            <Action
+              icon="arrow-right"
+              title="Move playback here"
+              testID="output-move"
+              onPress={() => {
+                void actions.move(other.id).then((undo) => undo && onMoved(undo));
+              }}
+            >
+              {`The queue moves to ${other.name}. ${active.name} stops.`}
+            </Action>
+          ) : null}
+          <Action
+            icon="sliders"
+            title={`Control this ${what}`}
+            testID="output-control"
+            onPress={() => {
+              actions.control(other.id);
+              onChosen();
+            }}
+          >
+            Play, pause and change volume here. Nothing else stops.
+          </Action>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function Action({
+  icon,
+  title,
+  children,
+  onPress,
+  testID,
+}: {
+  icon: IconName;
+  title: string;
+  children: ReactNode;
+  onPress: () => void;
+  testID: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+      accessibilityRole="button"
+      testID={testID}
+    >
+      <View style={[styles.icon, styles.actionIcon]}>
+        <Icon name={icon} size={16} />
+      </View>
+      <View style={styles.grow}>
+        <Text style={styles.strong}>{title}</Text>
+        <Text variant="caption" muted>
+          {children}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create((theme) => ({
+  screen: { flex: 1, backgroundColor: theme.colors.background },
+  // Room below the last row for the undo bar.
+  content: { padding: theme.spacing.lg, paddingBottom: 96, gap: theme.spacing.xs },
+  notice: { textAlign: 'center', padding: theme.spacing.lg },
+  card: {
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
+  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
+  grow: { flex: 1 },
+  strong: { fontWeight: '600' },
+  member: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  volume: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  level: { width: 28, textAlign: 'right' },
+  remove: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.background,
+  },
+  section: { marginTop: theme.spacing.lg, letterSpacing: 0.8, textTransform: 'uppercase' },
+  other: { paddingVertical: theme.spacing.sm },
+  icon: {
+    width: 32,
+    height: 32,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.surfaceVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unavailable: { opacity: 0.45 },
+  actions: {
+    backgroundColor: theme.colors.surfaceVariant,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: theme.spacing.md,
+    padding: theme.spacing.sm,
+  },
+  actionIcon: { backgroundColor: theme.colors.background },
+  warning: { color: theme.colors.danger },
+  pressed: { opacity: 0.6 },
+  toast: {
+    position: 'absolute',
+    left: theme.spacing.lg,
+    right: theme.spacing.lg,
+    bottom: theme.spacing.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+    backgroundColor: theme.colors.text,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+  },
+  toastText: { flex: 1, color: theme.colors.background },
+  toastAction: { color: theme.colors.background, fontWeight: '700' },
+}));

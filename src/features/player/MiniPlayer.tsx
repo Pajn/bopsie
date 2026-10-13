@@ -1,20 +1,29 @@
 import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { useConnection } from '@/connection/ConnectionProvider';
 import { Artwork } from '@/features/library/Artwork';
+import { useOutputs } from '@/features/outputs/useOutputs';
 import { Icon } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { nowPlaying } from './nowPlaying';
 import { usePlaybackActions, useQueue } from './usePlayback';
 
-/** What the phone is playing, above the tab bar. Opens the full player. */
+/**
+ * What the active group is playing, above the tab bar. Opens the full player,
+ * or the output sheet from its speaker button. Names the group unless it is
+ * the phone.
+ */
 export function MiniPlayer() {
   const router = useRouter();
   const queue = useQueue().data;
   const playback = usePlaybackActions();
+  const { queueId: phoneId } = useConnection();
+  const active = useOutputs()?.active;
   const current = queue ? nowPlaying(queue) : null;
   if (!queue || !current) return null;
   const playing = queue.state === 'playing';
+  const where = active && active.id !== phoneId ? `on ${active.name}` : null;
 
   return (
     <Pressable
@@ -29,12 +38,21 @@ export function MiniPlayer() {
         <Text numberOfLines={1} testID="mini-player-title">
           {current.title}
         </Text>
-        {current.subtitle ? (
-          <Text variant="caption" muted numberOfLines={1}>
-            {current.subtitle}
+        {where || current.subtitle ? (
+          <Text variant="caption" muted numberOfLines={1} testID="mini-player-subtitle">
+            {where ?? current.subtitle}
           </Text>
         ) : null}
       </View>
+      <Pressable
+        onPress={() => router.push('/outputs')}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityLabel="Choose where to play"
+        testID="mini-player-outputs"
+      >
+        <Icon name="speaker" size={22} />
+      </Pressable>
       <Pressable
         onPress={() => playback.command('play_pause')}
         hitSlop={12}
