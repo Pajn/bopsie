@@ -36,6 +36,17 @@ export const modalScreenOptions: NativeStackNavigationOptions = {
 };
 
 /**
+ * A short menu that rises from the bottom and is as tall as its content.
+ * The platform sheet has no header on Android, so none is shown on either.
+ */
+export const sheetScreenOptions: NativeStackNavigationOptions = {
+  presentation: 'formSheet',
+  sheetAllowedDetents: 'fitToContents',
+  sheetGrabberVisible: true,
+  headerShown: false,
+};
+
+/**
  * A screen that takes the whole display, like the reader: it rises over the
  * current screen with no header of its own.
  */

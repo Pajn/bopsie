@@ -1,5 +1,5 @@
-import { playerQueue } from '@/api/schemas/player';
-import { nowPlaying } from './nowPlaying';
+import { playerQueue, queueItem } from '@/api/schemas/player';
+import { itemLinks, nowPlaying } from './nowPlaying';
 
 const queue = (currentItem: object | null) =>
   playerQueue.parse({ queue_id: 'q', current_item: currentItem });
@@ -54,5 +54,43 @@ describe('nowPlaying', () => {
   it('falls back to the queue item name for media that is not a track', () => {
     const result = nowPlaying(queue({ queue_id: 'q', queue_item_id: 'i', name: 'Radio One' }));
     expect(result).toMatchObject({ title: 'Radio One', subtitle: '', duration: null });
+  });
+});
+
+describe('itemLinks', () => {
+  const ref = (kind: string, id: string, name: string) => ({
+    item_id: id,
+    provider: 'library',
+    name,
+    uri: `library://${kind}/${id}`,
+    media_type: kind,
+  });
+  const item = (mediaItem: object | null) =>
+    queueItem.parse({ queue_id: 'q', queue_item_id: 'i', name: 'Song', media_item: mediaItem });
+
+  it('leads to the album, then each artist', () => {
+    const links = itemLinks(
+      item({
+        ...ref('track', '1', 'Song'),
+        album: ref('album', '7', 'Record'),
+        artists: [ref('artist', 'a', 'Ada'), ref('artist', 'b', 'Bo')],
+      }),
+    );
+    expect(links).toEqual([
+      { kind: 'album', id: '7', provider: 'library', name: 'Record' },
+      { kind: 'artist', id: 'a', provider: 'library', name: 'Ada' },
+      { kind: 'artist', id: 'b', provider: 'library', name: 'Bo' },
+    ]);
+  });
+
+  it('leads to the artists of a track with no album', () => {
+    const links = itemLinks(
+      item({ ...ref('track', '1', 'Song'), artists: [ref('artist', 'a', 'Ada')] }),
+    );
+    expect(links.map((link) => link.kind)).toEqual(['artist']);
+  });
+
+  it('leads nowhere for an item without media, such as a radio stream', () => {
+    expect(itemLinks(item(null))).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import Slider from '@react-native-community/slider';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -8,7 +8,7 @@ import { useOutputs } from '@/features/outputs/useOutputs';
 import { formatDuration, queuePosition } from '@/player/progress';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
-import { nowPlaying } from './nowPlaying';
+import { itemLinks, nowPlaying } from './nowPlaying';
 import { useNow } from './useNow';
 import { usePlaybackActions, useQueue } from './usePlayback';
 
@@ -35,9 +35,27 @@ export function NowPlayingScreen() {
 
   const position = dragging ?? queuePosition(queue, now);
   const duration = current.duration;
+  const hasLinks = queue.current_item ? itemLinks(queue.current_item).length > 0 : false;
 
   return (
     <View style={styles.screen}>
+      <Stack.Screen
+        options={{
+          headerRight: hasLinks
+            ? () => (
+                <Pressable
+                  onPress={() => router.push('/player-menu')}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="More"
+                  testID="player-more"
+                >
+                  <Icon name="more-horizontal" size={24} />
+                </Pressable>
+              )
+            : () => null,
+        }}
+      />
       <View style={styles.artwork}>
         <Artwork item={current.artwork} size={300} imageSize={1024} />
       </View>

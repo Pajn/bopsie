@@ -26,3 +26,30 @@ export function describeItem(item: QueueItem): NowPlaying {
     duration: item.duration ?? null,
   };
 }
+
+/** A library page an item leads to. */
+export interface ItemLink {
+  kind: 'album' | 'artist';
+  id: string;
+  provider: string;
+  name: string;
+}
+
+/** The album and artists of a track, for the player's menu. Radio and the like have none. */
+export function itemLinks(item: QueueItem): ItemLink[] {
+  const media = item.media_item;
+  if (!media) return [];
+  const link = (
+    kind: ItemLink['kind'],
+    ref: { item_id: string; provider: string; name: string },
+  ) => ({
+    kind,
+    id: ref.item_id,
+    provider: ref.provider,
+    name: ref.name,
+  });
+  return [
+    ...(media.album ? [link('album', media.album)] : []),
+    ...media.artists.map((artist) => link('artist', artist)),
+  ];
+}
