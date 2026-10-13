@@ -58,6 +58,7 @@ pub async fn start_with(seconds: u32) -> Server {
         events,
         players,
         playback,
+        airplay: None,
     };
     let api = Api::new(db, ServerConfig::default(), services, commands::registry())
         .await

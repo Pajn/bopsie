@@ -47,6 +47,15 @@ Players connect over Sendspin. Apps that sign in to the API, like Bopsie, connec
 Sendspin clients connect directly on port 8927. The server plays queues to them alone or in sync
 groups, as Music Assistant does.
 
+AirPlay speakers on the network are found by mDNS and play through
+[`cliairplay`](https://github.com/music-assistant/airplay-cli), the binary Music Assistant
+uses, one process per speaker. It is GPL-3.0 and runs as a separate process, so it is
+downloaded rather than built in: `scripts/fetch-cliairplay.sh` fetches the pinned release and
+checks its checksum. Without it the server runs without AirPlay. AirPlay 2 groups share one PTP
+clock, which needs UDP ports 319 and 320 (root, or `CAP_NET_BIND_SERVICE` on Linux). Speakers
+that show a PIN, such as Apple TVs and HomePods, are paired with the `airplay/pair_start` and
+`airplay/pair_finish` commands; speakers with a password take it from the config.
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh

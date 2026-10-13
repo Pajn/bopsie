@@ -7,7 +7,8 @@
 //! many audio bytes had arrived when it did). Other variables shape its behaviour:
 //! `FAKE_CLIAIRPLAY_FAIL=<code>` fails to connect with that error code,
 //! `FAKE_CLIAIRPLAY_CONNECT_MS` delays the connection, and `FAKE_CLIAIRPLAY_START_LATE_MS`
-//! moves every START that much later than asked.
+//! moves every START that much later than asked. With `--pair-setup` it pairs on PIN 1234;
+//! with `--ptp-daemon` it runs until stopped.
 //!
 //! Like the real binary, it takes audio no faster than it would play it, after a buffer's
 //! worth, so a caller writing audio is paced by it.
@@ -51,6 +52,24 @@ fn main() {
     if args.iter().any(|a| a == "--check") {
         println!("cliairplay fake check");
         return;
+    }
+    if args.iter().any(|a| a == "--pair-setup") {
+        // The speaker shows a PIN; 1234 is the right one.
+        eprintln!("Enter PIN:");
+        let mut pin = String::new();
+        std::io::stdin().read_line(&mut pin).unwrap();
+        if pin.trim() == "1234" {
+            println!("CREDENTIALS: {}", "ab".repeat(96));
+            return;
+        }
+        status("error code=auth_failed http=470 detail=\"wrong PIN\"");
+        std::process::exit(1);
+    }
+    if args.iter().any(|a| a == "--ptp-daemon") {
+        // Stands in for a daemon that can bind its ports: runs until told to stop.
+        loop {
+            std::thread::sleep(Duration::from_secs(60));
+        }
     }
     let dir = PathBuf::from(std::env::var("FAKE_CLIAIRPLAY_DIR").unwrap_or_else(|_| ".".into()));
     std::fs::create_dir_all(&dir).unwrap();

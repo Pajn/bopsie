@@ -17,6 +17,7 @@ use bopsie_core::events::EventBus;
 use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
 use bopsie_players::Players;
+use bopsie_players_airplay::{AirplayProvider, Config as AirplayConfig};
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use clap::Parser;
@@ -54,7 +55,14 @@ async fn main() -> ExitCode {
 async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load(args.config.as_deref())?;
     std::fs::create_dir_all(&config.storage.data_dir)?;
-    let migrations = [bopsie_api::MIGRATIONS, &[bopsie_library::MIGRATIONS]].concat();
+    let migrations = [
+        bopsie_api::MIGRATIONS,
+        &[
+            bopsie_library::MIGRATIONS,
+            bopsie_players_airplay::MIGRATIONS,
+        ],
+    ]
+    .concat();
     let db = Database::open(&config.storage.data_dir.join("bopsie.db"), &migrations)?;
     let events = EventBus::default();
 
@@ -84,11 +92,13 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             base_url: config.server.base_url.clone(),
         },
     );
+    let airplay = start_airplay(&config, players.clone(), db.clone()).await;
     let services = Services {
         library: library.clone(),
         events,
         players,
         playback,
+        airplay: airplay.clone(),
     };
     let api = Api::new(db, config.server.clone(), services, commands::registry()).await?;
 
@@ -124,6 +134,9 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
     shutdown_signal().await;
     tracing::info!("shutting down");
+    if let Some(airplay) = &airplay {
+        airplay.shutdown();
+    }
     let _ = stop.send(());
     // WebSocket clients stay connected until told otherwise, so the wait is bounded.
     match tokio::time::timeout(SHUTDOWN_GRACE, server).await {
@@ -131,6 +144,45 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => tracing::info!("closing the connections still open"),
     }
     Ok(())
+}
+
+/// AirPlay, when `cliairplay` can be found. Without it, the server runs without AirPlay.
+async fn start_airplay(config: &Config, players: Players, db: Database) -> Option<AirplayProvider> {
+    let binary = config
+        .airplay
+        .binary
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("cliairplay"));
+    let works = std::process::Command::new(&binary)
+        .arg("--check")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if !works {
+        tracing::info!(
+            "cliairplay not found; AirPlay is off (scripts/fetch-cliairplay.sh installs it)"
+        );
+        return None;
+    }
+    let airplay_config = AirplayConfig {
+        binary,
+        passwords: config.airplay.passwords.clone(),
+        env: Vec::new(),
+        ptp: config.airplay.ptp,
+        pipes: config.storage.data_dir.join("airplay"),
+    };
+    let provider = match AirplayProvider::new(players, db, airplay_config).await {
+        Ok(provider) => provider,
+        Err(error) => {
+            tracing::error!(%error, "AirPlay could not start");
+            return None;
+        }
+    };
+    if let Err(error) = provider.discover() {
+        tracing::error!(%error, "AirPlay discovery could not start");
+    }
+    Some(provider)
 }
 
 async fn shutdown_signal() {

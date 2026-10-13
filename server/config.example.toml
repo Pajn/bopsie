@@ -26,3 +26,15 @@ bind = "0.0.0.0:8927"
 # The ffmpeg binary, used for AAC and ALAC in MP4 containers and for Opus. Unset, ffmpeg is
 # used if it is on the path.
 # ffmpeg = "/usr/bin/ffmpeg"
+
+[airplay]
+# The cliairplay binary, which scripts/fetch-cliairplay.sh downloads. Unset, cliairplay is used
+# if it is on the path; without it there is no AirPlay.
+# binary = "/usr/local/bin/cliairplay"
+# One PTP clock shared by AirPlay 2 groups, so they play in sync. It needs UDP ports 319 and 320:
+# root, or CAP_NET_BIND_SERVICE on Linux. Without it, each speaker keeps its own clock.
+ptp = true
+
+[airplay.passwords]
+# Passwords for speakers that ask for one, by player id.
+# apaabbcc001122 = "password"

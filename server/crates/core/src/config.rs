@@ -14,6 +14,7 @@ pub struct Config {
     pub library: LibraryConfig,
     pub sendspin: SendspinConfig,
     pub audio: AudioConfig,
+    pub airplay: AirplayConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -63,6 +64,28 @@ impl Default for SendspinConfig {
 pub struct AudioConfig {
     /// The ffmpeg binary. Unset, `ffmpeg` is used if it is on the path.
     pub ffmpeg: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AirplayConfig {
+    /// The `cliairplay` binary. Unset, `cliairplay` is used if it is on the path; without it
+    /// there is no AirPlay.
+    pub binary: Option<PathBuf>,
+    /// Run one shared PTP clock for AirPlay 2 groups. It needs UDP ports 319 and 320.
+    pub ptp: bool,
+    /// Passwords by player id, for speakers that ask for one.
+    pub passwords: std::collections::BTreeMap<String, String>,
+}
+
+impl Default for AirplayConfig {
+    fn default() -> Self {
+        Self {
+            binary: None,
+            ptp: true,
+            passwords: Default::default(),
+        }
+    }
 }
 
 impl Default for ServerConfig {
@@ -154,6 +177,16 @@ mod tests {
             config.library.folders,
             [PathBuf::from("/music"), PathBuf::from("/more")]
         );
+    }
+
+    #[test]
+    fn airplay_passwords() {
+        let config = Config::parse(
+            "[airplay]\nptp = false\n[airplay.passwords]\napaabbcc001122 = \"secret\"\n",
+        )
+        .unwrap();
+        assert!(!config.airplay.ptp);
+        assert_eq!(config.airplay.passwords["apaabbcc001122"], "secret");
     }
 
     #[test]
