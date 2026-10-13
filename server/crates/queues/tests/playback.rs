@@ -86,11 +86,15 @@ impl Fixture {
 
     fn session(&self) -> QueueSession {
         let out = self.dir.path().join("out.wav");
-        let sinks: Vec<Box<dyn Sink>> = vec![Box::new(WavSink::create(&out, OUTPUT).unwrap())];
+        let sinks: Vec<(String, Box<dyn Sink>)> = vec![(
+            "out".to_owned(),
+            Box::new(WavSink::create(&out, OUTPUT).unwrap()),
+        )];
         let settings = Settings {
             format: SESSION,
             ffmpeg: None,
             ring_frames: 0,
+            realtime: None,
         };
         QueueSession::start(Queue::default(), settings, sinks)
     }

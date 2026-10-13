@@ -5,8 +5,13 @@
 //! the last frame of the one before, and the next track is opened as soon as the current one
 //! starts, so it is ready before it is due. Audio is packed once per distinct output format
 //! and shared by the sinks that take it.
+//!
+//! A real-time session is anchored to the server's clock: whenever playback starts afresh —
+//! the first track, after a jump, a seek or a stop — the write head moves to one lead ahead of
+//! now, so every sink has the lead to get the audio to its speaker. A sink that joins while the
+//! session plays is given the recent audio that is still to play.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
@@ -20,6 +25,7 @@ use crate::format::{OutputFormat, PcmFormat};
 use crate::pack::pack;
 use crate::ring::Ring;
 use crate::sink::Sink;
+use crate::timeline::{Micros, Timeline};
 
 /// A track to play, and where in it to start.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,7 +42,6 @@ pub trait TrackSource: Send + 'static {
     fn next(&mut self) -> Option<TrackRequest>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     /// Moves within the current track.
     Seek(Duration),
@@ -48,6 +53,10 @@ pub enum Command {
     /// Stops playing. A later `Restart` resumes from the source. Events from then on carry
     /// `epoch`.
     Stop { epoch: u64 },
+    /// Adds a sink under `key`, replacing any with the same key.
+    AddSink { key: String, sink: Box<dyn Sink> },
+    /// Stops and removes the sink under `key`.
+    RemoveSink { key: String },
     /// Ends the session.
     Shutdown,
 }
@@ -62,8 +71,12 @@ pub struct Tagged {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    /// The track's first frame is at timeline frame `at`.
-    TrackStarted { id: String, at: u64 },
+    /// The track, from `start` within it, begins at timeline frame `at`.
+    TrackStarted {
+        id: String,
+        at: u64,
+        start: Duration,
+    },
     /// The track's last frame ends at timeline frame `at`.
     TrackEnded { id: String, at: u64 },
     /// The track could not be played and was skipped.
@@ -74,8 +87,18 @@ pub enum Event {
         position: Duration,
         at: u64,
     },
-    /// Nothing is left to play.
+    /// Nothing is left to play; what was written ends at timeline frame `at`.
     Idle { at: u64 },
+}
+
+/// What anchors a session to real time.
+#[derive(Debug, Clone, Copy)]
+pub struct Realtime {
+    pub timeline: Timeline,
+    /// How far ahead of now playback starts.
+    pub lead: Micros,
+    /// The server's clock.
+    pub clock: fn() -> Micros,
 }
 
 pub struct Settings {
@@ -83,8 +106,10 @@ pub struct Settings {
     pub format: PcmFormat,
     /// Used for files Symphonia cannot play gaplessly, when installed.
     pub ffmpeg: Option<PathBuf>,
-    /// How much recent audio to keep for outputs that join late.
+    /// How much recent audio to keep for sinks that join late.
     pub ring_frames: usize,
+    /// `None` runs as fast as the sinks take audio, starting at frame 0, as for files.
+    pub realtime: Option<Realtime>,
 }
 
 pub struct EngineHandle {
@@ -123,7 +148,7 @@ impl Drop for EngineHandle {
 pub fn spawn(
     settings: Settings,
     source: Box<dyn TrackSource>,
-    sinks: Vec<Box<dyn Sink>>,
+    sinks: Vec<(String, Box<dyn Sink>)>,
 ) -> EngineHandle {
     let (commands, inbox) = mpsc::channel();
     let (events, outbox) = async_mpsc::unbounded_channel();
@@ -170,16 +195,10 @@ struct Playing {
     converter: Converter,
 }
 
-struct Group {
-    format: OutputFormat,
-    sinks: Vec<usize>,
-}
-
 struct Engine {
     settings: Settings,
     source: Box<dyn TrackSource>,
-    sinks: Vec<Box<dyn Sink>>,
-    groups: Vec<Group>,
+    sinks: BTreeMap<String, Box<dyn Sink>>,
     events: async_mpsc::UnboundedSender<Tagged>,
     epoch: u64,
     ring: Ring,
@@ -188,34 +207,22 @@ struct Engine {
     current: Option<Playing>,
     prepared: Option<Opened>,
     idle: bool,
+    /// The next track follows on from the last without a break.
+    continuous: bool,
 }
 
 impl Engine {
     fn new(
         settings: Settings,
         source: Box<dyn TrackSource>,
-        sinks: Vec<Box<dyn Sink>>,
+        sinks: Vec<(String, Box<dyn Sink>)>,
         events: async_mpsc::UnboundedSender<Tagged>,
     ) -> Self {
-        let mut by_format: HashMap<OutputFormat, Vec<usize>> = HashMap::new();
-        for (index, sink) in sinks.iter().enumerate() {
-            let format = sink.format();
-            assert_eq!(
-                format.sample_rate, settings.format.sample_rate,
-                "sinks take the session's rate"
-            );
-            by_format.entry(format).or_default().push(index);
-        }
-        let groups = by_format
-            .into_iter()
-            .map(|(format, sinks)| Group { format, sinks })
-            .collect();
         let ring = Ring::new(settings.format.channels, settings.ring_frames);
-        Self {
+        let mut engine = Self {
             settings,
             source,
-            sinks,
-            groups,
+            sinks: BTreeMap::new(),
             events,
             epoch: 0,
             ring,
@@ -223,7 +230,12 @@ impl Engine {
             current: None,
             prepared: None,
             idle: true,
+            continuous: false,
+        };
+        for (key, sink) in sinks {
+            engine.add_sink(key, sink);
         }
+        engine
     }
 
     fn emit(&self, event: Event) {
@@ -261,9 +273,9 @@ impl Engine {
             }
             self.play_chunk();
         }
-        for sink in &mut self.sinks {
+        for (key, sink) in &mut self.sinks {
             if let Err(error) = sink.finish() {
-                tracing::warn!(%error, "an output failed to finish");
+                tracing::warn!(sink = key, %error, "an output failed to finish");
             }
         }
     }
@@ -277,7 +289,9 @@ impl Engine {
                 self.current = None;
                 self.prepared = None;
                 self.idle = false;
-                self.flush();
+                self.continuous = false;
+                self.each_sink("clear", |sink| sink.clear());
+                self.ring.clear();
             }
             Command::NextChanged => {
                 self.prepared = None;
@@ -288,20 +302,65 @@ impl Engine {
                 self.current = None;
                 self.prepared = None;
                 self.idle = true;
-                self.flush();
+                self.continuous = false;
+                self.each_sink("stop", |sink| sink.stop());
+                self.ring.clear();
                 self.emit(Event::Idle { at: self.head });
+            }
+            Command::AddSink { key, sink } => self.add_sink(key, sink),
+            Command::RemoveSink { key } => {
+                if let Some(mut sink) = self.sinks.remove(&key) {
+                    let _ = sink.stop();
+                    let _ = sink.finish();
+                }
             }
             Command::Shutdown => return false,
         }
         true
     }
 
-    fn flush(&mut self) {
-        self.ring.clear();
-        for sink in &mut self.sinks {
-            if let Err(error) = sink.flush() {
-                tracing::warn!(%error, "an output failed to flush");
+    fn add_sink(&mut self, key: String, mut sink: Box<dyn Sink>) {
+        assert_eq!(
+            sink.format().sample_rate,
+            self.settings.format.sample_rate,
+            "sinks take the session's rate"
+        );
+        // While playing, the newcomer gets what is still to play of the recent audio.
+        if self.current.is_some()
+            && let Some(realtime) = self.settings.realtime
+        {
+            let from = realtime
+                .timeline
+                .frame_at((realtime.clock)() + realtime.lead);
+            if let Some(samples) = self.ring.since(from) {
+                let mut packed = Vec::new();
+                pack(&samples, sink.format().bits, &mut packed);
+                if let Err(error) = sink.write(from, &packed) {
+                    tracing::warn!(sink = key, %error, "a joining output failed to take audio");
+                }
             }
+        }
+        if let Some(mut old) = self.sinks.insert(key, sink) {
+            let _ = old.stop();
+            let _ = old.finish();
+        }
+    }
+
+    fn each_sink(&mut self, what: &str, f: impl Fn(&mut dyn Sink) -> std::io::Result<()>) {
+        for (key, sink) in &mut self.sinks {
+            if let Err(error) = f(sink.as_mut()) {
+                tracing::warn!(sink = key, %error, "an output failed to {what}");
+            }
+        }
+    }
+
+    /// Moves the write head to one lead from now, if it is behind that.
+    fn anchor(&mut self) {
+        if let Some(realtime) = self.settings.realtime {
+            let due = realtime
+                .timeline
+                .frame_at((realtime.clock)() + realtime.lead);
+            self.head = self.head.max(due);
         }
     }
 
@@ -315,7 +374,9 @@ impl Engine {
             Ok(_) => {
                 playing.converter = Converter::new(native, self.settings.format);
                 let id = playing.id.clone();
-                self.flush();
+                self.each_sink("clear", |sink| sink.clear());
+                self.ring.clear();
+                self.anchor();
                 self.emit(Event::Seeked {
                     id,
                     position,
@@ -358,21 +419,29 @@ impl Engine {
         let Some(mut opened) = opened else {
             if !self.idle {
                 self.idle = true;
+                self.continuous = false;
+                self.each_sink("drain", |sink| sink.drain());
                 self.emit(Event::Idle { at: self.head });
             }
             return;
         };
         self.idle = false;
+        if !self.continuous {
+            self.anchor();
+        }
+        self.continuous = true;
         let native = opened.decoder.format();
         if !opened.start.is_zero() {
             let frame = (opened.start.as_secs_f64() * f64::from(native.sample_rate)).round() as u64;
             if let Err(error) = opened.decoder.seek(frame) {
                 tracing::warn!(%error, "cannot start mid-track; starting at the beginning");
+                opened.start = Duration::ZERO;
             }
         }
         self.emit(Event::TrackStarted {
             id: opened.id.clone(),
             at: self.head,
+            start: opened.start,
         });
         self.current = Some(Playing {
             id: opened.id,
@@ -408,14 +477,16 @@ impl Engine {
         }
         let at = self.head;
         self.ring.push(at, samples);
-        let mut packed = Vec::new();
-        for group in &self.groups {
-            packed.clear();
-            pack(samples, group.format.bits, &mut packed);
-            for &index in &group.sinks {
-                if let Err(error) = self.sinks[index].write(at, &packed) {
-                    tracing::warn!(%error, "an output failed to take audio");
-                }
+        let mut by_format: HashMap<OutputFormat, Vec<u8>> = HashMap::new();
+        for (key, sink) in &mut self.sinks {
+            let format = sink.format();
+            let packed = by_format.entry(format).or_insert_with(|| {
+                let mut packed = Vec::new();
+                pack(samples, format.bits, &mut packed);
+                packed
+            });
+            if let Err(error) = sink.write(at, packed) {
+                tracing::warn!(sink = key, %error, "an output failed to take audio");
             }
         }
         self.head += (samples.len() / usize::from(self.settings.format.channels)) as u64;

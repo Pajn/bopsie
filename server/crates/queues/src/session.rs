@@ -56,7 +56,7 @@ pub struct QueueSession {
 
 impl QueueSession {
     /// Starts an engine for `queue`, idle until told to play. Needs a Tokio runtime.
-    pub fn start(queue: Queue, settings: Settings, sinks: Vec<Box<dyn Sink>>) -> Self {
+    pub fn start(queue: Queue, settings: Settings, sinks: Vec<(String, Box<dyn Sink>)>) -> Self {
         let queue = Arc::new(Mutex::new(queue));
         let mut handle = engine::spawn(
             settings,

@@ -93,7 +93,10 @@ fn mp4_tracks_play_gaplessly_through_ffmpeg() {
         channels: 2,
         bits: 16,
     };
-    let sinks: Vec<Box<dyn Sink>> = vec![Box::new(WavSink::create(&out, format).unwrap())];
+    let sinks: Vec<(String, Box<dyn Sink>)> = vec![(
+        "out".to_owned(),
+        Box::new(WavSink::create(&out, format).unwrap()),
+    )];
     let tracks = ["a", "b"].map(|name| TrackRequest {
         id: name.to_owned(),
         path: dir.path().join(format!("{name}.m4a")),
@@ -103,6 +106,7 @@ fn mp4_tracks_play_gaplessly_through_ffmpeg() {
         format: SESSION,
         ffmpeg: Some(ffmpeg),
         ring_frames: 0,
+        realtime: None,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);
     handle.send(Command::Restart { epoch: 1 });

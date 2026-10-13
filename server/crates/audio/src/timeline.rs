@@ -1,8 +1,7 @@
 //! A session's timeline: a frame counter at the session's rate, anchored to the server's
 //! monotonic clock. Outputs translate frames into whatever time their protocol speaks.
 
-/// Microseconds on the server's monotonic clock.
-pub type Micros = i64;
+pub use bopsie_core::clock::Micros;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Timeline {

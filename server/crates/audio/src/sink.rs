@@ -12,14 +12,25 @@ pub trait Sink: Send {
     /// Plays `data`, packed in [`Sink::format`], starting at timeline frame `at`. May block
     /// while the sink is full, which is how a sink paces the engine.
     fn write(&mut self, at: u64, data: &[u8]) -> io::Result<()>;
-    /// Drops what was written but has not played. The next write starts a new segment.
-    fn flush(&mut self) -> io::Result<()>;
-    /// No more audio is coming.
+    /// Drops what was written but has not played, as for a seek or a jump to another track.
+    /// Playback continues with the next write.
+    fn clear(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    /// Stops at once, dropping what has not played.
+    fn stop(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    /// Nothing more is coming for now: stop once everything written has played.
+    fn drain(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+    /// The session is over.
     fn finish(&mut self) -> io::Result<()>;
 }
 
-/// Writes everything it is given to a WAV file, as fast as it comes. Flushing drops nothing,
-/// since a file has already "played" all of it.
+/// Writes everything it is given to a WAV file, as fast as it comes. A file has already
+/// "played" everything written to it, so clearing and stopping drop nothing.
 pub struct WavSink {
     format: OutputFormat,
     file: BufWriter<File>,
@@ -65,10 +76,6 @@ impl Sink for WavSink {
     fn write(&mut self, _at: u64, data: &[u8]) -> io::Result<()> {
         self.file.write_all(data)?;
         self.data_bytes += data.len() as u64;
-        Ok(())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 

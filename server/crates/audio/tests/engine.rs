@@ -46,17 +46,19 @@ fn play(dir: &Path, tracks: Vec<TrackRequest>, bits: &[u16]) -> (Vec<Event>, Vec
         .enumerate()
         .map(|(i, _)| dir.join(format!("out{i}.wav")))
         .collect();
-    let sinks: Vec<Box<dyn Sink>> = paths
+    let sinks: Vec<(String, Box<dyn Sink>)> = paths
         .iter()
         .zip(bits)
         .map(|(path, &bits)| {
-            Box::new(WavSink::create(path, output(bits)).unwrap()) as Box<dyn Sink>
+            let sink = Box::new(WavSink::create(path, output(bits)).unwrap()) as Box<dyn Sink>;
+            (path.display().to_string(), sink)
         })
         .collect();
     let settings = Settings {
         format: SESSION,
         ffmpeg: None,
         ring_frames: 44_100,
+        realtime: None,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);
     handle.send(Command::Restart { epoch: 1 });
@@ -121,7 +123,7 @@ fn tracks_join_sample_for_sample() {
     let started: Vec<(String, u64)> = events
         .iter()
         .filter_map(|e| match e {
-            Event::TrackStarted { id, at } => Some((id.clone(), *at)),
+            Event::TrackStarted { id, at, .. } => Some((id.clone(), *at)),
             _ => None,
         })
         .collect();
@@ -156,7 +158,8 @@ fn other_rates_are_converted_to_the_session_rate_exactly() {
     let converted = (4_801f64 * 44_100.0 / 48_000.0).round() as u64;
     assert!(events.contains(&Event::TrackStarted {
         id: "a".to_owned(),
-        at: converted
+        at: converted,
+        start: Duration::ZERO,
     }));
     assert_eq!(data[0].len() as u64, (converted + 1_000) * 4);
     assert_eq!(data[1].len() as u64, (converted + 1_000) * 6, "24-bit");
@@ -214,6 +217,7 @@ fn stopping_and_restarting() {
         format: SESSION,
         ffmpeg: None,
         ring_frames: 0,
+        realtime: None,
     };
     let source = Tracks(vec![request("a", &dir.path().join("a.wav")); 1].into());
     let mut handle = engine::spawn(settings, Box::new(source), Vec::new());
@@ -234,4 +238,148 @@ fn stopping_and_restarting() {
     assert_eq!(restarted.epoch, 3);
     assert!(matches!(restarted.event, Event::Idle { .. }));
     handle.shutdown();
+}
+
+mod realtime {
+    use std::sync::{Arc, Mutex};
+
+    use bopsie_audio::engine::Realtime;
+    use bopsie_audio::timeline::{Micros, Timeline};
+
+    use super::*;
+
+    /// The clock stands still, so frame positions are exact.
+    fn clock() -> Micros {
+        1_000_000
+    }
+
+    const LEAD: Micros = 300_000;
+
+    fn settings() -> Settings {
+        Settings {
+            format: SESSION,
+            ffmpeg: None,
+            ring_frames: 44_100 * 10,
+            realtime: Some(Realtime {
+                timeline: Timeline::new(44_100, 0),
+                lead: LEAD,
+                clock,
+            }),
+        }
+    }
+
+    /// Where each write landed, and how many frames it held.
+    type Writes = Arc<Mutex<Vec<(u64, usize)>>>;
+
+    /// Records where each write lands, slowly, so the session is still playing when another
+    /// sink joins.
+    struct Recorder {
+        writes: Writes,
+        delay: Duration,
+    }
+
+    impl Sink for Recorder {
+        fn format(&self) -> OutputFormat {
+            output(16)
+        }
+
+        fn write(&mut self, at: u64, data: &[u8]) -> std::io::Result<()> {
+            self.writes.lock().unwrap().push((at, data.len() / 4));
+            std::thread::sleep(self.delay);
+            Ok(())
+        }
+
+        fn finish(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn recorder(delay: Duration) -> (Box<dyn Sink>, Writes) {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let sink = Recorder {
+            writes: writes.clone(),
+            delay,
+        };
+        (Box::new(sink), writes)
+    }
+
+    #[test]
+    fn playback_starts_one_lead_ahead_of_now() {
+        let dir = tempfile::tempdir().unwrap();
+        write_wav(&dir.path().join("a.wav"), 44_100, 2, &noise(9, 1_000 * 2)).unwrap();
+        let (sink, writes) = recorder(Duration::ZERO);
+        let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
+        let mut handle = engine::spawn(settings(), Box::new(source), vec![("a".to_owned(), sink)]);
+        handle.send(Command::Restart { epoch: 1 });
+
+        let due = Timeline::new(44_100, 0).frame_at(clock() + LEAD);
+        let started = handle.events.blocking_recv().unwrap().event;
+        assert_eq!(
+            started,
+            Event::TrackStarted {
+                id: "a".to_owned(),
+                at: due,
+                start: Duration::ZERO
+            }
+        );
+        while !matches!(
+            handle.events.blocking_recv().unwrap().event,
+            Event::Idle { .. }
+        ) {}
+        handle.shutdown();
+        let writes = writes.lock().unwrap();
+        assert_eq!(writes[0].0, due);
+        // Contiguous from there.
+        for pair in writes.windows(2) {
+            assert_eq!(pair[0].0 + pair[0].1 as u64, pair[1].0);
+        }
+    }
+
+    #[test]
+    fn a_sink_that_joins_is_given_what_is_still_to_play() {
+        let dir = tempfile::tempdir().unwrap();
+        write_wav(
+            &dir.path().join("a.wav"),
+            44_100,
+            2,
+            &noise(10, 44_100 * 5 * 2),
+        )
+        .unwrap();
+        let (first, _) = recorder(Duration::from_millis(2));
+        let (late, late_writes) = recorder(Duration::ZERO);
+        let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
+        let mut handle = engine::spawn(
+            settings(),
+            Box::new(source),
+            vec![("first".to_owned(), first)],
+        );
+        handle.send(Command::Restart { epoch: 1 });
+        assert!(matches!(
+            handle.events.blocking_recv().unwrap().event,
+            Event::TrackStarted { .. }
+        ));
+        std::thread::sleep(Duration::from_millis(30));
+        handle.send(Command::AddSink {
+            key: "late".to_owned(),
+            sink: late,
+        });
+        while !matches!(
+            handle.events.blocking_recv().unwrap().event,
+            Event::Idle { .. }
+        ) {}
+        handle.shutdown();
+
+        let writes = late_writes.lock().unwrap();
+        let due = Timeline::new(44_100, 0).frame_at(clock() + LEAD);
+        assert_eq!(writes[0].0, due, "replay starts one lead from now");
+        for pair in writes.windows(2) {
+            assert_eq!(
+                pair[0].0 + pair[0].1 as u64,
+                pair[1].0,
+                "and runs on without a gap"
+            );
+        }
+        let end = writes.last().map(|(at, len)| at + *len as u64).unwrap();
+        assert_eq!(end, due + 44_100 * 5);
+    }
 }
