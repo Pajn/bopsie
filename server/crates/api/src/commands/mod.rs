@@ -1,8 +1,9 @@
 //! The commands this server implements.
 
 pub mod auth;
-pub mod empty;
 pub mod music;
+pub mod players;
+pub mod queues;
 
 use crate::command::Registry;
 
@@ -32,7 +33,31 @@ pub fn registry() -> Registry {
         .add::<music::ItemByUri>()
         .add::<music::Search>()
         .add::<music::Sync>()
-        .add::<empty::AllPlayers>()
-        .add::<empty::GetQueue>();
+        .add::<players::All>()
+        .add::<players::Get>()
+        .add::<players::VolumeSet>()
+        .add::<players::VolumeMute>()
+        .add::<players::GroupVolume>()
+        .add::<players::Group>()
+        .add::<players::Ungroup>()
+        .add::<queues::Get>()
+        .add::<queues::GetActiveQueue>()
+        .add::<queues::Items>()
+        .add::<queues::PlayMedia>()
+        .add::<queues::PlayIndex>()
+        .add::<queues::Play>()
+        .add::<queues::Pause>()
+        .add::<queues::PlayPause>()
+        .add::<queues::Stop>()
+        .add::<queues::Next>()
+        .add::<queues::Previous>()
+        .add::<queues::Clear>()
+        .add::<queues::Seek>()
+        .add::<queues::Skip>()
+        .add::<queues::Shuffle>()
+        .add::<queues::Repeat>()
+        .add::<queues::MoveItem>()
+        .add::<queues::DeleteItem>()
+        .add::<queues::Transfer>();
     registry
 }

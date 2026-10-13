@@ -17,7 +17,7 @@ use crate::auth::lifetime::TokenKind;
 use crate::auth::{SetupError, User};
 use crate::command::{Access, Context};
 use crate::commands::auth::{LOGIN_FAILED, UNNAMED_DEVICE};
-use crate::{Api, imageproxy, info, ws};
+use crate::{Api, imageproxy, info, sendspin, ws};
 
 pub fn router(api: Arc<Api>) -> Router {
     Router::new()
@@ -28,6 +28,7 @@ pub fn router(api: Arc<Api>) -> Router {
         .route("/api-docs/commands.json", get(commands_json))
         .route("/ws", get(websocket))
         .route("/imageproxy/{proxy_id}", get(imageproxy::serve))
+        .route("/sendspin", get(sendspin::upgrade))
         .with_state(api)
 }
 

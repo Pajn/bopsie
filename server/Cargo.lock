@@ -241,6 +241,7 @@ dependencies = [
  "bopsie-fixtures",
  "bopsie-library",
  "bopsie-players",
+ "bopsie-players-sendspin",
  "bopsie-providers-filesystem",
  "bopsie-queues",
  "futures",

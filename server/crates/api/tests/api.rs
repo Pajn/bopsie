@@ -1,173 +1,15 @@
 //! The API over real HTTP and WebSocket connections, following the exchanges Bopsie and
 //! Music Assistant's own scripts make.
 
-use std::net::SocketAddr;
-use std::sync::Arc;
+mod common;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use bopsie_api::{Api, MIGRATIONS, commands, router};
-use bopsie_core::config::ServerConfig;
-use bopsie_core::db::Database;
-use bopsie_core::events::EventBus;
-use bopsie_library::Library;
-use bopsie_providers_filesystem::FilesystemProvider;
-use futures::{SinkExt, StreamExt};
+use bopsie_api::router;
 use serde_json::{Value, json};
-use tokio::net::TcpStream;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tower::ServiceExt;
 
-const USERNAME: &str = "bopsie";
-const PASSWORD: &str = "bopsie-test";
-
-struct Server {
-    api: Arc<Api>,
-    addr: SocketAddr,
-    _dir: tempfile::TempDir,
-}
-
-/// A server over the fixture library, not yet scanned.
-async fn start() -> Server {
-    let dir = tempfile::tempdir().unwrap();
-    let music = dir.path().join("music");
-    bopsie_fixtures::write_library(&music, 1).unwrap();
-    let db =
-        Database::open_in_memory(&[MIGRATIONS, &[bopsie_library::MIGRATIONS]].concat()).unwrap();
-    let events = EventBus::default();
-    let provider = Arc::new(FilesystemProvider::new(music));
-    let library = Library::new(
-        db.clone(),
-        events.clone(),
-        vec![provider],
-        dir.path().join("artwork"),
-    );
-    let api = Api::new(
-        db,
-        ServerConfig::default(),
-        library,
-        events,
-        commands::registry(),
-    )
-    .await
-    .unwrap();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(axum::serve(listener, router(api.clone())).into_future());
-    Server {
-        api,
-        addr,
-        _dir: dir,
-    }
-}
-
-/// A server with its library scanned and the test user, and a session token for them.
-async fn start_set_up() -> (Server, String) {
-    let server = start().await;
-    server.api.library.sync().await.unwrap();
-    let (status, body) = server
-        .post(
-            "/setup",
-            None,
-            json!({"username": USERNAME, "password": PASSWORD}),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let token = body["token"].as_str().unwrap().to_owned();
-    (server, token)
-}
-
-impl Server {
-    async fn request(&self, request: Request<Body>) -> (StatusCode, Value, String) {
-        let response = router(self.api.clone()).oneshot(request).await.unwrap();
-        let status = response.status();
-        let auth_header = response
-            .headers()
-            .get(header::WWW_AUTHENTICATE)
-            .map(|v| v.to_str().unwrap().to_owned())
-            .unwrap_or_default();
-        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let body = serde_json::from_slice(&bytes)
-            .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()));
-        (status, body, auth_header)
-    }
-
-    async fn post(&self, path: &str, token: Option<&str>, body: Value) -> (StatusCode, Value) {
-        let mut request = Request::post(path).header(header::CONTENT_TYPE, "application/json");
-        if let Some(token) = token {
-            request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
-        }
-        let (status, body, _) = self
-            .request(request.body(Body::from(body.to_string())).unwrap())
-            .await;
-        (status, body)
-    }
-
-    async fn get(&self, path: &str) -> (StatusCode, Value) {
-        let (status, body, _) = self
-            .request(Request::get(path).body(Body::empty()).unwrap())
-            .await;
-        (status, body)
-    }
-
-    async fn connect(&self) -> Client {
-        let (socket, _) = tokio_tungstenite::connect_async(format!("ws://{}/ws", self.addr))
-            .await
-            .unwrap();
-        let mut client = Client { socket, next_id: 0 };
-        let info = client.receive().await.unwrap();
-        assert!(info.get("server_version").is_some(), "{info}");
-        client
-    }
-}
-
-struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: u32,
-}
-
-impl Client {
-    /// The next frame, or `None` once the server has closed the connection.
-    async fn receive(&mut self) -> Option<Value> {
-        loop {
-            match self.socket.next().await? {
-                Ok(Message::Text(text)) => return Some(serde_json::from_str(&text).unwrap()),
-                Ok(Message::Close(_)) | Err(_) => return None,
-                Ok(_) => {}
-            }
-        }
-    }
-
-    /// Sends a command and returns the frame that answers it.
-    async fn send(&mut self, command: &str, args: Value) -> Value {
-        self.next_id += 1;
-        let message_id = self.next_id.to_string();
-        let frame = json!({"message_id": message_id, "command": command, "args": args});
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        let answer = self.receive().await.expect("an answer");
-        assert_eq!(answer["message_id"], message_id, "{answer}");
-        answer
-    }
-
-    async fn result(&mut self, command: &str, args: Value) -> Value {
-        let answer = self.send(command, args).await;
-        assert_eq!(answer["partial"], false, "{answer}");
-        answer["result"].clone()
-    }
-
-    async fn error_code(&mut self, command: &str, args: Value) -> u64 {
-        let answer = self.send(command, args).await;
-        answer["error_code"]
-            .as_u64()
-            .unwrap_or_else(|| panic!("{command} succeeded: {answer}"))
-    }
-}
+use common::*;
 
 #[tokio::test]
 async fn before_setup_every_door_says_setup_is_required() {
@@ -176,7 +18,11 @@ async fn before_setup_every_door_says_setup_is_required() {
     let (socket, _) = tokio_tungstenite::connect_async(format!("ws://{}/ws", server.addr))
         .await
         .unwrap();
-    let mut client = Client { socket, next_id: 0 };
+    let mut client = Client {
+        socket,
+        next_id: 0,
+        events: Vec::new(),
+    };
     let info = client.receive().await.unwrap();
     assert_eq!(info["schema_version"], 65);
     assert_eq!(info["min_supported_schema_version"], 28);
@@ -641,8 +487,32 @@ async fn info_and_the_command_list_need_no_auth() {
             "music/tracks/count",
             "music/tracks/get",
             "music/tracks/library_items",
+            "player_queues/clear",
+            "player_queues/delete_item",
             "player_queues/get",
+            "player_queues/get_active_queue",
+            "player_queues/items",
+            "player_queues/move_item",
+            "player_queues/next",
+            "player_queues/pause",
+            "player_queues/play",
+            "player_queues/play_index",
+            "player_queues/play_media",
+            "player_queues/play_pause",
+            "player_queues/previous",
+            "player_queues/repeat",
+            "player_queues/seek",
+            "player_queues/shuffle",
+            "player_queues/skip",
+            "player_queues/stop",
+            "player_queues/transfer",
             "players/all",
+            "players/cmd/group",
+            "players/cmd/group_volume",
+            "players/cmd/ungroup",
+            "players/cmd/volume_mute",
+            "players/cmd/volume_set",
+            "players/get",
         ]
     );
 }

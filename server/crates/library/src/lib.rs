@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use bopsie_core::db::Database;
 use bopsie_core::events::{Event, EventBus, EventType};
-use bopsie_core::media::{MediaItem, MediaType, library_uri};
+use bopsie_core::media::{MediaItem, MediaType, Track, library_uri, parse_library_uri};
 use bopsie_core::{Error, Result};
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
@@ -118,6 +118,63 @@ impl Library {
     ) -> Result<Vec<MediaItem>> {
         self.read(move |conn| query::search(conn, media_type, &text, limit))
             .await
+    }
+
+    /// The file the track plays from: the first of its providers that has one.
+    pub async fn track_file(&self, track_id: i64) -> Result<Option<PathBuf>> {
+        let mappings: Vec<(String, String)> = self
+            .read(move |conn| {
+                let mut statement = conn.prepare(
+                    "SELECT provider_instance, provider_item_id FROM provider_mappings
+                     WHERE media_type = 'track' AND item_id = ?1",
+                )?;
+                statement
+                    .query_map([track_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect()
+            })
+            .await?;
+        let providers = self.providers.clone();
+        blocking(move || {
+            mappings.iter().find_map(|(instance, item)| {
+                providers
+                    .iter()
+                    .find(|p| p.instance_id() == instance)?
+                    .file(item)
+            })
+        })
+        .await
+    }
+
+    /// The tracks a `library://` URI stands for, with the files they play from: a track
+    /// itself, an album's or artist's tracks, or a playlist's, in order. Tracks without a file
+    /// are left out.
+    pub async fn playable(&self, uri: &str) -> Result<Vec<(Track, PathBuf)>> {
+        let not_found = || {
+            Error::new(
+                bopsie_core::ErrorCode::MediaNotFound,
+                format!("{uri} not found"),
+            )
+        };
+        let (media_type, id) = parse_library_uri(uri).ok_or_else(not_found)?;
+        let tracks = match media_type {
+            MediaType::Track => match self.item(MediaType::Track, id).await? {
+                Some(MediaItem::Track(track)) => vec![*track],
+                _ => return Err(not_found()),
+            },
+            MediaType::Album => self.album_tracks(id).await?,
+            MediaType::Artist => self.artist_tracks(id).await?,
+            MediaType::Playlist => self.playlist_tracks(id).await?,
+        };
+        let mut playable = Vec::with_capacity(tracks.len());
+        for track in tracks {
+            let Ok(track_id) = track.fields.item_id.parse() else {
+                continue;
+            };
+            if let Some(file) = self.track_file(track_id).await? {
+                playable.push((track, file));
+            }
+        }
+        Ok(playable)
     }
 
     /// The bytes of the image with this proxy id, if the library knows it.

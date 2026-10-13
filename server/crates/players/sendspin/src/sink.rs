@@ -110,17 +110,27 @@ impl SendspinSink {
         Ok(())
     }
 
-    fn send_pending(&mut self, whole_chunks_only: bool) -> io::Result<()> {
-        let chunk_bytes = self.chunk_frames as usize * self.frame_bytes();
-        while self.pending.len() >= chunk_bytes || (!whole_chunks_only && !self.pending.is_empty())
-        {
-            let take = chunk_bytes.min(self.pending.len());
-            let audio: Vec<u8> = self.pending.drain(..take).collect();
+    /// Sends what is pending in chunks cut on a grid of the timeline, so that every client of
+    /// a session gets the same chunks however it joined: a stretch that starts between grid
+    /// lines first sends a short chunk up to the next one. Unless `all`, audio short of the
+    /// next line waits for more.
+    fn send_pending(&mut self, all: bool) -> io::Result<()> {
+        let frame_bytes = self.frame_bytes();
+        loop {
+            let to_line = self.chunk_frames - self.pending_at % self.chunk_frames;
+            let available = (self.pending.len() / frame_bytes) as u64;
+            if available == 0 || (available < to_line && !all) {
+                return Ok(());
+            }
+            let frames = to_line.min(available);
+            let audio: Vec<u8> = self
+                .pending
+                .drain(..frames as usize * frame_bytes)
+                .collect();
             let at = self.pending_at;
-            self.pending_at += (take / self.frame_bytes()) as u64;
+            self.pending_at += frames;
             self.send_chunk(at, &audio)?;
         }
-        Ok(())
     }
 }
 
@@ -141,7 +151,7 @@ impl Sink for SendspinSink {
             self.pending_at = at;
         }
         self.pending.extend_from_slice(data);
-        self.send_pending(true)
+        self.send_pending(false)
     }
 
     fn clear(&mut self) -> io::Result<()> {
@@ -164,7 +174,7 @@ impl Sink for SendspinSink {
     }
 
     fn drain(&mut self) -> io::Result<()> {
-        self.send_pending(false)?;
+        self.send_pending(true)?;
         if !self.started {
             return Ok(());
         }

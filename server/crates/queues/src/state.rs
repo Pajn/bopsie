@@ -393,9 +393,10 @@ impl Queue {
         if self.state != PlaybackState::Playing {
             return Effect::None;
         }
+        // The player still holds what it was handed, as Music Assistant counts it, so those
+        // items stay put until playback starts again.
         self.state = PlaybackState::Paused;
         self.resume_position = position;
-        self.index_in_buffer = None;
         Effect::Pause
     }
 
@@ -434,9 +435,10 @@ impl Queue {
         }
     }
 
+    /// Playback stopped. What the player was handed stays held, as in Music Assistant, until
+    /// playback starts again.
     pub fn stopped(&mut self) {
         self.state = PlaybackState::Idle;
-        self.index_in_buffer = None;
         self.resume_position = Duration::ZERO;
     }
 }
@@ -689,7 +691,7 @@ mod tests {
         let mut queue = playing("abc");
         assert_eq!(queue.pause(Duration::from_secs(7)), Effect::Pause);
         assert_eq!(queue.state, PlaybackState::Paused);
-        assert_eq!(queue.index_in_buffer, None);
+        assert_eq!(queue.index_in_buffer, Some(1), "still held");
         assert_eq!(
             queue.pause(Duration::from_secs(9)),
             Effect::None,

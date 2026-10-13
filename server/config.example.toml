@@ -16,3 +16,13 @@ data_dir = "data"
 [library]
 # Folders of music to scan, at startup and on request.
 folders = []
+
+[sendspin]
+# Address and port for Sendspin clients that connect directly, without an API token. Clients
+# that sign in to the API connect through its /sendspin instead.
+bind = "0.0.0.0:8927"
+
+[audio]
+# The ffmpeg binary, used for AAC and ALAC in MP4 containers and for Opus. Unset, ffmpeg is
+# used if it is on the path.
+# ffmpeg = "/usr/bin/ffmpeg"

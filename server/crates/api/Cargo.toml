@@ -11,6 +11,7 @@ bopsie-audio.workspace = true
 bopsie-library.workspace = true
 bopsie-players.workspace = true
 bopsie-queues.workspace = true
+bopsie-players-sendspin.workspace = true
 argon2.workspace = true
 axum.workspace = true
 futures.workspace = true

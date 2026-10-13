@@ -70,4 +70,6 @@ pub trait MusicProvider: Send + Sync + 'static {
     fn read_playlist(&self, id: &str) -> Result<ScannedPlaylist, ProviderError>;
     /// The bytes of an image named by [`ScannedImage::Path`].
     fn image(&self, path: &str) -> Result<Vec<u8>, ProviderError>;
+    /// The local file a track plays from, if the provider has one.
+    fn file(&self, id: &str) -> Option<std::path::PathBuf>;
 }

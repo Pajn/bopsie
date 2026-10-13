@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use bopsie_core::Error;
-use bopsie_core::events::Event;
+use bopsie_core::events::{Event, EventType};
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -132,6 +132,7 @@ pub async fn serve(api: Arc<Api>, socket: WebSocket) {
             },
             event = next_event(&mut events) => match event {
                 Ok(event) => {
+                    let event = personalize(&api, session.as_ref(), event);
                     let frame = serde_json::to_string(&event).expect("events serialize");
                     if out.send(frame).await.is_err() {
                         break;
@@ -214,6 +215,24 @@ async fn receive(
             }
         }
     });
+}
+
+/// A player event as this connection's user sees it: their own app player is not hidden
+/// from them.
+fn personalize(api: &Api, session: Option<&Session>, mut event: Event) -> Event {
+    let is_player = matches!(
+        event.event,
+        EventType::PlayerAdded | EventType::PlayerUpdated
+    );
+    if let (true, Some(session), Some(id)) = (is_player, session, event.object_id.as_deref())
+        && api.playback.owned_by(id, &session.token_id)
+        && let Some(player) = event.data.as_object_mut()
+    {
+        player.insert("private".to_owned(), Value::Bool(false));
+        player.insert("hide_in_ui".to_owned(), Value::Bool(false));
+        player.insert("hide_player_in_ui".to_owned(), json!([]));
+    }
+    event
 }
 
 /// The next event, or never when the connection is not receiving events.

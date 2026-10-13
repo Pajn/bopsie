@@ -12,6 +12,8 @@ pub struct Config {
     pub server: ServerConfig,
     pub storage: StorageConfig,
     pub library: LibraryConfig,
+    pub sendspin: SendspinConfig,
+    pub audio: AudioConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -38,6 +40,29 @@ pub struct StorageConfig {
 pub struct LibraryConfig {
     /// Folders of music to scan. Each is a filesystem provider of its own.
     pub folders: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SendspinConfig {
+    /// Address and port for Sendspin clients that connect directly, without an API token.
+    /// 8927 is the port Sendspin clients look for.
+    pub bind: SocketAddr,
+}
+
+impl Default for SendspinConfig {
+    fn default() -> Self {
+        Self {
+            bind: SocketAddr::from(([0, 0, 0, 0], 8927)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioConfig {
+    /// The ffmpeg binary. Unset, `ffmpeg` is used if it is on the path.
+    pub ffmpeg: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {

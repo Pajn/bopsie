@@ -251,18 +251,25 @@ async fn a_session_streams_timed_chunks_and_ends_after_the_buffer_plays() {
     handle.shutdown();
 
     let chunks = &client.chunks;
-    assert_eq!(chunks.len(), 40, "one second in 25 ms chunks");
-    assert!(chunks.iter().all(|(_, _, audio)| audio.len() == 4_800));
-    // The first chunk plays one lead after the session started, the rest follow on.
+    let audio: usize = chunks.iter().map(|(_, _, audio)| audio.len()).sum();
+    assert_eq!(audio, 48_000 * 4, "one second of audio");
+    // The first chunk plays one lead after the session started, the rest follow on, in 25 ms
+    // chunks on the timeline's grid after the first.
     let first = chunks[0].1;
     assert!(
         first >= begun + 300_000 && first < begun + 400_000,
         "{}",
         first - begun
     );
-    for (i, (_, timestamp, _)) in chunks.iter().enumerate() {
-        assert_eq!(*timestamp, first + i as i64 * 25_000);
+    for pair in chunks.windows(2) {
+        let duration = (pair[0].2.len() / 4) as i64 * 1_000_000 / 48_000;
+        assert!(
+            (pair[1].1 - (pair[0].1 + duration)).abs() <= 1,
+            "contiguous"
+        );
     }
+    let middle = &chunks[1..chunks.len() - 1];
+    assert!(middle.iter().all(|(_, _, audio)| audio.len() == 4_800));
     // stream/end waits for the last chunk to play.
     assert!(ended >= first + 1_000_000);
 }
@@ -283,7 +290,8 @@ async fn grouped_clients_get_the_same_audio_at_the_same_time() {
     let strip = |c: &Client| -> Vec<(i64, Vec<u8>)> {
         c.chunks.iter().map(|(_, t, a)| (*t, a.clone())).collect()
     };
-    assert_eq!(kitchen.chunks.len(), 20);
+    let audio: usize = kitchen.chunks.iter().map(|(_, _, a)| a.len()).sum();
+    assert_eq!(audio, 24_000 * 4);
     assert!(
         strip(&kitchen) == strip(&bedroom),
         "both play the same audio at the same times"
@@ -303,7 +311,8 @@ async fn never_more_is_outstanding_than_the_client_can_hold() {
     handle.shutdown();
 
     let chunks = &client.chunks;
-    assert_eq!(chunks.len(), 40);
+    let audio: usize = chunks.iter().map(|(_, _, audio)| audio.len()).sum();
+    assert_eq!(audio, 48_000 * 4);
     for (i, (arrived, _, _)) in chunks.iter().enumerate() {
         // Chunks received by now that have not finished playing.
         let outstanding: u64 = chunks[..=i]

@@ -286,6 +286,10 @@ impl MusicProvider for FilesystemProvider {
     fn image(&self, path: &str) -> Result<Vec<u8>, ProviderError> {
         Ok(fs::read(self.resolve(path)?)?)
     }
+
+    fn file(&self, id: &str) -> Option<PathBuf> {
+        self.resolve(id).ok().filter(|path| path.is_file())
+    }
 }
 
 /// Resolves `.` and `..` without touching the filesystem.

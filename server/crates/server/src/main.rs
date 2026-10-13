@@ -6,13 +6,19 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bopsie_api::{Api, commands, router};
+use axum::Router;
+use axum::extract::WebSocketUpgrade;
+use axum::routing::get;
+use bopsie_api::{Api, Services, commands, router};
+use bopsie_audio::decode::find_ffmpeg;
 use bopsie_core::config::Config;
 use bopsie_core::db::Database;
 use bopsie_core::events::EventBus;
 use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
+use bopsie_players::Players;
 use bopsie_providers_filesystem::FilesystemProvider;
+use bopsie_queues::{Config as PlaybackConfig, Playback};
 use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -64,14 +70,39 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         providers,
         config.storage.data_dir.join("artwork"),
     );
-    let api = Api::new(
-        db,
-        config.server.clone(),
-        library.clone(),
+    let ffmpeg = find_ffmpeg(config.audio.ffmpeg.as_deref());
+    match &ffmpeg {
+        Some(path) => tracing::info!(path = %path.display(), "using ffmpeg"),
+        None => tracing::info!("ffmpeg not found; MP4 audio plays without gapless trimming"),
+    }
+    let players = Players::default();
+    let playback = Playback::start(
+        players.clone(),
+        events.clone(),
+        PlaybackConfig {
+            ffmpeg,
+            base_url: config.server.base_url.clone(),
+        },
+    );
+    let services = Services {
+        library: library.clone(),
         events,
-        commands::registry(),
-    )
-    .await?;
+        players,
+        playback,
+    };
+    let api = Api::new(db, config.server.clone(), services, commands::registry()).await?;
+
+    // Sendspin clients that connect directly, without a token.
+    let sendspin = api.sendspin.clone();
+    let direct = Router::new().route(
+        "/sendspin",
+        get(|upgrade: WebSocketUpgrade| async move {
+            upgrade.on_upgrade(move |socket| async move { sendspin.serve(socket, None).await })
+        }),
+    );
+    let sendspin_listener = TcpListener::bind(config.sendspin.bind).await?;
+    tracing::info!(address = %sendspin_listener.local_addr()?, "Sendspin listening");
+    tokio::spawn(axum::serve(sendspin_listener, direct).into_future());
 
     // The API serves the library as it was while the scan catches up.
     tokio::spawn(async move {

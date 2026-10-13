@@ -42,6 +42,11 @@ Playlists are `.m3u` and `.m3u8` files.
 Audio decodes with Symphonia. When ffmpeg is installed, the server uses it for AAC and ALAC in
 MP4 containers and for Opus, which Symphonia cannot play gaplessly or at all.
 
+Players connect over Sendspin. Apps that sign in to the API, like Bopsie, connect to
+`/sendspin` on the API's port with their token, and their player is theirs alone; other
+Sendspin clients connect directly on port 8927. The server plays queues to them alone or in sync
+groups, as Music Assistant does.
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh
