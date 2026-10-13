@@ -120,8 +120,13 @@ export function useOutputActions() {
       /** Makes another player or group the active one. Nothing stops or moves. */
       control: (playerId: string) => choose(playerId),
 
-      setVolume: (playerId: string, level: number) =>
-        send(predictVolume(playerId, level), setVolume(connection, playerId, level)),
+      setVolume: (playerId: string, level: number) => {
+        if (!activeId || !players) return;
+        send(
+          predictVolume(players, activeId, playerId, level),
+          setVolume(connection, playerId, level),
+        );
+      },
 
       setGroupVolume: (level: number) => {
         if (!activeId || !players) return;

@@ -32,7 +32,7 @@ export const player = z.looseObject({
   playback_state: playbackState,
   volume_level: z.nullish(z.number()),
   volume_muted: z.nullish(z.boolean()),
-  /** The average of the members' volumes, for a group player or a sync leader. */
+  /** The loudest member's volume, for a group player or a sync leader. */
   group_volume: z.nullish(z.number()),
   /**
    * A group player's members, or a sync leader's followers with the leader

@@ -8,13 +8,32 @@ import type { PlayerChanges } from './pending';
  * own values replace them as they arrive.
  */
 
-export function predictVolume(playerId: string, level: number): PlayerChanges {
-  return { [playerId]: { volume_level: Math.round(level) } };
+/**
+ * One member's volume. A group's volume is its loudest member's, so the
+ * group follows when this member is or becomes the loudest.
+ */
+export function predictVolume(
+  players: Player[],
+  leaderId: string,
+  playerId: string,
+  level: number,
+): PlayerChanges {
+  const target = Math.round(level);
+  const changes: PlayerChanges = { [playerId]: { volume_level: target } };
+  const leader = players.find((p) => p.player_id === leaderId);
+  const ids = leader ? memberIds(leader) : [];
+  if (!ids.includes(playerId) || ids.length <= 1) return changes;
+  const levels = ids.map((id) =>
+    id === playerId ? target : players.find((p) => p.player_id === id)?.volume_level,
+  );
+  const loudest = Math.max(...levels.filter((v): v is number => typeof v === 'number'));
+  return { ...changes, [leaderId]: { ...changes[leaderId], group_volume: loudest } };
 }
 
 /**
- * The server keeps the members' balance: raising the group moves each member
- * part of the way to 100, lowering it scales each toward 0.
+ * The server keeps the members' balance around the loudest member: raising
+ * the group moves each member part of the way to 100, lowering it scales
+ * each toward 0.
  */
 export function predictGroupVolume(
   players: Player[],
@@ -26,7 +45,7 @@ export function predictGroupVolume(
   if (!leader) return {};
   const target = Math.round(level);
   const ids = memberIds(leader);
-  if (ids.length <= 1) return predictVolume(leaderId, target);
+  if (ids.length <= 1) return { [leaderId]: { volume_level: target } };
 
   const changes: PlayerChanges = { [leaderId]: { group_volume: target } };
   const current = leader.group_volume ?? null;

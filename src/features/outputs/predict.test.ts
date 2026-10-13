@@ -1,5 +1,5 @@
 import { type Player, player } from '@/api/schemas/player';
-import { predictGroupVolume, predictJoin, predictLeave } from './predict';
+import { predictGroupVolume, predictJoin, predictLeave, predictVolume } from './predict';
 
 const make = (id: string, fields: Record<string, unknown> = {}): Player =>
   player.parse({ player_id: id, provider: 'sendspin', name: id, available: true, ...fields });
@@ -15,6 +15,32 @@ const GROUP = [
   make('den', { synced_to: 'kitchen', volume_level: null }),
   make('patio'),
 ];
+
+describe('predictVolume', () => {
+  it('moves the group with its loudest member', () => {
+    expect(predictVolume(GROUP, 'kitchen', 'kitchen', 50)).toEqual({
+      kitchen: { volume_level: 50, group_volume: 50 },
+    });
+  });
+
+  it('leaves the group where it is for a quieter member', () => {
+    expect(predictVolume(GROUP, 'kitchen', 'living', 40)).toEqual({
+      living: { volume_level: 40 },
+      kitchen: { group_volume: 60 },
+    });
+  });
+
+  it('raises the group when a member becomes the loudest', () => {
+    expect(predictVolume(GROUP, 'kitchen', 'living', 75)).toEqual({
+      living: { volume_level: 75 },
+      kitchen: { group_volume: 75 },
+    });
+  });
+
+  it('sets only the player when it is not grouped', () => {
+    expect(predictVolume(GROUP, 'patio', 'patio', 25)).toEqual({ patio: { volume_level: 25 } });
+  });
+});
 
 describe('predictGroupVolume', () => {
   it('raises each member part of the way to 100', () => {
