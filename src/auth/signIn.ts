@@ -15,7 +15,7 @@ export interface SignInInput {
   serverUrl: string;
   username: string;
   password: string;
-  /** Shown in the server's list of sign-ins, such as `Cratie on Android`. */
+  /** Shown in the server's list of sign-ins, such as `Bopsie on Android`. */
   deviceName: string;
 }
 
@@ -45,7 +45,7 @@ export async function signIn(
     const info = anonymous.serverInfo;
     if (!info || info.schema_version < MIN_SCHEMA_VERSION) {
       throw new SignInError(
-        `This server runs Music Assistant ${info?.server_version ?? 'of an unknown version'}. Cratie needs 2.7 or later.`,
+        `This server runs Music Assistant ${info?.server_version ?? 'of an unknown version'}. Bopsie needs 2.7 or later.`,
       );
     }
     const login = await anonymous.command(

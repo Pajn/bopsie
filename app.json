@@ -1,10 +1,11 @@
 {
   "expo": {
-    "name": "Cratie",
-    "slug": "cratie",
+    "name": "Bopsie",
+    "slug": "bopsie",
     "version": "0.1.0",
-    "scheme": "cratie",
+    "scheme": ["bopsie", "cratie"],
     "orientation": "portrait",
+    "icon": "./assets/brand/bopsie-icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {

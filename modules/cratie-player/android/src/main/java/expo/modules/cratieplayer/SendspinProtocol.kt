@@ -61,7 +61,7 @@ object SendspinProtocol {
       .put("supported_roles", JSONArray(listOf("player@v1", "controller@v1", "metadata@v1")))
       .put("device_info", JSONObject()
         .put("product_name", PRODUCT_NAME)
-        .put("manufacturer", "Cratie")
+        .put("manufacturer", "Bopsie")
         .put("software_version", softwareVersion))
       .put("player@v1_support", support)
       // Music Assistant 2.7.0 to 2.7.10 only read the unversioned key.

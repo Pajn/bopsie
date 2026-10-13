@@ -126,7 +126,7 @@ Auth arrived with schema 28 (MA 2.7.0); `min_supported_schema_version` is 28. So
 **Login over WebSocket** (`auth/login`, `authenticated=False`):
 
 ```json
-{"message_id":"1","command":"auth/login","args":{"username":"alice","password":"…","device_name":"Cratie on iPhone"}}
+{"message_id":"1","command":"auth/login","args":{"username":"alice","password":"…","device_name":"Bopsie on iPhone"}}
 ```
 
 - Optional `provider_id` (default `"builtin"`); extra keys are passed to the provider as credentials.

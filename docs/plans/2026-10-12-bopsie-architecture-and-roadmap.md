@@ -1,6 +1,6 @@
-# Cratie: architecture and roadmap
+# Bopsie: architecture and roadmap
 
-Cratie is a [Music Assistant](https://www.music-assistant.io/) client for iOS and Android built
+Bopsie is a [Music Assistant](https://www.music-assistant.io/) client for iOS and Android built
 with React Native and Expo. It is a sister project to Shelfie, the Audiobookshelf client, and
 shares its stack, structure and testing strategy. Where this document is silent, Shelfie's
 architecture document applies.
@@ -36,7 +36,7 @@ timestamped audio frames over a WebSocket. Playing something on the phone is a
 `player_queues/play_media` call on the phone's own queue, which is the same call that later
 plays to any other player.
 
-Cratie speaks Sendspin's unencrypted wire, which every Music Assistant release from 2.7.1 accepts.
+Bopsie speaks Sendspin's unencrypted wire, which every Music Assistant release from 2.7.1 accepts.
 Sendspin 1.0 adds Noise encryption and pairing; Music Assistant serves that from 2.10, but the
 wire names differ between releases. Moving to it is planned once a stable release implements the
 1.0 specification.

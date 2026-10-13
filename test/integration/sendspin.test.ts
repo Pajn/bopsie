@@ -76,7 +76,7 @@ class TestPlayer {
 describeServer('Sendspin player', () => {
   let connection: MaConnection;
   let player: TestPlayer;
-  const clientId = `cratie-test-${randomUUID()}`;
+  const clientId = `bopsie-test-${randomUUID()}`;
 
   beforeAll(async () => {
     const session = await connect();
@@ -101,7 +101,7 @@ describeServer('Sendspin player', () => {
         supported_roles: ['player@v1', 'controller@v1', 'metadata@v1'],
         device_info: {
           product_name: 'Mobile Application',
-          manufacturer: 'Cratie',
+          manufacturer: 'Bopsie',
           software_version: '0.0.0',
         },
         'player@v1_support': support,

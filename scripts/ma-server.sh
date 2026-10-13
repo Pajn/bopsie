@@ -11,15 +11,15 @@
 # Requires docker or podman. Override the defaults through the environment:
 #   MA_IMAGE     container image (default ghcr.io/music-assistant/server:2.10.6)
 #   MA_PORT      host port for the API (default 18095)
-#   MA_USERNAME  user created on first start (default cratie)
-#   MA_PASSWORD  its password (default cratie-test)
+#   MA_USERNAME  user created on first start (default bopsie)
+#   MA_PASSWORD  its password (default bopsie-test)
 set -euo pipefail
 
 MA_IMAGE="${MA_IMAGE:-ghcr.io/music-assistant/server:2.10.6}"
 MA_PORT="${MA_PORT:-18095}"
-MA_USERNAME="${MA_USERNAME:-cratie}"
-MA_PASSWORD="${MA_PASSWORD:-cratie-test}"
-CONTAINER="cratie-ma"
+MA_USERNAME="${MA_USERNAME:-bopsie}"
+MA_PASSWORD="${MA_PASSWORD:-bopsie-test}"
+CONTAINER="bopsie-ma"
 URL="http://127.0.0.1:${MA_PORT}"
 
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -91,7 +91,7 @@ start() {
 
   local token
   token="$(curl -fsS -X POST "$URL/setup" -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$MA_USERNAME\",\"password\":\"$MA_PASSWORD\",\"device_name\":\"cratie-tests\"}" \
+    -d "{\"username\":\"$MA_USERNAME\",\"password\":\"$MA_PASSWORD\",\"device_name\":\"bopsie-tests\"}" \
     | json_field "['token']")"
 
   generate_library

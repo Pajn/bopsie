@@ -43,7 +43,7 @@ const input = {
   serverUrl: 'music.local',
   username: 'alice',
   password: 'hunter22',
-  deviceName: 'Cratie on Android',
+  deviceName: 'Bopsie on Android',
 };
 
 describe('signIn', () => {
@@ -90,7 +90,7 @@ describe('signIn', () => {
   it('refuses servers older than 2.7', async () => {
     const server = fakeServer(() => null, { server_version: '2.6.3', schema_version: 27 });
     await expect(signIn(input, { createSocket: server.createSocket })).rejects.toThrow(
-      'Cratie needs 2.7 or later',
+      'Bopsie needs 2.7 or later',
     );
     expect(server.commands).toEqual([]);
   });

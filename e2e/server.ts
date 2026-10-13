@@ -12,8 +12,8 @@ export const APP_SERVER_URL =
   (device.getPlatform() === 'android'
     ? SERVER_URL.replace('127.0.0.1', '10.0.2.2').replace('localhost', '10.0.2.2')
     : SERVER_URL);
-export const USERNAME = process.env.MA_USERNAME ?? 'cratie';
-export const PASSWORD = process.env.MA_PASSWORD ?? 'cratie-test';
+export const USERNAME = process.env.MA_USERNAME ?? 'bopsie';
+export const PASSWORD = process.env.MA_PASSWORD ?? 'bopsie-test';
 
 let token: string | null = null;
 
@@ -26,7 +26,7 @@ export async function api<T>(command: string, args: Record<string, unknown> = {}
       body: JSON.stringify({
         provider_id: 'builtin',
         credentials: { username: USERNAME, password: PASSWORD },
-        device_name: 'cratie-e2e',
+        device_name: 'bopsie-e2e',
       }),
     });
     token = ((await login.json()) as { token: string }).token;

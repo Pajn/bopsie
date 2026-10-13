@@ -1,10 +1,10 @@
 Pod::Spec.new do |s|
   s.name = 'CratieIcons'
   s.version = '1.0.0'
-  s.summary = 'Synchronous bundled Feather vector icons for Cratie'
+  s.summary = 'Synchronous bundled Feather vector icons for Bopsie'
   s.description = s.summary
   s.license = { :type => 'MIT', :file => '../LICENSE-Feather' }
-  s.author = 'Cratie'
+  s.author = 'Bopsie'
   s.homepage = 'https://github.com/Pajn/cratie'
   s.source = { :git => 'https://github.com/Pajn/cratie.git' }
   s.platforms = { :ios => '16.4' }

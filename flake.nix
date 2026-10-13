@@ -1,5 +1,5 @@
 {
-  description = "Cratie development shell (Node, pnpm, JDK, Android SDK)";
+  description = "Bopsie development shell (Node, pnpm, JDK, Android SDK)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 

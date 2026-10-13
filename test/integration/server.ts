@@ -2,8 +2,8 @@ import { MaConnection, type SocketLike } from '@/api/client';
 import { signIn } from '@/auth/signIn';
 
 export const MA_URL = process.env.MA_URL;
-export const MA_USERNAME = process.env.MA_USERNAME ?? 'cratie';
-export const MA_PASSWORD = process.env.MA_PASSWORD ?? 'cratie-test';
+export const MA_USERNAME = process.env.MA_USERNAME ?? 'bopsie';
+export const MA_PASSWORD = process.env.MA_PASSWORD ?? 'bopsie-test';
 
 /** `describe` when a server is configured, `describe.skip` otherwise. */
 export const describeServer = MA_URL ? describe : describe.skip;
@@ -17,7 +17,7 @@ export function serverUrl(): string {
 }
 
 /** Signs in as the test user and opens an authenticated connection. */
-export async function connect(deviceName = 'Cratie integration tests') {
+export async function connect(deviceName = 'Bopsie integration tests') {
   const { account, token } = await signIn(
     { serverUrl: serverUrl(), username: MA_USERNAME, password: MA_PASSWORD, deviceName },
     { createSocket },

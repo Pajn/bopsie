@@ -29,7 +29,7 @@ const player = createPlayer();
 function deviceName(): string {
   const model =
     Platform.OS === 'android' ? (Platform.constants as { Model?: string }).Model : undefined;
-  return model ? `Cratie on ${model}` : 'Cratie';
+  return model ? `Bopsie on ${model}` : 'Bopsie';
 }
 
 /**

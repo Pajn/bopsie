@@ -6,7 +6,7 @@ import { signIn } from '@/auth/signIn';
 import { describeError } from '@/lib/errors';
 import { Button, InlineError, Screen, Stack, Text, TextField } from '@/ui/primitives';
 
-const DEVICE_NAME = Platform.OS === 'android' ? 'Cratie on Android' : 'Cratie on iOS';
+const DEVICE_NAME = Platform.OS === 'android' ? 'Bopsie on Android' : 'Bopsie on iOS';
 
 export default function SignInScreen() {
   const { addAccount } = useAccountActions();
@@ -48,7 +48,7 @@ export default function SignInScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Stack gap="lg">
             <Stack gap="sm">
-              <Text variant="title">Cratie</Text>
+              <Text variant="title">Bopsie</Text>
               <Text muted>
                 {expired
                   ? 'The server no longer accepts this sign-in. Sign in again to continue.'

@@ -18,7 +18,7 @@ const DEV_CLIENT = process.env.E2E_DEV_CLIENT === '1';
 const METRO_URL = process.env.E2E_METRO_URL ?? 'http://localhost:8081';
 
 /** Deep link that makes the development client load the bundle from Metro. */
-const DEV_CLIENT_URL = `exp+cratie://expo-development-client/?url=${encodeURIComponent(METRO_URL)}`;
+const DEV_CLIENT_URL = `exp+bopsie://expo-development-client/?url=${encodeURIComponent(METRO_URL)}`;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -35,7 +35,7 @@ async function installIfBuildChanged(): Promise<void> {
     ?.binaryPath;
   if (!binaryPath || !existsSync(binaryPath)) return;
   const stamp = `${binaryPath}@${statSync(binaryPath).mtimeMs}`;
-  const marker = join(tmpdir(), `cratie-e2e-installed-${device.id.replace(/[^\w-]+/g, '_')}`);
+  const marker = join(tmpdir(), `bopsie-e2e-installed-${device.id.replace(/[^\w-]+/g, '_')}`);
   if (existsSync(marker) && readFileSync(marker, 'utf8') === stamp) return;
   await device.installApp();
   writeFileSync(marker, stamp);
