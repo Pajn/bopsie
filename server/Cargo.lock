@@ -320,6 +320,7 @@ version = "0.1.0"
 dependencies = [
  "bopsie-audio",
  "bopsie-core",
+ "tokio",
 ]
 
 [[package]]
@@ -336,12 +337,15 @@ dependencies = [
  "axum",
  "bopsie-audio",
  "bopsie-core",
+ "bopsie-fixtures",
  "bopsie-players",
  "futures",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
+ "tokio-tungstenite 0.30.0",
  "tracing",
 ]
 
