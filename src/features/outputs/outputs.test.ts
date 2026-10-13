@@ -113,6 +113,20 @@ describe('describeOutputs', () => {
     ]);
   });
 
+  it('puts unavailable players last, even the phone', () => {
+    const players = [
+      make('attic', { available: false }),
+      make('phone', { available: false }),
+      make('zone'),
+      make('bedroom'),
+    ];
+    expect(describeOutputs(players, 'bedroom', 'phone').others.map((other) => other.id)).toEqual([
+      'zone',
+      'phone',
+      'attic',
+    ]);
+  });
+
   it('shows another group once, through its leader', () => {
     const { others } = describeOutputs(PLAYERS, 'bedroom', 'phone');
     expect(others.map((other) => [other.id, other.name, other.isGroup])).toEqual([
@@ -141,8 +155,8 @@ describe('describeOutputs', () => {
     expect(joinable).toEqual([
       ['phone', true],
       ['kitchen', false],
-      ['office', false],
       ['sonos', false],
+      ['office', false],
     ]);
   });
 

@@ -61,7 +61,7 @@ function leaderId(player: Player): string {
 }
 
 /** Member ids, leader first for a sync group. A player on its own is its only member. */
-function memberIds(leader: Player): string[] {
+export function memberIds(leader: Player): string[] {
   if (leader.type === 'group') return leader.group_members;
   const followers = leader.group_members.filter((id) => id !== leader.player_id);
   return [leader.player_id, ...followers];
@@ -124,7 +124,7 @@ function canJoin(player: Player, leader: Player): boolean {
 
 /**
  * What the output sheet shows: the active group with its members, and every
- * other player or group, the phone first.
+ * other player or group: the phone first and unavailable ones last.
  */
 export function describeOutputs(
   players: Player[],
@@ -187,7 +187,12 @@ export function describeOutputs(
         canJoin: leader ? canJoin(player, leader) : false,
       };
     })
-    .sort((a, b) => Number(b.isPhone) - Number(a.isPhone) || a.name.localeCompare(b.name));
+    .sort(
+      (a, b) =>
+        Number(b.available) - Number(a.available) ||
+        Number(b.isPhone) - Number(a.isPhone) ||
+        a.name.localeCompare(b.name),
+    );
 
   return { active, others };
 }

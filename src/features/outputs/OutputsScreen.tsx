@@ -1,6 +1,6 @@
 import Slider from '@react-native-community/slider';
 import { type ReactNode, useEffect, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { WithImages } from '@/api/schemas/media';
 import { useConnection } from '@/connection/ConnectionProvider';
@@ -139,14 +139,34 @@ function ActiveCard({
           label={grouped ? `Volume of ${active.name}` : 'Volume'}
           onChange={actions.setGroupVolume}
           testID="outputs-volume"
-          trailing={grouped}
+          // Lines the group's slider up with the members'.
+          end={grouped ? <View style={styles.end} /> : null}
         />
       ) : null}
       {grouped
-        ? active.members.map((member) => (
-            <View key={member.id} style={styles.member}>
-              <View style={styles.grow}>
-                <Text variant="label">{member.name}</Text>
+        ? active.members.map((member) => {
+            const remove = member.removable ? (
+              <Pressable
+                onPress={() => actions.remove(member, active.members)}
+                hitSlop={8}
+                style={[styles.end, styles.remove]}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${member.name} from the group`}
+                testID={`member-remove-${member.id}`}
+              >
+                <Icon name="x" size={16} />
+              </Pressable>
+            ) : (
+              <View style={styles.end} />
+            );
+            return (
+              <View key={member.id}>
+                <View style={styles.memberName}>
+                  <Text variant="label" style={styles.grow} numberOfLines={1}>
+                    {member.name}
+                  </Text>
+                  {member.volume === null ? remove : null}
+                </View>
                 {member.volume !== null ? (
                   <Volume
                     value={member.volume}
@@ -154,25 +174,12 @@ function ActiveCard({
                     onChange={(level) => actions.setVolume(member.id, level)}
                     testID={`member-volume-${member.id}`}
                     small
+                    end={remove}
                   />
                 ) : null}
               </View>
-              {member.removable ? (
-                <Pressable
-                  onPress={() => actions.remove(member, active.members)}
-                  hitSlop={8}
-                  style={styles.remove}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${member.name} from the group`}
-                  testID={`member-remove-${member.id}`}
-                >
-                  <Icon name="x" size={16} />
-                </Pressable>
-              ) : (
-                <View style={styles.remove} />
-              )}
-            </View>
-          ))
+            );
+          })
         : null}
     </View>
   );
@@ -185,15 +192,15 @@ function Volume({
   onChange,
   testID,
   small,
-  trailing,
+  end,
 }: {
   value: number;
   label: string;
   onChange: (level: number) => void;
   testID: string;
   small?: boolean;
-  /** Leaves room on the right to line up with the members' remove buttons. */
-  trailing?: boolean;
+  /** Shown after the level, such as a member's remove button. */
+  end?: ReactNode;
 }) {
   const { theme } = useUnistyles();
   const [dragging, setDragging] = useState<number | null>(null);
@@ -201,7 +208,7 @@ function Volume({
   return (
     <View style={styles.volume}>
       <Slider
-        style={styles.grow}
+        style={styles.slider}
         minimumValue={0}
         maximumValue={100}
         step={1}
@@ -221,7 +228,7 @@ function Volume({
       <Text variant="caption" muted style={styles.level}>
         {Math.round(shown)}
       </Text>
-      {trailing ? <View style={styles.remove} /> : null}
+      {end}
     </View>
   );
 }
@@ -293,7 +300,8 @@ function OtherRow({
               title="Move playback here"
               testID="output-move"
               onPress={() => {
-                void actions.move(other.id).then((undo) => undo && onMoved(undo));
+                const undo = actions.move(other.id);
+                if (undo) onMoved(undo);
               }}
             >
               {`The queue moves to ${other.name}. ${active.name} stops.`}
@@ -363,12 +371,14 @@ const styles = StyleSheet.create((theme) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
   grow: { flex: 1 },
   strong: { fontWeight: '600' },
-  member: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  memberName: { flexDirection: 'row', alignItems: 'center', minHeight: 20 },
   volume: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  // Android's slider insets its track by the thumb's radius; this lines the
+  // track up with the names above it.
+  slider: { flex: 1, marginHorizontal: Platform.OS === 'android' ? -14 : 0 },
   level: { width: 28, textAlign: 'right' },
+  end: { width: 32, height: 32 },
   remove: {
-    width: 32,
-    height: 32,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
