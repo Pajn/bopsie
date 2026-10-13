@@ -356,9 +356,17 @@ dependencies = [
 name = "bopsie-queues"
 version = "0.1.0"
 dependencies = [
+ "bopsie-audio",
  "bopsie-core",
+ "bopsie-fixtures",
  "bopsie-library",
  "bopsie-players",
+ "rand 0.10.3",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

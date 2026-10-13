@@ -7,7 +7,7 @@ use std::process::Command as Process;
 use std::time::Duration;
 
 use bopsie_audio::decode::{Decoder, FfmpegDecoder, find_ffmpeg};
-use bopsie_audio::engine::{self, Event, Settings, TrackRequest, TrackSource};
+use bopsie_audio::engine::{self, Command, Event, Settings, TrackRequest, TrackSource};
 use bopsie_audio::sink::{Sink, WavSink};
 use bopsie_audio::{OutputFormat, PcmFormat};
 use bopsie_fixtures::{noise, write_wav};
@@ -105,8 +105,9 @@ fn mp4_tracks_play_gaplessly_through_ffmpeg() {
         ring_frames: 0,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);
+    handle.send(Command::Restart { epoch: 1 });
     while !matches!(
-        handle.events.blocking_recv(),
+        handle.events.blocking_recv().map(|t| t.event),
         Some(Event::Idle { .. }) | None
     ) {}
     handle.shutdown();

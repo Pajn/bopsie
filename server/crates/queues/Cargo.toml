@@ -7,8 +7,18 @@ publish.workspace = true
 
 [dependencies]
 bopsie-core.workspace = true
+bopsie-audio.workspace = true
 bopsie-library.workspace = true
 bopsie-players.workspace = true
+rand.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+bopsie-fixtures.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

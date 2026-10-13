@@ -41,14 +41,23 @@ pub enum Command {
     /// Moves within the current track.
     Seek(Duration),
     /// Abandons the current and prepared tracks and asks the source again, as after the
-    /// listener picks another track.
-    Restart,
+    /// listener picks another track. Events from then on carry `epoch`.
+    Restart { epoch: u64 },
     /// Forgets the prepared next track, because what follows the current one changed.
     NextChanged,
-    /// Stops playing. A later `Restart` resumes from the source.
-    Stop,
+    /// Stops playing. A later `Restart` resumes from the source. Events from then on carry
+    /// `epoch`.
+    Stop { epoch: u64 },
     /// Ends the session.
     Shutdown,
+}
+
+/// An event, with the epoch of the `Restart` or `Stop` it follows, so that a listener can
+/// tell events about what it asked for from ones already on their way before it asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tagged {
+    pub epoch: u64,
+    pub event: Event,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,7 +89,7 @@ pub struct Settings {
 
 pub struct EngineHandle {
     commands: mpsc::Sender<Command>,
-    pub events: async_mpsc::UnboundedReceiver<Event>,
+    pub events: async_mpsc::UnboundedReceiver<Tagged>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -109,7 +118,8 @@ impl Drop for EngineHandle {
     }
 }
 
-/// Starts a session on its own thread.
+/// Starts a session on its own thread. It waits for a `Restart` before it asks the source for
+/// anything.
 pub fn spawn(
     settings: Settings,
     source: Box<dyn TrackSource>,
@@ -170,7 +180,8 @@ struct Engine {
     source: Box<dyn TrackSource>,
     sinks: Vec<Box<dyn Sink>>,
     groups: Vec<Group>,
-    events: async_mpsc::UnboundedSender<Event>,
+    events: async_mpsc::UnboundedSender<Tagged>,
+    epoch: u64,
     ring: Ring,
     /// The timeline frame the next audio is written at.
     head: u64,
@@ -184,7 +195,7 @@ impl Engine {
         settings: Settings,
         source: Box<dyn TrackSource>,
         sinks: Vec<Box<dyn Sink>>,
-        events: async_mpsc::UnboundedSender<Event>,
+        events: async_mpsc::UnboundedSender<Tagged>,
     ) -> Self {
         let mut by_format: HashMap<OutputFormat, Vec<usize>> = HashMap::new();
         for (index, sink) in sinks.iter().enumerate() {
@@ -206,16 +217,20 @@ impl Engine {
             sinks,
             groups,
             events,
+            epoch: 0,
             ring,
             head: 0,
             current: None,
             prepared: None,
-            idle: false,
+            idle: true,
         }
     }
 
     fn emit(&self, event: Event) {
-        let _ = self.events.send(event);
+        let _ = self.events.send(Tagged {
+            epoch: self.epoch,
+            event,
+        });
     }
 
     fn run(mut self, inbox: mpsc::Receiver<Command>) {
@@ -257,7 +272,8 @@ impl Engine {
     fn handle(&mut self, command: Command) -> bool {
         match command {
             Command::Seek(position) => self.seek(position),
-            Command::Restart => {
+            Command::Restart { epoch } => {
+                self.epoch = epoch;
                 self.current = None;
                 self.prepared = None;
                 self.idle = false;
@@ -267,7 +283,8 @@ impl Engine {
                 self.prepared = None;
                 self.idle = false;
             }
-            Command::Stop => {
+            Command::Stop { epoch } => {
+                self.epoch = epoch;
                 self.current = None;
                 self.prepared = None;
                 self.idle = true;

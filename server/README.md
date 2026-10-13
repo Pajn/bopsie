@@ -39,6 +39,9 @@ Music comes from the folders under `[library]`. The server scans them at startup
 `cover`, `folder`, `front` or `album` image beside the tracks, or else the art embedded in them.
 Playlists are `.m3u` and `.m3u8` files.
 
+Audio decodes with Symphonia. When ffmpeg is installed, the server uses it for AAC and ALAC in
+MP4 containers and for Opus, which Symphonia cannot play gaplessly or at all.
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh
@@ -57,8 +60,9 @@ MA_URL=http://localhost:8095 MA_USERNAME=admin MA_PASSWORD=at-least-8-characters
 
 ## Development
 
-Requires a stable Rust toolchain with clippy and rustfmt. The Nix dev shell at the repository
-root provides one. Every command below runs from `server/`.
+Requires a stable Rust toolchain with clippy and rustfmt, and ffmpeg for the tests that decode
+through it (they are skipped without it). The Nix dev shell at the repository root provides
+both. Every command below runs from `server/`.
 
 ```sh
 cargo build

@@ -59,9 +59,14 @@ fn play(dir: &Path, tracks: Vec<TrackRequest>, bits: &[u16]) -> (Vec<Event>, Vec
         ring_frames: 44_100,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);
+    handle.send(Command::Restart { epoch: 1 });
     let mut events = Vec::new();
     loop {
-        let event = handle.events.blocking_recv().expect("the engine runs");
+        let event = handle
+            .events
+            .blocking_recv()
+            .expect("the engine runs")
+            .event;
         let idle = matches!(event, Event::Idle { .. });
         events.push(event);
         if idle {
@@ -212,22 +217,21 @@ fn stopping_and_restarting() {
     };
     let source = Tracks(vec![request("a", &dir.path().join("a.wav")); 1].into());
     let mut handle = engine::spawn(settings, Box::new(source), Vec::new());
+    handle.send(Command::Restart { epoch: 1 });
     // With nothing left the engine idles and waits for commands.
     loop {
-        if let Event::Idle { .. } = handle.events.blocking_recv().unwrap() {
+        if let Event::Idle { .. } = handle.events.blocking_recv().unwrap().event {
             break;
         }
     }
-    handle.send(Command::Stop);
-    assert!(matches!(
-        handle.events.blocking_recv(),
-        Some(Event::Idle { .. })
-    ));
-    handle.send(Command::Restart);
+    handle.send(Command::Stop { epoch: 2 });
+    let stopped = handle.events.blocking_recv().unwrap();
+    assert_eq!(stopped.epoch, 2, "events carry the epoch of the last stop");
+    assert!(matches!(stopped.event, Event::Idle { .. }));
+    handle.send(Command::Restart { epoch: 3 });
     // The source is empty, so a restart idles again at once.
-    assert!(matches!(
-        handle.events.blocking_recv(),
-        Some(Event::Idle { .. })
-    ));
+    let restarted = handle.events.blocking_recv().unwrap();
+    assert_eq!(restarted.epoch, 3);
+    assert!(matches!(restarted.event, Event::Idle { .. }));
     handle.shutdown();
 }
