@@ -7,7 +7,8 @@ use bopsie_core::db::Migrations;
 /// substrings, words for short queries and prefixes.
 pub const MIGRATIONS: Migrations = Migrations {
     component: "library",
-    steps: &["
+    steps: &[
+        "
         CREATE TABLE images (
             proxy_id TEXT PRIMARY KEY,
             provider TEXT NOT NULL,
@@ -99,5 +100,17 @@ pub const MIGRATIONS: Migrations = Migrations {
             media_type UNINDEXED, item_id UNINDEXED, name,
             tokenize = 'unicode61 remove_diacritics 2'
         );
-    "],
+    ",
+        "
+        -- Metadata edited by hand, as JSON: each edited field's value, and for albums and
+        -- artists what it was scanned as. A sync applies them again over what it scanned.
+        CREATE TABLE metadata_edits (
+            media_type TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            edits TEXT NOT NULL,
+            scanned TEXT NOT NULL,
+            PRIMARY KEY (media_type, item_id)
+        ) STRICT;
+    ",
+    ],
 };

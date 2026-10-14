@@ -26,11 +26,11 @@ pub struct Changes {
 }
 
 impl Changes {
-    fn add(&mut self, item: (MediaType, i64)) {
+    pub(crate) fn add(&mut self, item: (MediaType, i64)) {
         self.added.insert(item);
     }
 
-    fn update(&mut self, item: (MediaType, i64)) {
+    pub(crate) fn update(&mut self, item: (MediaType, i64)) {
         if !self.added.contains(&item) {
             self.updated.insert(item);
         }
@@ -103,7 +103,7 @@ fn store_image(tx: &Connection, image: Option<&ImageRef>) -> Result<Option<Strin
     Ok(Some(id))
 }
 
-fn index(tx: &Connection, media_type: MediaType, id: i64, name: &str) -> Result<()> {
+pub(crate) fn index(tx: &Connection, media_type: MediaType, id: i64, name: &str) -> Result<()> {
     unindex(tx, media_type, id)?;
     for table in ["search_trigram", "search_words"] {
         tx.execute(
@@ -177,7 +177,13 @@ fn artist(
     Ok(id)
 }
 
-fn credit(tx: &Connection, table: &str, column: &str, id: i64, artists: &[i64]) -> Result<()> {
+pub(crate) fn credit(
+    tx: &Connection,
+    table: &str,
+    column: &str,
+    id: i64,
+    artists: &[i64],
+) -> Result<()> {
     tx.execute(&format!("DELETE FROM {table} WHERE {column} = ?1"), [id])?;
     for (position, artist_id) in artists.iter().enumerate() {
         tx.execute(
@@ -432,6 +438,7 @@ fn delete_item(
         params![media_type.as_str(), id],
     )?;
     unindex(tx, media_type, id)?;
+    crate::edit::forget(tx, media_type, id)?;
     changes.delete((media_type, id));
     Ok(())
 }

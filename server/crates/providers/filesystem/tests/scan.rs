@@ -338,3 +338,242 @@ async fn tracks_under_an_unreadable_folder_are_kept() {
     assert!(changes.deleted.is_empty(), "{changes:?}");
     assert_eq!(track_count(&f.library).await, before);
 }
+
+fn edits(pairs: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    pairs.as_object().unwrap().clone()
+}
+
+async fn until(mut holds: impl AsyncFnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !holds().await {
+        assert!(tokio::time::Instant::now() < deadline, "never held");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test]
+async fn an_edited_name_is_listed_searched_and_sorted_by_and_resets() {
+    let mut f = fixture();
+    f.library.sync().await.unwrap();
+    drain(&mut f.events);
+    let second = id(&f.library, MediaType::Album, "Second Album").await;
+
+    f.library
+        .edit(
+            MediaType::Album,
+            second,
+            edits(serde_json::json!({"name": "Alpha"})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        list(&f.library, MediaType::Album).await,
+        ["Alpha", "First Album"]
+    );
+    let found = f
+        .library
+        .search(MediaType::Album, "alpha".to_owned(), 10)
+        .await
+        .unwrap();
+    assert_eq!(names(&found), ["Alpha"]);
+    assert_eq!(
+        drain(&mut f.events),
+        [(
+            EventType::MediaItemUpdated,
+            Some(format!("library://album/{second}"))
+        )],
+        "no sync is announced"
+    );
+    assert_eq!(
+        f.library.edits(MediaType::Album, second).await.unwrap(),
+        edits(serde_json::json!({"name": "Alpha"}))
+    );
+
+    // A sync keeps it.
+    f.library.sync().await.unwrap();
+    assert_eq!(
+        list(&f.library, MediaType::Album).await,
+        ["Alpha", "First Album"]
+    );
+
+    f.library
+        .edit(
+            MediaType::Album,
+            second,
+            edits(serde_json::json!({"name": null})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        list(&f.library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+    assert!(
+        f.library
+            .edits(MediaType::Album, second)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn an_edited_track_keeps_its_edits_when_its_file_changes() {
+    let f = fixture();
+    f.library.sync().await.unwrap();
+    let middle = id(&f.library, MediaType::Track, "Middle").await;
+    let first = id(&f.library, MediaType::Album, "First Album").await;
+
+    f.library
+        .edit(
+            MediaType::Track,
+            middle,
+            edits(serde_json::json!({
+                "name": "Centre",
+                "track_number": 9,
+                "disc_number": 2,
+                "artists": [{"name": "Guest"}],
+                "album": {"name": "Singles"},
+            })),
+        )
+        .await
+        .unwrap();
+    let singles = id(&f.library, MediaType::Album, "Singles").await;
+    let tracks = f.library.album_tracks(singles).await.unwrap();
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].fields.name, "Centre");
+    assert_eq!((tracks[0].disc_number, tracks[0].track_number), (2, 9));
+    assert_eq!(tracks[0].artists[0].name, "Guest");
+    assert_eq!(f.library.album_tracks(first).await.unwrap().len(), 2);
+    assert!(
+        list(&f.library, MediaType::Artist)
+            .await
+            .contains(&"Guest".to_owned())
+    );
+
+    // Its file is retagged: what was edited stays, the rest follows the file.
+    let path = f
+        .dir
+        .path()
+        .join("music/Test Artist/First Album/02 - Middle.wav");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Middle Mix".to_owned());
+    tag.set_artist("Test Artist".to_owned());
+    tag.set_album("First Album".to_owned());
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    f.library.sync().await.unwrap();
+    let tracks = f.library.album_tracks(singles).await.unwrap();
+    assert_eq!(tracks.len(), 1, "the edited album outlives the sync");
+    assert_eq!(tracks[0].fields.name, "Centre");
+    assert_eq!(tracks[0].artists[0].name, "Guest");
+
+    // Reset, the name and album are read from the file again.
+    f.library
+        .edit(
+            MediaType::Track,
+            middle,
+            edits(serde_json::json!({"name": null, "album": null})),
+        )
+        .await
+        .unwrap();
+    until(async || {
+        f.library
+            .album_tracks(first)
+            .await
+            .unwrap()
+            .iter()
+            .any(|t| t.fields.name == "Middle Mix")
+    })
+    .await;
+    assert!(
+        !list(&f.library, MediaType::Album)
+            .await
+            .contains(&"Singles".to_owned()),
+        "an album left without tracks goes"
+    );
+    // What is still edited is still applied.
+    let track = f
+        .library
+        .album_tracks(first)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|t| t.fields.name == "Middle Mix")
+        .unwrap();
+    assert_eq!(track.track_number, 9);
+    assert_eq!(track.artists[0].name, "Guest");
+}
+
+#[tokio::test]
+async fn album_art_and_artists_edit_and_reset() {
+    let f = fixture();
+    f.library.sync().await.unwrap();
+    let first = id(&f.library, MediaType::Album, "First Album").await;
+    let second = id(&f.library, MediaType::Album, "Second Album").await;
+    let image = |item: Option<MediaItem>| {
+        let Some(MediaItem::Album(album)) = item else {
+            panic!("an album")
+        };
+        (
+            album.fields.metadata.images.unwrap()[0].proxy_id.clone(),
+            album.artists[0].name().to_owned(),
+        )
+    };
+    let (first_art, _) = image(f.library.item(MediaType::Album, first).await.unwrap());
+    let (second_art, _) = image(f.library.item(MediaType::Album, second).await.unwrap());
+
+    f.library
+        .edit(
+            MediaType::Album,
+            first,
+            edits(serde_json::json!({"image": second_art, "artists": [{"name": "Various"}]})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        image(f.library.item(MediaType::Album, first).await.unwrap()),
+        (second_art.clone(), "Various".to_owned())
+    );
+    f.library
+        .edit(
+            MediaType::Album,
+            first,
+            edits(serde_json::json!({"image": null, "artists": null})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        image(f.library.item(MediaType::Album, first).await.unwrap()),
+        (first_art, "Test Artist".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn edits_that_make_no_sense_are_refused() {
+    let f = fixture();
+    f.library.sync().await.unwrap();
+    let first = id(&f.library, MediaType::Album, "First Album").await;
+    for (media_type, id, change) in [
+        (
+            MediaType::Album,
+            first,
+            serde_json::json!({"track_number": 1}),
+        ),
+        (MediaType::Album, first, serde_json::json!({"name": "  "})),
+        (MediaType::Album, first, serde_json::json!({"year": -1})),
+        (
+            MediaType::Album,
+            first,
+            serde_json::json!({"image": "nothing"}),
+        ),
+        (MediaType::Album, first, serde_json::json!({"artists": []})),
+        (MediaType::Album, 999, serde_json::json!({"name": "x"})),
+    ] {
+        let refused = f.library.edit(media_type, id, edits(change.clone())).await;
+        assert!(refused.is_err(), "{change}");
+    }
+    assert_eq!(
+        list(&f.library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+}

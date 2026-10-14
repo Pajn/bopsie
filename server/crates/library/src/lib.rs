@@ -1,6 +1,7 @@
 //! The SQLite library: schema and migrations, the scanner, FTS5 search, the artwork cache, and
 //! the `MusicProvider` trait with its registry.
 
+pub mod edit;
 pub mod provider;
 pub mod query;
 pub mod scan;
@@ -244,13 +245,15 @@ impl Library {
             .call(|conn| {
                 let tx = conn.transaction()?;
                 let mut pruned = Changes::default();
+                // What was edited by hand is written again over what was scanned.
+                edit::apply_all(&tx)?;
                 scan::prune(&tx, &mut pruned)?;
                 tx.commit()?;
                 Ok(pruned)
             })
             .await?;
         changes.merge(pruned);
-        self.publish(&changes).await?;
+        self.publish(&changes, true).await?;
         tracing::info!(
             added = changes.added.len(),
             updated = changes.updated.len(),
@@ -266,6 +269,62 @@ impl Library {
             failed,
         });
         Ok(changes)
+    }
+
+    /// Edits item `id`: each field of `changes` is set, or with `null` reset to what was
+    /// scanned. See [`edit`] for the fields of each kind of item. Announces what changed.
+    pub async fn edit(
+        &self,
+        media_type: MediaType,
+        id: i64,
+        changes: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<()> {
+        let (touched, outcome) = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut touched = Changes::default();
+                let outcome = match edit::edit(&tx, media_type, id, &changes, now(), &mut touched) {
+                    Ok(outcome) => outcome,
+                    Err(edit::Failure::Refused(error)) => return Ok(Err(error)),
+                    Err(edit::Failure::Db(error)) => return Err(error.into()),
+                };
+                if outcome.rescan {
+                    // Its file is read again at the next sync, which brings back the scan's
+                    // values for what is no longer edited.
+                    tx.execute(
+                        "UPDATE provider_mappings SET stamp = NULL WHERE media_type = ?1 AND item_id = ?2",
+                        rusqlite::params![media_type.as_str(), id],
+                    )?;
+                }
+                // An album or artist an edit left without tracks goes, as after a sync.
+                scan::prune(&tx, &mut touched)?;
+                tx.commit()?;
+                Ok(Ok((touched, outcome)))
+            })
+            .await??;
+        self.publish(&touched, false).await?;
+        if outcome.rescan {
+            let library = self.clone();
+            tokio::spawn(async move {
+                if let Err(error) = library.sync().await {
+                    tracing::warn!(%error, "cannot read an item's file again");
+                }
+            });
+        }
+        Ok(())
+    }
+
+    /// The fields of item `id` that were edited by hand, with their values.
+    pub async fn edits(
+        &self,
+        media_type: MediaType,
+        id: i64,
+    ) -> Result<serde_json::Map<String, serde_json::Value>> {
+        self.db
+            .call(move |conn| Ok(edit::stored(conn, media_type, id)?.edits))
+            .await
+            .map_err(Error::from)
     }
 
     /// Whether a sync is running now.
@@ -455,7 +514,8 @@ impl Library {
         Ok(changes)
     }
 
-    async fn publish(&self, changes: &Changes) -> Result<()> {
+    /// Announces `changes`, and that a sync completed when `synced`.
+    async fn publish(&self, changes: &Changes, synced: bool) -> Result<()> {
         let mut events = Vec::new();
         for (event, items) in [
             (EventType::MediaItemAdded, &changes.added),
@@ -482,11 +542,13 @@ impl Library {
         for event in events {
             self.events.publish(event);
         }
-        self.events.publish(Event {
-            event: EventType::MusicSyncCompleted,
-            object_id: None,
-            data: serde_json::Value::Null,
-        });
+        if synced {
+            self.events.publish(Event {
+                event: EventType::MusicSyncCompleted,
+                object_id: None,
+                data: serde_json::Value::Null,
+            });
+        }
         Ok(())
     }
 }

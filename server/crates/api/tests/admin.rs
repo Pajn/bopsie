@@ -463,3 +463,66 @@ async fn eventually(mut holds: impl FnMut() -> bool) {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
+
+#[tokio::test]
+async fn an_album_edited_by_an_admin_reaches_every_client() {
+    let (server, token) = start_set_up().await;
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let albums = client.result("music/albums/library_items", json!({})).await;
+    let first = albums
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "First Album")
+        .unwrap()["item_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    client
+        .result(
+            "admin/library/update",
+            json!({"media_type": "album", "item_id": first, "changes": {"name": "Debut", "year": 1999}}),
+        )
+        .await;
+    let album = client
+        .result(
+            "music/albums/get",
+            json!({"item_id": first, "provider_instance_id_or_domain": "library"}),
+        )
+        .await;
+    assert_eq!(
+        (album["name"].clone(), album["year"].clone()),
+        (json!("Debut"), json!(1999))
+    );
+    assert_eq!(
+        client
+            .result(
+                "admin/library/edits",
+                json!({"media_type": "album", "item_id": first})
+            )
+            .await,
+        json!({"name": "Debut", "year": 1999})
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !client
+        .events
+        .iter()
+        .any(|e| e["event"] == "media_item_updated" && e["data"]["name"] == "Debut")
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no media_item_updated"
+        );
+        client.result("auth/me", json!({})).await;
+    }
+
+    let code = client
+        .error_code(
+            "admin/library/update",
+            json!({"media_type": "album", "item_id": first, "changes": {"bpm": 120}}),
+        )
+        .await;
+    assert_eq!(code, 3, "invalid data");
+}

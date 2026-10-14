@@ -78,6 +78,8 @@ pub fn registry() -> Registry {
         .add::<admin::Server>()
         .add::<admin::Logs>()
         .add::<settings::PlayerUpdate>()
-        .add::<settings::EndpointUpdate>();
+        .add::<settings::EndpointUpdate>()
+        .add::<settings::LibraryUpdate>()
+        .add::<settings::LibraryEdits>();
     registry
 }

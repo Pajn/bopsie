@@ -467,6 +467,8 @@ async fn info_and_the_command_list_need_no_auth() {
             "admin/devices",
             "admin/endpoint/update",
             "admin/groups",
+            "admin/library/edits",
+            "admin/library/update",
             "admin/logs",
             "admin/player/update",
             "admin/server",

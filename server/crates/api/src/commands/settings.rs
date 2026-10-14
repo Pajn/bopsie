@@ -140,3 +140,76 @@ impl Command for EndpointUpdate {
         Ok(())
     }
 }
+
+fn media_type(name: &str) -> Result<bopsie_core::media::MediaType> {
+    bopsie_core::media::MediaType::parse(name).ok_or_else(|| {
+        invalid(format!(
+            "No media type {name}: artist, album, track or playlist"
+        ))
+    })
+}
+
+fn item_id(id: &str) -> Result<i64> {
+    id.parse()
+        .map_err(|_| invalid(format!("No library item {id}")))
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LibraryUpdateArgs {
+    /// `artist`, `album`, `track` or `playlist`.
+    pub media_type: String,
+    /// The item's library id.
+    pub item_id: String,
+    /// Fields to set, or to reset to what the scan found with `null`. Tracks: `name`,
+    /// `sort_name`, `track_number`, `disc_number`, `album` (`{"id"}` or `{"name", "artists"?}`),
+    /// `artists` (a list of `{"id"}` or `{"name"}`), `image` (a proxy id from `POST
+    /// /artwork`). Albums: `name`, `sort_name`, `year`, `artists`, `image`. Artists: `name`,
+    /// `sort_name`. Playlists: `name`.
+    pub changes: serde_json::Map<String, Value>,
+}
+
+pub struct LibraryUpdate;
+impl Command for LibraryUpdate {
+    const NAME: &'static str = "admin/library/update";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str =
+        "Edit a library item's metadata. Edits outlast a rescan of its file; null resets a field.";
+    type Args = LibraryUpdateArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: LibraryUpdateArgs) -> Result<()> {
+        ctx.api
+            .library
+            .edit(
+                media_type(&args.media_type)?,
+                item_id(&args.item_id)?,
+                args.changes,
+            )
+            .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LibraryEditsArgs {
+    pub media_type: String,
+    pub item_id: String,
+}
+
+pub struct LibraryEdits;
+impl Command for LibraryEdits {
+    const NAME: &'static str = "admin/library/edits";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str = "The fields of a library item edited by hand, with their values.";
+    type Args = LibraryEditsArgs;
+    type Output = serde_json::Map<String, Value>;
+
+    async fn handle(
+        ctx: Context,
+        args: LibraryEditsArgs,
+    ) -> Result<serde_json::Map<String, Value>> {
+        ctx.api
+            .library
+            .edits(media_type(&args.media_type)?, item_id(&args.item_id)?)
+            .await
+    }
+}
