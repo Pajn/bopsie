@@ -81,6 +81,7 @@ async fn start_full(seconds: u32, web: Web) -> Server {
         linkplay: None,
         web,
         ffmpeg: false,
+        logs: Default::default(),
     };
     let api = Api::new(db, Config::default(), services, commands::registry())
         .await

@@ -2,6 +2,7 @@
 //! server sees it, how each group plays, and the server itself. Admins only, and this
 //! server's own: Music Assistant has none of these.
 
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bopsie_audio::OutputFormat;
@@ -12,7 +13,7 @@ use bopsie_library::ListQuery;
 use bopsie_players::planner::{Plan, Strategy};
 use bopsie_players::{Capabilities, Device, Facts, Member};
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::auth::Scope;
@@ -484,6 +485,54 @@ impl Command for Server {
     }
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LogsArgs {
+    /// Only lines after this one, by `seq`. Omitted, the latest lines.
+    #[serde(default)]
+    pub after: Option<u64>,
+    /// At most this many of the newest lines. 500 unless given.
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LogLine {
+    /// Counts up, so a reader asks for what came after the last it has.
+    pub seq: u64,
+    pub unix_ms: u64,
+    pub level: String,
+    /// The module that logged it.
+    pub target: String,
+    pub message: String,
+    pub fields: BTreeMap<String, String>,
+}
+
+pub struct Logs;
+impl Command for Logs {
+    const NAME: &'static str = "admin/logs";
+    const ACCESS: Access = ADMIN;
+    const SUMMARY: &'static str = "The log's latest lines, oldest first: what it prints, from the last 2000 lines the server keeps.";
+    type Args = LogsArgs;
+    type Output = Vec<LogLine>;
+
+    async fn handle(ctx: Context, args: LogsArgs) -> Result<Vec<LogLine>> {
+        Ok(ctx
+            .api
+            .logs
+            .after(args.after.unwrap_or(0), args.limit.unwrap_or(500))
+            .into_iter()
+            .map(|line| LogLine {
+                seq: line.seq,
+                unix_ms: line.unix_ms,
+                level: line.level,
+                target: line.target,
+                message: line.message,
+                fields: line.fields,
+            })
+            .collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -507,7 +556,11 @@ mod tests {
     async fn only_admins_may_read_them() {
         let api = crate::tests::api().await;
         let mut registry = crate::command::Registry::default();
-        registry.add::<Devices>().add::<Groups>().add::<Server>();
+        registry
+            .add::<Devices>()
+            .add::<Groups>()
+            .add::<Server>()
+            .add::<Logs>();
         let user = api
             .auth
             .create_first_admin("alice", "correct horse", None)
@@ -520,7 +573,12 @@ mod tests {
             .await
             .unwrap();
         let mut session = api.auth.authenticate(&token).await.unwrap();
-        for command in ["admin/devices", "admin/groups", "admin/server"] {
+        for command in [
+            "admin/devices",
+            "admin/groups",
+            "admin/server",
+            "admin/logs",
+        ] {
             let admin = Context {
                 api: api.clone(),
                 session: Some(session.clone()),
@@ -528,7 +586,12 @@ mod tests {
             assert!(registry.call(admin, command, json!({})).await.is_ok());
         }
         session.user.role = "user".to_owned();
-        for command in ["admin/devices", "admin/groups", "admin/server"] {
+        for command in [
+            "admin/devices",
+            "admin/groups",
+            "admin/server",
+            "admin/logs",
+        ] {
             let user = Context {
                 api: api.clone(),
                 session: Some(session.clone()),
@@ -537,5 +600,45 @@ mod tests {
             assert_eq!(error.code, ErrorCode::InsufficientPermissions, "{command}");
             assert_eq!(error.details, "This command requires the admin scope");
         }
+    }
+
+    #[tokio::test]
+    async fn the_log_is_read_after_the_last_line_seen() {
+        use tracing_subscriber::layer::SubscriberExt;
+
+        let api = crate::tests::api().await;
+        let subscriber = tracing_subscriber::registry().with(api.logs.clone());
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(speaker = "kitchen", "first");
+            tracing::warn!("second");
+        });
+        let ctx = || Context {
+            api: api.clone(),
+            session: None,
+        };
+        let all = Logs::handle(
+            ctx(),
+            LogsArgs {
+                after: None,
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].message, "first");
+        assert_eq!(all[0].fields["speaker"], "kitchen");
+        assert_eq!(all[1].level, "WARN");
+        let after = Logs::handle(
+            ctx(),
+            LogsArgs {
+                after: Some(all[0].seq),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].message, "second");
     }
 }

@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod events;
+pub mod logtail;
 pub mod media;
 pub mod quirks;
 

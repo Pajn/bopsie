@@ -20,6 +20,7 @@ use bopsie_core::Result;
 use bopsie_core::config::Config;
 use bopsie_core::db::{self, Database, Migrations};
 use bopsie_core::events::EventBus;
+use bopsie_core::logtail::Tail;
 use bopsie_library::Library;
 use bopsie_players::Players;
 use bopsie_players_airplay::AirplayProvider;
@@ -47,6 +48,8 @@ pub struct Services {
     pub web: Web,
     /// Whether ffmpeg was found, for the formats only it decodes.
     pub ffmpeg: bool,
+    /// The log's latest lines.
+    pub logs: Tail,
 }
 
 /// Everything a request handler can reach.
@@ -64,6 +67,7 @@ pub struct Api {
     pub config: Config,
     pub commands: Registry,
     pub ffmpeg: bool,
+    pub logs: Tail,
     /// When the server started, in Unix seconds.
     pub started: u64,
     web: Web,
@@ -102,6 +106,7 @@ impl Api {
             config,
             commands,
             ffmpeg: services.ffmpeg,
+            logs: services.logs,
             started: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -140,6 +145,7 @@ pub(crate) mod tests {
             linkplay: None,
             web: Web::default(),
             ffmpeg: false,
+            logs: Tail::default(),
         };
         Api::new(db, Config::default(), services, Registry::default())
             .await

@@ -65,6 +65,7 @@ pub fn registry() -> Registry {
         .add::<airplay::PairFinish>()
         .add::<admin::Devices>()
         .add::<admin::Groups>()
-        .add::<admin::Server>();
+        .add::<admin::Server>()
+        .add::<admin::Logs>();
     registry
 }

@@ -466,6 +466,7 @@ async fn info_and_the_command_list_need_no_auth() {
         [
             "admin/devices",
             "admin/groups",
+            "admin/logs",
             "admin/server",
             "airplay/pair_finish",
             "airplay/pair_start",

@@ -15,6 +15,7 @@ use bopsie_audio::decode::find_ffmpeg;
 use bopsie_core::config::Config;
 use bopsie_core::db::Database;
 use bopsie_core::events::EventBus;
+use bopsie_core::logtail::Tail;
 use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
 use bopsie_players::planner::Policy;
@@ -28,6 +29,8 @@ use bopsie_queues::{Config as PlaybackConfig, Playback};
 use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// How long shutdown may take, from stopping playback to closing the last connection.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
@@ -43,12 +46,14 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+    // The web UI tails the log: it keeps what the log prints.
+    let logs = Tail::default();
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(tracing_subscriber::fmt::layer())
+        .with(logs.clone())
         .init();
-    match run(Args::parse()).await {
+    match run(Args::parse(), logs).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!("{error}");
@@ -57,7 +62,7 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load(args.config.as_deref())?;
     std::fs::create_dir_all(&config.storage.data_dir)?;
     let migrations = [
@@ -116,6 +121,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         linkplay: linkplay.clone(),
         web: config.web.dir.clone().map_or(Web::Embedded, Web::Dir),
         ffmpeg: ffmpeg_found,
+        logs,
     };
     let api = Api::new(db, config.clone(), services, commands::registry()).await?;
 
