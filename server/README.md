@@ -66,6 +66,16 @@ switches it to its network input, as it would for any app, and leaves it there. 
 ask for a client certificate, as Audio Pro's do, are shown LinkPlay's; see
 [`crates/players/linkplay/NOTICE`](crates/players/linkplay/NOTICE).
 
+A speaker's own controls act on the group it plays in, as the app would: pause pressed on
+one speaker pauses all of them, and play, next, previous and its volume buttons work the same
+way. AirPlay speakers send their controls to the server, which announces itself for them over
+mDNS (`_dacp._tcp`) and listens on the first free port from 39831. LinkPlay devices tell the
+server nothing, so it reads a press from their status: a pause or a play it did not ask for,
+or a switch to another input, seen within a second or so. A device that paused itself is left
+paused, so that its own play resumes the group. Sendspin clients that take the controller
+role, such as Bopsie's player on Android, control their group too, and are told its volume,
+repeat and shuffle. A speaker switched to another source leaves its group, which plays on.
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh

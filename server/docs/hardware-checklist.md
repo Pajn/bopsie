@@ -108,3 +108,19 @@ Each line says what to do, what to hear, and what the log shows when it went rig
     shows unavailable.
 27. **PIN pairing.** On the PIN speaker's page, Pair shows a PIN on the speaker; enter it. The
     speaker becomes available and plays.
+
+### A speaker's own controls
+
+28. **AirPlay buttons.** Group an AirPlay speaker with a LinkPlay speaker and play. Press pause
+    on the AirPlay speaker or its remote: both go quiet, and Bopsie shows the group paused.
+    Press play: both play on. Next skips the group's queue. Log: `the speaker's own controls`
+    with `Pause`, then `Play`.
+29. **LinkPlay buttons.** Play to a LinkPlay speaker and press pause on it or in its app: Bopsie
+    shows the group paused within a couple of seconds, and the speaker stays paused rather
+    than stopped. Press play on it: the group plays on. Log: `the speaker's own controls`.
+30. **Another input.** While a LinkPlay speaker plays in a group, switch it to another input
+    from its remote or app. It leaves the group, which plays on, and stays on the input it
+    went to. Log: `the speaker's own controls` with `Released`.
+31. **A Sendspin controller.** On an Android phone playing from Bopsie, use the notification's
+    controls: pause, play, next and the progress bar act on the group the phone plays in. Log:
+    `the speaker's own controls` with the phone's id.
