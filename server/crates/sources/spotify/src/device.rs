@@ -59,6 +59,8 @@ pub(crate) struct Inner {
     spirc: Mutex<Option<Spirc>>,
     volume: VolumeState,
     task: Mutex<Option<JoinHandle<()>>>,
+    /// Tells the announcing task to stop, so that it says goodbye on the network.
+    stop: tokio::sync::Notify,
 }
 
 /// The app's volume, and what the group last told it, to tell an echo from a change.
@@ -102,6 +104,7 @@ impl ConnectDevice {
                 told: Mutex::default(),
             },
             task: Mutex::default(),
+            stop: tokio::sync::Notify::new(),
         });
         let device = Arc::new(Self {
             inner: inner.clone(),
@@ -118,9 +121,8 @@ impl ConnectDevice {
 
     /// Stops announcing the device and ends its session.
     pub fn shutdown(&self) {
-        if let Some(task) = self.inner.task.lock().unwrap().take() {
-            task.abort();
-        }
+        self.inner.stop.notify_one();
+        self.inner.task.lock().unwrap().take();
         if let Some(spirc) = self.inner.spirc.lock().unwrap().take() {
             let _ = spirc.shutdown();
         }
@@ -245,14 +247,22 @@ async fn run(inner: Weak<Inner>) {
     if let Some(credentials) = cache.as_ref().and_then(Cache::credentials) {
         connect(&device, &session_config, cache.clone(), credentials).await;
     }
-    drop(device);
-    while let Some(credentials) = discovery.next().await {
-        let Some(device) = inner.upgrade() else {
-            return;
+    loop {
+        let credentials = tokio::select! {
+            credentials = discovery.next() => credentials,
+            () = device.stop.notified() => None,
+        };
+        let Some(credentials) = credentials else {
+            break;
         };
         tracing::info!(device = device.id, "picked in the Spotify app");
         connect(&device, &session_config, cache.clone(), credentials).await;
     }
+    tracing::info!(
+        device = device.id,
+        "no longer announced for Spotify Connect"
+    );
+    discovery.shutdown().await;
 }
 
 async fn connect(
