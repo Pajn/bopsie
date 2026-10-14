@@ -105,13 +105,18 @@ impl Default for QueueSession {
 }
 
 impl QueueSession {
-    /// A session for `queue`, with no engine until one is attached.
+    /// A session for `queue`, resting where it says to resume, with no engine until one is
+    /// attached.
     pub fn new(queue: Queue) -> Self {
+        let position = Position {
+            offset: queue.resume_position,
+            since: None,
+        };
         Self {
             queue: Arc::new(Mutex::new(queue)),
             running: Arc::default(),
             epoch: Arc::default(),
-            position: Arc::default(),
+            position: Arc::new(Mutex::new(position)),
             notices: broadcast::channel(256).0,
         }
     }
@@ -171,6 +176,15 @@ impl QueueSession {
         self.send(Command::RemoveSink {
             key: key.to_owned(),
         });
+    }
+
+    /// Puts `queue` in place of an idle one, resting where it says to resume.
+    pub fn replace(&self, queue: Queue) {
+        *self.position.lock().unwrap() = Position {
+            offset: queue.resume_position,
+            since: None,
+        };
+        *self.queue.lock().unwrap() = queue;
     }
 
     /// Runs `f` on the queue and carries out what it asks of the player.

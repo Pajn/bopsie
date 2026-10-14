@@ -7,9 +7,9 @@
 //! is refused, with the planner's reason. Whatever a session reports is passed on as Music
 //! Assistant's events, and to the devices themselves as group state and what is playing.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use bopsie_audio::PcmFormat;
@@ -17,9 +17,11 @@ use bopsie_audio::engine::{Realtime, Settings};
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::backoff::{self, Backoff};
 use bopsie_core::clock;
+use bopsie_core::db::Database;
 use bopsie_core::events::{Event, EventBus, EventType};
 use bopsie_core::media::Track;
 use bopsie_core::{Error, ErrorCode, Result};
+use bopsie_library::Library;
 use bopsie_players::devices::PROTOCOLS;
 use bopsie_players::planner::{self, Plan, Policy, Strategy};
 use bopsie_players::{Change, Device, Devices, Member, NowPlaying};
@@ -30,6 +32,7 @@ use serde_json::{Value, json};
 use crate::model::{self, Grouping, PlayerPlayback, PlayerView};
 use crate::session::{Notice, QueueSession};
 use crate::state::{Effect, PlaybackState, Queue, QueueError, QueueOption, RepeatMode};
+use crate::store::{self, SavedQueue};
 
 /// Recent audio kept for members that join a playing group.
 const RING_SECONDS: usize = 10;
@@ -38,6 +41,10 @@ const MAX_CRASHES: usize = 3;
 const CRASH_WINDOW: Duration = Duration::from_secs(60);
 /// How long a leader may be away and still play on when it comes back.
 const RESUME_WITHIN: Duration = Duration::from_secs(60);
+/// How often what changed is saved.
+const SAVE_EVERY: Duration = Duration::from_secs(1);
+/// How often a playing queue's position is saved.
+const POSITION_EVERY: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -74,6 +81,18 @@ struct Inner {
     crashes: Mutex<BTreeMap<String, Vec<Instant>>>,
     /// Queues paused because their leader went away, and since when.
     absent: Mutex<BTreeMap<String, Instant>>,
+    /// Where what outlasts a restart is kept, once [`Playback::persist`] is called.
+    db: OnceLock<Database>,
+    /// Queues from an earlier run for devices not here yet.
+    restored: Mutex<BTreeMap<String, Queue>>,
+    /// Groups from an earlier run, by member, waiting for their devices.
+    saved_groups: Mutex<BTreeMap<String, String>>,
+    /// Volumes from an earlier run for devices not here yet.
+    saved_volumes: Mutex<BTreeMap<String, (u8, bool)>>,
+    /// What was last written of each queue, without its position, and when.
+    last_saved: Mutex<BTreeMap<String, (SavedQueue, Instant)>>,
+    last_groups: Mutex<Option<BTreeMap<String, String>>>,
+    last_volumes: Mutex<BTreeMap<String, (u8, bool)>>,
     rng: Mutex<StdRng>,
 }
 
@@ -138,6 +157,13 @@ impl Playback {
                 rejoining: Mutex::default(),
                 crashes: Mutex::default(),
                 absent: Mutex::default(),
+                db: OnceLock::new(),
+                restored: Mutex::default(),
+                saved_groups: Mutex::default(),
+                saved_volumes: Mutex::default(),
+                last_saved: Mutex::default(),
+                last_groups: Mutex::default(),
+                last_volumes: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
             }),
         };
@@ -209,7 +235,8 @@ impl Playback {
                 self.player_changed(id);
                 return;
             }
-            let session = QueueSession::default();
+            let restored = self.inner.restored.lock().unwrap().remove(id);
+            let session = QueueSession::new(restored.unwrap_or_default());
             entries.insert(
                 id.to_owned(),
                 Entry {
@@ -235,8 +262,184 @@ impl Playback {
                 follower.on_notice(&queue_id, notice);
             }
         });
+        self.restore_device(id);
         self.publish(EventType::PlayerAdded, id, self.player(id, None));
         self.publish(EventType::QueueAdded, id, self.queue(id));
+    }
+
+    /// Gives a device that appears what an earlier run left for it: its volume, once, and
+    /// the groups it was in, when their other devices are here too.
+    fn restore_device(&self, id: &str) {
+        let volume = self.inner.saved_volumes.lock().unwrap().remove(id);
+        if let Some((volume, muted)) = volume
+            && let Ok((_, member)) = self.active(id)
+        {
+            if member.state.volume != Some(volume) {
+                member.endpoint.set_volume(volume);
+            }
+            if muted && member.state.muted != Some(true) {
+                member.endpoint.set_muted(true);
+            }
+        }
+        let ready: Vec<(String, String)> = self
+            .inner
+            .saved_groups
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(member, leader)| {
+                [member, leader]
+                    .iter()
+                    .all(|d| self.entry(d).is_ok() && self.device(d).is_ok_and(|d| d.available()))
+            })
+            .map(|(m, l)| (m.clone(), l.clone()))
+            .collect();
+        for (member, leader) in ready {
+            self.inner.saved_groups.lock().unwrap().remove(&member);
+            if let Err(error) = self.group(&member, &leader) {
+                tracing::info!(member, leader, %error, "a group from before cannot form again");
+            }
+        }
+    }
+
+    /// Restores what an earlier run kept in `db`, with each queued track as `library` has it
+    /// now, and keeps what changes from now on. Nothing plays on its own: queues come back
+    /// idle where they were.
+    pub async fn persist(&self, db: Database, library: Library) -> Result<()> {
+        let saved = store::load(&db).await?;
+        let mut found: HashMap<String, Option<(Track, PathBuf)>> = HashMap::new();
+        for queue in saved.queues.values() {
+            for item in &queue.items {
+                if !found.contains_key(&item.uri) {
+                    let track = library
+                        .playable(&item.uri)
+                        .await
+                        .ok()
+                        .and_then(|tracks| tracks.into_iter().next());
+                    found.insert(item.uri.clone(), track);
+                }
+            }
+        }
+        for (id, queue) in &saved.queues {
+            let queue = queue.restore(|uri| found.get(uri).cloned().flatten());
+            let existing = self.entry(id).ok();
+            match existing {
+                // A device already here gets its queue now, unless it already has one.
+                Some(entry) => {
+                    let current = entry.session.snapshot();
+                    if current.items.is_empty() && current.state == PlaybackState::Idle {
+                        entry.session.replace(queue);
+                        self.changed(id);
+                    }
+                }
+                None => {
+                    self.inner
+                        .restored
+                        .lock()
+                        .unwrap()
+                        .insert(id.clone(), queue);
+                }
+            }
+        }
+        *self.inner.saved_groups.lock().unwrap() = saved.groups;
+        *self.inner.saved_volumes.lock().unwrap() = saved.volumes;
+        for device in self.inner.devices.all() {
+            self.restore_device(&device.id);
+        }
+        let _ = self.inner.db.set(db);
+        let saver = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(SAVE_EVERY);
+            loop {
+                interval.tick().await;
+                saver.save(false).await;
+            }
+        });
+        Ok(())
+    }
+
+    /// Writes what changed since the last save, or everything with `all`; the position of
+    /// a playing queue at most every [`POSITION_EVERY`].
+    pub async fn save(&self, all: bool) {
+        let Some(db) = self.inner.db.get() else {
+            return;
+        };
+        let entries: Vec<(String, Entry)> = self
+            .inner
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, entry)| (id.clone(), entry.clone()))
+            .collect();
+        let now = Instant::now();
+        for (id, entry) in &entries {
+            let queue = entry.session.snapshot();
+            let saved = SavedQueue::of(&queue, entry.session.position(clock::now()));
+            let unplaced = SavedQueue {
+                position_ms: 0,
+                ..saved.clone()
+            };
+            let due = {
+                let last = self.inner.last_saved.lock().unwrap();
+                match last.get(id) {
+                    None => true,
+                    Some((before, at)) => {
+                        all || *before != unplaced
+                            || (queue.state == PlaybackState::Playing
+                                && now.duration_since(*at) >= POSITION_EVERY)
+                    }
+                }
+            };
+            if !due {
+                continue;
+            }
+            match store::save_queue(db, id.clone(), saved).await {
+                Ok(()) => {
+                    self.inner
+                        .last_saved
+                        .lock()
+                        .unwrap()
+                        .insert(id.clone(), (unplaced, now));
+                }
+                Err(error) => tracing::warn!(queue = id, %error, "cannot save a queue"),
+            }
+        }
+
+        // Groups formed now, and those from before still waiting for their devices.
+        let mut groups: BTreeMap<String, String> = self.inner.saved_groups.lock().unwrap().clone();
+        for (id, entry) in &entries {
+            if let Some(leader) = &entry.synced_to {
+                groups.insert(id.clone(), leader.clone());
+            }
+        }
+        let groups_changed = all || *self.inner.last_groups.lock().unwrap() != Some(groups.clone());
+        if groups_changed {
+            match store::save_groups(db, groups.clone()).await {
+                Ok(()) => *self.inner.last_groups.lock().unwrap() = Some(groups),
+                Err(error) => tracing::warn!(%error, "cannot save groups"),
+            }
+        }
+
+        let volumes: BTreeMap<String, (u8, bool)> = entries
+            .iter()
+            .filter_map(|(id, _)| {
+                let (_, member) = self.active(id).ok()?;
+                Some((
+                    id.clone(),
+                    (member.state.volume?, member.state.muted.unwrap_or(false)),
+                ))
+            })
+            .filter(|(id, volume)| {
+                all || self.inner.last_volumes.lock().unwrap().get(id) != Some(volume)
+            })
+            .collect();
+        if !volumes.is_empty() {
+            match store::save_volumes(db, volumes.clone()).await {
+                Ok(()) => self.inner.last_volumes.lock().unwrap().extend(volumes),
+                Err(error) => tracing::warn!(%error, "cannot save volumes"),
+            }
+        }
     }
 
     fn player_changed(&self, id: &str) {
@@ -251,6 +454,7 @@ impl Playback {
         // that went away for a moment plays on.
         if available && was == Some(false) {
             self.reconnect(id);
+            self.restore_device(id);
             let paused = self.inner.absent.lock().unwrap().remove(id);
             if paused.is_some_and(|since| since.elapsed() < RESUME_WITHIN)
                 && let Ok(entry) = self.entry(id)

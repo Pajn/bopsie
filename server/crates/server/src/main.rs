@@ -63,6 +63,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             bopsie_library::MIGRATIONS,
             bopsie_players_airplay::MIGRATIONS,
             bopsie_players::devices::MIGRATIONS,
+            bopsie_queues::store::MIGRATIONS,
         ],
     ]
     .concat();
@@ -99,6 +100,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             },
         },
     );
+    playback.persist(db.clone(), library.clone()).await?;
     let airplay = start_airplay(&config, players.clone(), db.clone()).await;
     let services = Services {
         library: library.clone(),

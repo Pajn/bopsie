@@ -8,6 +8,7 @@ pub mod model;
 pub mod playback;
 pub mod session;
 pub mod state;
+pub mod store;
 
 pub use playback::{Config, Playback, QueueCommand};
 pub use session::{Notice, Position, QueueSession};

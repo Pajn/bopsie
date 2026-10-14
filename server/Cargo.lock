@@ -395,6 +395,7 @@ dependencies = [
  "bopsie-library",
  "bopsie-players",
  "rand 0.10.3",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

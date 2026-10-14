@@ -96,6 +96,24 @@ pub struct Queue {
 }
 
 impl Queue {
+    /// A queue of `items` as it was kept, idle, resting on `current_index`.
+    pub fn restored(
+        items: Vec<QueueItem>,
+        current_index: Option<usize>,
+        shuffle_enabled: bool,
+        repeat_mode: RepeatMode,
+    ) -> Self {
+        let next_sort_index = items.iter().map(|item| item.sort_index).max().unwrap_or(0);
+        Self {
+            items,
+            current_index,
+            shuffle_enabled,
+            repeat_mode,
+            next_sort_index,
+            ..Self::default()
+        }
+    }
+
     pub fn index_of(&self, queue_item_id: &str) -> Option<usize> {
         self.items
             .iter()

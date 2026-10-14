@@ -11,6 +11,7 @@ bopsie-audio.workspace = true
 bopsie-library.workspace = true
 bopsie-players.workspace = true
 rand.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

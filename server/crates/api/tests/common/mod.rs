@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod speaker;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 
