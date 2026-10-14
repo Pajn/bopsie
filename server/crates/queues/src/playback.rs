@@ -36,6 +36,8 @@ const RING_SECONDS: usize = 10;
 /// Crashes of one queue's engine within [`CRASH_WINDOW`] after which it stops.
 const MAX_CRASHES: usize = 3;
 const CRASH_WINDOW: Duration = Duration::from_secs(60);
+/// How long a leader may be away and still play on when it comes back.
+const RESUME_WITHIN: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -70,6 +72,8 @@ struct Inner {
     rejoining: Mutex<BTreeSet<String>>,
     /// When each queue's engine recently crashed.
     crashes: Mutex<BTreeMap<String, Vec<Instant>>>,
+    /// Queues paused because their leader went away, and since when.
+    absent: Mutex<BTreeMap<String, Instant>>,
     rng: Mutex<StdRng>,
 }
 
@@ -133,6 +137,7 @@ impl Playback {
                 backoffs: Mutex::default(),
                 rejoining: Mutex::default(),
                 crashes: Mutex::default(),
+                absent: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
             }),
         };
@@ -242,9 +247,20 @@ impl Playback {
             .lock()
             .unwrap()
             .insert(id.to_owned(), available);
-        // A device that comes back gets a new sink in the group it plays in.
+        // A device that comes back gets a new sink in the group it plays in, and a leader
+        // that went away for a moment plays on.
         if available && was == Some(false) {
             self.reconnect(id);
+            let paused = self.inner.absent.lock().unwrap().remove(id);
+            if paused.is_some_and(|since| since.elapsed() < RESUME_WITHIN)
+                && let Ok(entry) = self.entry(id)
+                && entry.session.snapshot().state == PlaybackState::Paused
+            {
+                tracing::info!(queue = id, "the group's leader is back; playing on");
+                if let Err(error) = self.begin(id, |q, _| ((), q.play())) {
+                    tracing::warn!(queue = id, %error, "cannot play on");
+                }
+            }
         }
         // A leader that goes leaves its group with nothing to follow: it pauses where it was.
         if !available
@@ -255,6 +271,11 @@ impl Playback {
         {
             tracing::warn!(queue = id, "the group's leader is gone; pausing");
             entry.session.pause();
+            self.inner
+                .absent
+                .lock()
+                .unwrap()
+                .insert(id.to_owned(), Instant::now());
         }
         self.publish(EventType::PlayerUpdated, id, self.player(id, None));
         self.publish(EventType::QueueUpdated, id, self.queue(id));
@@ -607,6 +628,7 @@ impl Playback {
         let leader = self
             .leader_of(queue_id)
             .ok_or_else(|| not_found(queue_id))?;
+        self.inner.absent.lock().unwrap().remove(&leader);
         let session = self.entry(&leader)?.session;
         let value = session.update(|queue| f(queue, &mut self.inner.rng.lock().unwrap()));
         self.changed(&leader);
@@ -702,6 +724,8 @@ impl Playback {
         let leader = self
             .leader_of(queue_id)
             .ok_or_else(|| not_found(queue_id))?;
+        // Whatever the user asks for replaces playing on when the leader comes back.
+        self.inner.absent.lock().unwrap().remove(&leader);
         let session = self.entry(&leader)?.session;
         match command {
             QueueCommand::Play => self.begin(&leader, |q, _| ((), q.play()))?,

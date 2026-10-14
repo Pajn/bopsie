@@ -13,7 +13,7 @@ use bopsie_core::clock;
 
 use bopsie_players::health::Event;
 
-use crate::connection::{Outgoing, Shared};
+use crate::connection::Shared;
 use crate::pacer::Pacer;
 use crate::wire::{self, AUDIO_HEADER_BYTES, Codec, StreamFormat};
 
@@ -37,6 +37,8 @@ pub struct SendspinSink {
     generation: u64,
     /// When the last chunk sent ends.
     last_end: Micros,
+    /// The client's buffer, in bytes: the most audio the socket may hold for it.
+    capacity: u64,
     /// How much later than the timeline this client plays, from its `sync_adjust_ms` quirk.
     adjust: Micros,
 }
@@ -67,6 +69,7 @@ impl SendspinSink {
             started: false,
             generation: 0,
             last_end: 0,
+            capacity,
             adjust,
         }
     }
@@ -94,7 +97,7 @@ impl SendspinSink {
         let duration = self.timeline.instant_of(at + frames) + self.adjust - timestamp;
         let bytes = (AUDIO_HEADER_BYTES + audio.len()) as u64;
         loop {
-            if self.shared.out.is_closed() {
+            if self.shared.audio.is_closed() {
                 return Err(io::Error::from(io::ErrorKind::BrokenPipe));
             }
             let now = clock::now();
@@ -106,6 +109,16 @@ impl SendspinSink {
                 }
             }
         }
+        // The socket holds no more than the client could: one that cannot keep up makes the
+        // session wait, as a full buffer does, rather than queue without end.
+        while self.shared.queued.load(Ordering::SeqCst) + bytes > self.capacity
+            && timestamp + duration > clock::now()
+        {
+            if self.shared.audio.is_closed() {
+                return Err(io::Error::from(io::ErrorKind::BrokenPipe));
+            }
+            std::thread::sleep(Duration::from_micros(POLL as u64 / 10));
+        }
         if timestamp + duration <= clock::now() {
             // Too late to play; the client would drop it.
             tracing::debug!(client = self.shared.id, "dropping a late chunk");
@@ -114,10 +127,8 @@ impl SendspinSink {
                 .record(&self.shared.id, Event::LateChunk);
             return Ok(());
         }
-        let _ = self
-            .shared
-            .out
-            .send(Outgoing::Binary(wire::audio_chunk(timestamp, audio)));
+        self.shared.queued.fetch_add(bytes, Ordering::SeqCst);
+        let _ = self.shared.audio.send(wire::audio_chunk(timestamp, audio));
         self.pacer.sent(timestamp, duration, bytes);
         self.last_end = timestamp + duration;
         Ok(())

@@ -14,7 +14,7 @@ use bopsie_audio::{OutputFormat, PcmFormat};
 use bopsie_core::clock;
 use bopsie_fixtures::{noise, write_wav};
 use bopsie_players::{Change, Players};
-use bopsie_players_sendspin::SendspinServer;
+use bopsie_players_sendspin::{SILENCE_LIMIT, SendspinServer};
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -30,10 +30,16 @@ async fn start() -> (SocketAddr, Players) {
 }
 
 async fn start_with(players: Players) -> (SocketAddr, Players) {
+    start_listening(players, SILENCE_LIMIT).await
+}
+
+/// A server that takes a client that says nothing for `silence_limit` as gone.
+async fn start_listening(players: Players, silence_limit: Duration) -> (SocketAddr, Players) {
     let server = SendspinServer {
         players: players.clone(),
         server_id: "server-1".to_owned(),
         name: "Test server".to_owned(),
+        silence_limit,
     };
     let app = Router::new()
         .route("/sendspin", get(serve))
@@ -386,4 +392,19 @@ async fn a_client_whose_connection_drops_is_counted() {
     while changes.recv().await.unwrap() != Change::Updated("phone".to_owned()) {}
     let health = players.health("phone");
     assert_eq!(health.counts[&bopsie_players::health::Event::Dropped], 1);
+}
+
+#[tokio::test]
+async fn a_client_that_goes_silent_is_taken_as_gone() {
+    let (addr, players) = start_listening(Players::default(), Duration::from_millis(400)).await;
+    // Connected, then never reads again, so never answers a ping.
+    let _client = Client::connect(addr, "phone", 1_048_576).await;
+    registered(&players, "phone").await;
+    assert!(players.get("phone").unwrap().state().available);
+    tokio::time::sleep(Duration::from_millis(1_000)).await;
+    assert!(!players.get("phone").unwrap().state().available);
+    assert_eq!(
+        players.health("phone").counts[&bopsie_players::health::Event::Dropped],
+        1
+    );
 }

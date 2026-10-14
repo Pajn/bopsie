@@ -526,4 +526,14 @@ async fn a_group_whose_leader_goes_pauses() {
         |q| q["state"] == "paused",
     )
     .await;
+    // Back within a minute, it plays on.
+    kitchen.available.store(true, Ordering::SeqCst);
+    server.players.changed("kitchen");
+    until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["state"] == "playing",
+    )
+    .await;
 }

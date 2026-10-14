@@ -2,7 +2,7 @@
 //! to it.
 
 use std::net::IpAddr;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -26,12 +26,16 @@ use crate::wire::{self, ClientHello, ClientMessage, Codec, Metadata, Progress};
 const HELLO_TIMEOUT: Duration = Duration::from_secs(10);
 /// The least lead the server gives any client, whatever it asks for.
 const MIN_LEAD_MS: u32 = 150;
+/// How often a client is pinged, so that one that went away without closing is noticed.
+const PING_EVERY: Duration = Duration::from_secs(5);
+/// How long a client may say nothing, not even answer a ping, before it is taken as gone.
+pub const SILENCE_LIMIT: Duration = Duration::from_secs(15);
 /// The roles this server takes on with a client, of those it supports.
 const ROLES: &[&str] = &["player@v1", "metadata@v1"];
 
+/// What goes to a client besides audio, which goes first.
 pub(crate) enum Outgoing {
     Text(String),
-    Binary(Vec<u8>),
     /// A time reply, stamped as it leaves.
     Time {
         client_transmitted: i64,
@@ -76,6 +80,10 @@ impl ClientInfo {
 pub(crate) struct Shared {
     pub id: String,
     pub out: mpsc::UnboundedSender<Outgoing>,
+    /// Audio chunks, each a whole binary message.
+    pub audio: mpsc::UnboundedSender<Vec<u8>>,
+    /// Bytes of audio given to the socket and not yet written.
+    pub queued: Arc<AtomicU64>,
     pub info: Mutex<ClientInfo>,
     /// Counts streams started, so a delayed `stream/end` does not end a newer stream.
     pub generation: AtomicU64,
@@ -217,6 +225,8 @@ pub struct SendspinServer {
     pub players: Players,
     pub server_id: String,
     pub name: String,
+    /// How long a client may say nothing before it is taken as gone: [`SILENCE_LIMIT`].
+    pub silence_limit: Duration,
 }
 
 impl SendspinServer {
@@ -231,19 +241,42 @@ impl SendspinServer {
     ) {
         let (mut sink, mut stream) = socket.split();
         let (out, mut outbox) = mpsc::unbounded_channel::<Outgoing>();
+        let (audio, mut audio_box) = mpsc::unbounded_channel::<Vec<u8>>();
+        let queued = Arc::new(AtomicU64::new(0));
+        let written = queued.clone();
         let writer = tokio::spawn(async move {
-            while let Some(outgoing) = outbox.recv().await {
-                let message = match outgoing {
-                    Outgoing::Text(text) => Message::Text(text.into()),
-                    Outgoing::Binary(bytes) => Message::Binary(bytes.into()),
-                    Outgoing::Time {
-                        client_transmitted,
-                        received,
-                    } => Message::Text(
-                        wire::server_time(client_transmitted, received, clock::now()).into(),
-                    ),
+            let mut ping = tokio::time::interval(PING_EVERY);
+            loop {
+                // Everything else goes ahead of audio, time replies above all, so that a
+                // backed-up socket does not distort the client's clock.
+                let (message, audio_bytes) = tokio::select! {
+                    biased;
+                    outgoing = outbox.recv() => match outgoing {
+                        Some(Outgoing::Text(text)) => (Message::Text(text.into()), 0),
+                        Some(Outgoing::Time {
+                            client_transmitted,
+                            received,
+                        }) => (
+                            Message::Text(
+                                wire::server_time(client_transmitted, received, clock::now())
+                                    .into(),
+                            ),
+                            0,
+                        ),
+                        None => break,
+                    },
+                    chunk = audio_box.recv() => match chunk {
+                        Some(chunk) => {
+                            let bytes = chunk.len() as u64;
+                            (Message::Binary(chunk.into()), bytes)
+                        }
+                        None => break,
+                    },
+                    _ = ping.tick() => (Message::Ping(Vec::new().into()), 0),
                 };
-                if sink.send(message).await.is_err() {
+                let sent = sink.send(message).await;
+                written.fetch_sub(audio_bytes, Ordering::SeqCst);
+                if sent.is_err() {
                     break;
                 }
             }
@@ -277,6 +310,8 @@ impl SendspinServer {
         let shared = Arc::new(Shared {
             id: id.clone(),
             out,
+            audio,
+            queued,
             info: Mutex::new(ClientInfo {
                 name: hello.name.clone(),
                 hello: hello.clone(),
@@ -298,7 +333,15 @@ impl SendspinServer {
         let mut said_goodbye = false;
         tracing::info!(client = id, name = hello.name, "Sendspin client connected");
 
-        while let Some(Ok(message)) = stream.next().await {
+        loop {
+            let message = match tokio::time::timeout(self.silence_limit, stream.next()).await {
+                Ok(Some(Ok(message))) => message,
+                Ok(_) => break,
+                Err(_) => {
+                    tracing::info!(client = id, "a Sendspin client went silent; dropping it");
+                    break;
+                }
+            };
             let received = clock::now();
             let Message::Text(text) = message else {
                 if matches!(message, Message::Close(_)) {

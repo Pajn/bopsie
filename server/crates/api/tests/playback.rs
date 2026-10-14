@@ -80,6 +80,10 @@ impl Player {
         player
     }
 
+    fn send_raw(&self, message: Message) {
+        let _ = self.outgoing.send(message);
+    }
+
     fn send(&self, message: Value) {
         let _ = self.outgoing.send(Message::text(message.to_string()));
     }
@@ -486,4 +490,46 @@ async fn the_queue_sheet_edits_around_what_the_player_holds() {
         |q| q["current_item"]["queue_item_id"] == target.as_str(),
     )
     .await;
+}
+
+#[tokio::test]
+async fn a_phone_that_reconnects_mid_song_plays_on() {
+    let (server, token) = start_set_up_with(10).await;
+    let phone = Player::join(server.addr, &token, "phone", "Test phone").await;
+    let mut client = signed_in(&server, &token).await;
+    until(
+        &mut client,
+        "players/get",
+        json!({"player_id": "phone"}),
+        |p| p["available"] == true,
+    )
+    .await;
+    let album = album_uri(&mut client, "First Album").await;
+    client
+        .result(
+            "player_queues/play_media",
+            json!({"queue_id": "phone", "media": album, "option": "replace"}),
+        )
+        .await;
+    phone.message("stream/start", |_| true).await;
+
+    // The connection drops without a goodbye; the phone comes back as the same player.
+    phone.send_raw(Message::Close(None));
+    until(
+        &mut client,
+        "players/get",
+        json!({"player_id": "phone"}),
+        |p| p["available"] == false,
+    )
+    .await;
+    let again = Player::join(server.addr, &token, "phone", "Test phone").await;
+    again.message("stream/start", |_| true).await;
+    eventually(|| (again.chunk_count() > 10).then_some(()))
+        .await
+        .unwrap();
+    let queue = client
+        .result("player_queues/get", json!({"queue_id": "phone"}))
+        .await;
+    assert_eq!(queue["state"], "playing");
+    assert_eq!(queue["current_index"], 0, "the same song plays on");
 }
