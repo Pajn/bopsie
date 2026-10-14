@@ -376,9 +376,8 @@ means follower; otherwise `getSlaveList` decides leader or solo
   §3.3). A LinkPlay group can share a timeline with Sendspin players only through a leader input
   the server times, which today means AirPlay.
 
-For the two devices in question: neither advertised `_airplay._tcp` or `_raop._tcp` when browsed
-(the WiiM Amp Pro has no AirPlay in WiiM's spec table; the Audio Pro A28 W's product page lists
-AirPlay 2, but this unit did not announce it). Without AirPlay on either, they can share a timeline
+For the two devices in question: the WiiM Amp Pro has no AirPlay; the Audio Pro A28 has it but
+withdraws it while it follows another LinkPlay device (Part 7), as it did when first browsed. Without AirPlay on either, they can share a timeline
 only with each other, through native multiroom, and the server reaches them only through LinkPlay
 itself: UPnP for audio, the HTTP API for control and grouping.
 
@@ -425,9 +424,11 @@ Audio Pro A28 (firmware 1.56.634247, `wmrm_version` 4.2) in a native group the o
   `unknown command` on it, as pywiim's MkII profile says.
 - **A 4.3 leader carries a 4.2 follower.** The follower's `getStatusEx` shows `group: 1`,
   `master_uuid` and `master_ip`; the leader's `multiroom:getSlaveList` lists it with its volume.
-- **A follower does not announce AirPlay.** The A28's `streams` has bit 0 (AirPlay) set, yet it
-  announced neither `_airplay._tcp` nor `_raop._tcp` while following. Whether it does when solo
-  was not checked.
+- **A follower withdraws AirPlay.** The A28 announced neither `_airplay._tcp` nor `_raop._tcp`
+  while following; taken out of the group it announced both within 13 s, and withdrew them again
+  on rejoining. Its `streams` (`0x1edf3bfd`, bit 0 AirPlay set) was the same either way, so
+  `streams` bit 0 tells that a device has AirPlay even while it is hidden. The Amp Pro's has bit
+  0 clear, matching its lack of AirPlay. Its AirPlay `deviceid` equals its `_linkplay` TXT `MAC`.
 - **Start, by `setPlayerCmd:play:<url>`** of a WAV over plain HTTP to the leader of the group:
   `status` turned `play` after 1.3 s; `curpos` then counted up from about −600 ms, crossing 0
   about 2.55 s after the command, and advanced at real time from there. A negative `curpos` is
@@ -471,10 +472,9 @@ Audio Pro A28 (firmware 1.56.634247, `wmrm_version` 4.2) in a native group the o
    Delay" need setting? (Neither observed device has AirPlay, so this needs other hardware.)
 4. Settled (Part 7): yes; `wmrm_version` 4.2, and `MAC` matches the `_linkplay` TXT.
 5. Settled (Part 7): yes, from `ConnectMasterAp:JoinGroupMaster`, with the Amp Pro leading.
-6. On a LinkPlay speaker that also has AirPlay, does the AirPlay `deviceid` equal the `_linkplay`
-   TXT `MAC`? (The IP fallback links them either way.)
-7. Settled: the Amp Pro on firmware 5.2.830031 does not advertise AirPlay, and neither does the
-   observed A28.
+6. Settled (Part 7): on the A28 the AirPlay `deviceid` equals the `_linkplay` TXT `MAC`.
+7. Settled: the Amp Pro on firmware 5.2.830031 has no AirPlay; the A28 has it but withdraws it
+   while following another device (Part 7).
 8. What sample rates does each device accept from an HTTP URL solo (24/96 on the A28 W per Audio
    Pro; untested above 48 kHz on the Amp Pro)?
 9. What happens to a follower's own UPnP or AirPlay session when it is kicked: does it go idle, or
