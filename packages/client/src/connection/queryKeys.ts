@@ -11,4 +11,6 @@ export const queryKeys = {
   queueItems: (accountId: string, queueId: string) =>
     ['queue', accountId, queueId, 'items'] as const,
   players: (accountId: string) => ['players', accountId] as const,
+  /** What the server's admin commands answer, by command: `devices`, `groups`, `server`. */
+  admin: (accountId: string, view: string) => ['admin', accountId, view] as const,
 };

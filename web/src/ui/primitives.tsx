@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -130,7 +130,80 @@ export function Facts({ rows }: { rows: Array<[string, ReactNode]> }) {
   );
 }
 
+export type Tone = 'good' | 'warning' | 'danger' | 'muted' | 'accent';
+
+/** A short label in a coloured outline, for a state or a kind. */
+export function Badge({ label, tone = 'muted' }: { label: string; tone?: Tone }) {
+  return (
+    <View style={styles.badge(tone)}>
+      <Text variant="caption" style={styles.badgeText(tone)}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/** A button that opens a list to pick one of `options` from. */
+export function Choice({
+  title,
+  options,
+  onChoose,
+  disabled,
+}: {
+  title: string;
+  options: Array<{ value: string; label: string }>;
+  onChoose: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View>
+      <Button
+        title={open ? `${title} ▴` : `${title} ▾`}
+        variant="secondary"
+        disabled={disabled || options.length === 0}
+        onPress={() => setOpen(!open)}
+      />
+      {open ? (
+        <View style={styles.menu}>
+          {options.map((option) => (
+            <Pressable
+              key={option.value}
+              accessibilityRole="menuitem"
+              style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}
+              onPress={() => {
+                setOpen(false);
+                onChoose(option.value);
+              }}
+            >
+              <Text>{option.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create((theme) => ({
+  badge: (tone: Tone) => ({
+    borderWidth: 1,
+    borderColor: toneColor(theme, tone),
+    borderRadius: theme.radius.full,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 1,
+    alignSelf: 'flex-start',
+  }),
+  badgeText: (tone: Tone) => ({ color: toneColor(theme, tone) }),
+  menu: {
+    marginTop: theme.spacing.xs,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderWidth: 1,
+    borderRadius: theme.radius.md,
+    overflow: 'hidden',
+  },
+  menuItem: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm },
   text: (variant: Variant) => ({ ...theme.typography[variant], color: theme.colors.text }),
   muted: { color: theme.colors.textMuted },
   field: { gap: theme.spacing.xs },
@@ -175,3 +248,9 @@ const styles = StyleSheet.create((theme) => ({
   factLabel: { width: 160, paddingTop: 2 },
   factValue: { flex: 1 },
 }));
+
+type ToneColors = Record<'good' | 'warning' | 'danger' | 'textMuted' | 'accent', string>;
+
+function toneColor(theme: { colors: ToneColors }, tone: Tone): string {
+  return tone === 'muted' ? theme.colors.textMuted : theme.colors[tone];
+}

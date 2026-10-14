@@ -5,7 +5,10 @@ import { useAccountActions } from '@/auth/AuthProvider';
 import { ConnectionProvider, useConnection } from '@/connection/ConnectionProvider';
 import { Button, Stack, Text } from '@/ui/primitives';
 
-const PAGES = [{ href: '/', title: 'Server' }] as const;
+const PAGES = [
+  { href: '/players', title: 'Players' },
+  { href: '/server', title: 'Server' },
+] as const;
 
 function Shell() {
   const { account, status } = useConnection();
@@ -25,7 +28,7 @@ function Shell() {
             // A Link is not themed by unistyles; the Text inside it is.
             <Link key={page.href} href={page.href} asChild>
               <Pressable>
-                <Text style={styles.link(pathname === page.href)}>{page.title}</Text>
+                <Text style={styles.link(pathname.startsWith(page.href))}>{page.title}</Text>
               </Pressable>
             </Link>
           ))}
