@@ -8,6 +8,7 @@ use bopsie_audio::timeline::Timeline;
 use bopsie_core::config::PlayerConfig;
 use bopsie_core::db::Database;
 use bopsie_players::devices::MIGRATIONS;
+use bopsie_players::settings::{SavedDevice, SavedEndpoint};
 use bopsie_players::{
     Capabilities, Change, DeviceInfo, Devices, Endpoint, EndpointState, Facts, NowPlaying, Players,
 };
@@ -207,4 +208,84 @@ async fn the_config_file_names_and_disables_devices() {
     assert!(kitchen.available());
     let disabled = devices.get("ap2").unwrap();
     assert!(!disabled.enabled && !disabled.available());
+}
+
+#[tokio::test]
+async fn saved_settings_are_over_the_config_file_and_outlive_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    let file = || -> std::collections::BTreeMap<String, PlayerConfig> {
+        [(
+            "ap1".to_owned(),
+            PlayerConfig {
+                name: Some("Kitchen".into()),
+                ..PlayerConfig::default()
+            },
+        )]
+        .into()
+    };
+    {
+        let players = Players::new(file());
+        let db = Database::open(&path, &[MIGRATIONS]).unwrap();
+        players.load(db.clone()).await.unwrap();
+        let devices = Devices::new(players.clone(), db).await.unwrap();
+        players.register(Fake::new("ap1", "airplay", mac("aa")));
+        players.register(Fake::new("ss1", "sendspin", mac("aa")));
+        players
+            .save_device(
+                "ap1",
+                SavedDevice {
+                    name: Some("Cooking".into()),
+                    max_volume: Some(40),
+                    ..SavedDevice::default()
+                },
+            )
+            .await
+            .unwrap();
+        players
+            .save_endpoint(
+                "ss1",
+                SavedEndpoint {
+                    enabled: Some(false),
+                    ..SavedEndpoint::default()
+                },
+            )
+            .await
+            .unwrap();
+        let device = devices.get("ap1").unwrap();
+        assert_eq!(device.name, "Cooking");
+        assert_eq!(device.max_volume, Some(40));
+        let sendspin = device.member("ss1").unwrap();
+        assert!(sendspin.disabled && !sendspin.state.available);
+        assert!(device.available(), "AirPlay still plays");
+    }
+    // After a restart the saved settings are read back.
+    let players = Players::new(file());
+    let db = Database::open(&path, &[MIGRATIONS]).unwrap();
+    players.load(db.clone()).await.unwrap();
+    let devices = Devices::new(players.clone(), db).await.unwrap();
+    players.register(Fake::new("ap1", "airplay", mac("aa")));
+    players.register(Fake::new("ss1", "sendspin", mac("aa")));
+    let device = devices.get("ap1").unwrap();
+    assert_eq!(device.name, "Cooking");
+    assert!(device.member("ss1").unwrap().disabled);
+
+    // Cleared, the config file's name is back.
+    players
+        .save_device("ap1", SavedDevice::default())
+        .await
+        .unwrap();
+    assert_eq!(devices.get("ap1").unwrap().name, "Kitchen");
+    // Turning off every endpoint leaves the device unable to play.
+    players
+        .save_endpoint(
+            "ap1",
+            SavedEndpoint {
+                enabled: Some(false),
+                ..SavedEndpoint::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!devices.get("ap1").unwrap().available());
 }

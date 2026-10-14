@@ -163,6 +163,7 @@ impl Spec {
                 level: self.health,
                 counts: Default::default(),
             },
+            disabled: false,
         }
     }
 }
@@ -172,6 +173,7 @@ fn device(id: &str, endpoints: &[Spec]) -> Device {
         id: id.to_owned(),
         name: id[..1].to_uppercase() + &id[1..],
         enabled: true,
+        max_volume: None,
         members: endpoints.iter().map(Spec::member).collect(),
     }
 }

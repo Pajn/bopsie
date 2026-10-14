@@ -9,20 +9,27 @@ pub mod health;
 pub mod linking;
 pub mod planner;
 pub mod quirks;
+pub mod settings;
 
 pub use devices::{Device, Devices, Member};
 pub use facts::{Capabilities, Facts, NativeGroup, Pairing};
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::config::PlayerConfig;
+use bopsie_core::db::Database;
 use tokio::sync::broadcast;
 
 use crate::quirks::{Quirks, Resolved, Subject};
+use crate::settings::{DeviceSettings, EndpointSettings, Layers, SavedDevice, SavedEndpoint};
+
+/// The scopes saved settings are kept under.
+const DEVICE: &str = "device";
+const ENDPOINT: &str = "endpoint";
 
 /// What a player says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,8 +127,10 @@ pub enum Change {
 pub struct Players {
     endpoints: Arc<Mutex<BTreeMap<String, Arc<dyn Endpoint>>>>,
     changes: broadcast::Sender<Change>,
-    /// The config file's settings, by player id.
-    settings: Arc<BTreeMap<String, PlayerConfig>>,
+    /// The config file's settings and the saved ones over them.
+    settings: Arc<RwLock<Layers>>,
+    /// Where saved settings are kept, once [`Players::load`] is called.
+    db: Arc<OnceLock<Database>>,
     /// What outputs saw of each endpoint.
     logs: Arc<Mutex<BTreeMap<String, health::Log>>>,
 }
@@ -138,7 +147,11 @@ impl Players {
         Self {
             endpoints: Arc::default(),
             changes: broadcast::channel(256).0,
-            settings: Arc::new(settings),
+            settings: Arc::new(RwLock::new(Layers {
+                file: settings,
+                ..Layers::default()
+            })),
+            db: Arc::default(),
             logs: Arc::default(),
         }
     }
@@ -177,9 +190,115 @@ impl Players {
             .unwrap_or_default()
     }
 
-    /// The config file's settings for `id`.
-    pub fn settings(&self, id: &str) -> PlayerConfig {
-        self.settings.get(id).cloned().unwrap_or_default()
+    /// Reads the settings saved in `db`, and keeps them there from now on.
+    pub async fn load(&self, db: Database) -> bopsie_core::Result<()> {
+        let rows = db
+            .call(|conn| {
+                let mut statement =
+                    conn.prepare("SELECT scope, id, settings FROM player_settings")?;
+                let rows = statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                    .collect::<rusqlite::Result<Vec<(String, String, String)>>>()?;
+                Ok(rows)
+            })
+            .await?;
+        {
+            let mut layers = self.settings.write().unwrap();
+            for (scope, id, json) in rows {
+                let parsed = match scope.as_str() {
+                    DEVICE => serde_json::from_str(&json).map(|s| {
+                        layers.devices.insert(id.clone(), s);
+                    }),
+                    _ => serde_json::from_str(&json).map(|s| {
+                        layers.endpoints.insert(id.clone(), s);
+                    }),
+                };
+                if let Err(error) = parsed {
+                    tracing::warn!(id, %error, "ignoring unreadable saved settings");
+                }
+            }
+        }
+        let _ = self.db.set(db);
+        Ok(())
+    }
+
+    /// Device `id`'s settings: saved, else the config file's, else the defaults.
+    pub fn device_settings(&self, id: &str) -> DeviceSettings {
+        self.settings.read().unwrap().device(id)
+    }
+
+    /// Endpoint `id`'s settings: saved, else the config file's, else the defaults.
+    pub fn endpoint_settings(&self, id: &str) -> EndpointSettings {
+        self.settings.read().unwrap().endpoint(id)
+    }
+
+    /// What was saved for device `id`, without the config file's.
+    pub fn saved_device(&self, id: &str) -> SavedDevice {
+        let layers = self.settings.read().unwrap();
+        layers.devices.get(id).cloned().unwrap_or_default()
+    }
+
+    /// What was saved for endpoint `id`, without the config file's.
+    pub fn saved_endpoint(&self, id: &str) -> SavedEndpoint {
+        let layers = self.settings.read().unwrap();
+        layers.endpoints.get(id).cloned().unwrap_or_default()
+    }
+
+    /// Saves device `id`'s settings, replacing what was saved. Callers announce the change
+    /// on the device's endpoints, which only [`Devices`] knows.
+    pub async fn save_device(&self, id: &str, saved: SavedDevice) -> bopsie_core::Result<()> {
+        self.persist(DEVICE, id, &saved, saved == SavedDevice::default())
+            .await?;
+        self.settings
+            .write()
+            .unwrap()
+            .devices
+            .insert(id.to_owned(), saved);
+        Ok(())
+    }
+
+    /// Saves endpoint `id`'s settings, replacing what was saved, and announces the change.
+    pub async fn save_endpoint(&self, id: &str, saved: SavedEndpoint) -> bopsie_core::Result<()> {
+        self.persist(ENDPOINT, id, &saved, saved == SavedEndpoint::default())
+            .await?;
+        self.settings
+            .write()
+            .unwrap()
+            .endpoints
+            .insert(id.to_owned(), saved);
+        self.changed(id);
+        Ok(())
+    }
+
+    async fn persist(
+        &self,
+        scope: &'static str,
+        id: &str,
+        saved: &impl serde::Serialize,
+        empty: bool,
+    ) -> bopsie_core::Result<()> {
+        let Some(db) = self.db.get() else {
+            return Ok(());
+        };
+        let id = id.to_owned();
+        let json = serde_json::to_string(saved).map_err(|_| bopsie_core::Error::unexpected())?;
+        db.call(move |conn| {
+            if empty {
+                conn.execute(
+                    "DELETE FROM player_settings WHERE scope = ?1 AND id = ?2",
+                    (scope, &id),
+                )?;
+            } else {
+                conn.execute(
+                    "INSERT INTO player_settings (scope, id, settings) VALUES (?1, ?2, ?3)
+                     ON CONFLICT (scope, id) DO UPDATE SET settings = excluded.settings",
+                    (scope, &id, &json),
+                )?;
+            }
+            Ok(())
+        })
+        .await?;
+        Ok(())
     }
 
     /// The quirks of endpoint `id`, whose state is `state`, over its protocol's `defaults`.
@@ -192,7 +311,12 @@ impl Players {
                 device: &state.device,
                 facts: &state.facts,
             },
-            self.settings.get(id).map(|settings| &settings.quirks),
+            &self
+                .endpoint_settings(id)
+                .quirks
+                .iter()
+                .map(|(quirks, source)| (quirks, source.clone()))
+                .collect::<Vec<_>>(),
         )
     }
 

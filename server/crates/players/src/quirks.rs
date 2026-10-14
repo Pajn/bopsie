@@ -109,20 +109,21 @@ pub fn shipped() -> &'static [Rule] {
     &RULES
 }
 
-/// `subject`'s quirks: `defaults`, then each of `rules` that matches, then `config`.
+/// `subject`'s quirks: `defaults`, then each of `rules` that matches, then each of `layers`
+/// in order, such as the config file's and then the saved settings.
 pub fn resolve(
     defaults: &Quirks,
     rules: &[Rule],
     subject: &Subject<'_>,
-    config: Option<&Quirks>,
+    layers: &[(&Quirks, Source)],
 ) -> Resolved {
     let mut resolved = Resolved::default();
     resolved.apply(defaults, &Source::Default);
     for rule in rules.iter().filter(|rule| rule.when.matches(subject)) {
         resolved.apply(&rule.quirks, &Source::Rule(rule.name.clone()));
     }
-    if let Some(config) = config {
-        resolved.apply(config, &Source::Config);
+    for (layer, source) in layers {
+        resolved.apply(layer, source);
     }
     resolved
 }
@@ -168,7 +169,7 @@ mod tests {
                 device: &sonos,
                 facts: &facts,
             },
-            None,
+            &[],
         );
         assert_eq!(
             resolved.quirks.max_sample_format,
@@ -190,7 +191,7 @@ mod tests {
                 device: &other,
                 facts: &facts,
             },
-            None,
+            &[],
         );
         assert_eq!(resolved.quirks.max_sample_format, None);
     }
@@ -351,11 +352,21 @@ mod tests {
             timing: Some(Timing::Ptp),
             ..Quirks::default()
         };
-        let resolved = resolve(&defaults, &rules, &subject, Some(&config));
+        let saved = Quirks {
+            sync_adjust_ms: Some(12),
+            ..Quirks::default()
+        };
+        let resolved = resolve(
+            &defaults,
+            &rules,
+            &subject,
+            &[(&config, Source::Config), (&saved, Source::Saved)],
+        );
         assert_eq!(resolved.quirks.protocol, Some(AirplayProtocol::Auto));
         assert_eq!(resolved.quirks.min_lead_ms, Some(4000));
         assert_eq!(resolved.quirks.timing, Some(Timing::Ptp));
-        assert_eq!(resolved.quirks.sync_adjust_ms, None);
+        assert_eq!(resolved.quirks.sync_adjust_ms, Some(12));
+        assert_eq!(resolved.source("sync_adjust_ms"), Some(&Source::Saved));
         assert_eq!(resolved.source("protocol"), Some(&Source::Default));
         assert_eq!(
             resolved.source("min_lead_ms"),

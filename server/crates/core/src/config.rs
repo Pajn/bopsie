@@ -143,6 +143,9 @@ pub struct PlayerConfig {
     pub enabled: bool,
     /// For speakers that ask for one.
     pub password: Option<String>,
+    /// The loudest the player may be set, 0 to 100. The server holds it there whoever turns
+    /// it up.
+    pub max_volume: Option<u8>,
     /// Over the shipped quirk rules.
     pub quirks: Quirks,
 }
@@ -153,6 +156,7 @@ impl Default for PlayerConfig {
             name: None,
             enabled: true,
             password: None,
+            max_volume: None,
             quirks: Quirks::default(),
         }
     }

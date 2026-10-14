@@ -97,6 +97,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         None => tracing::info!("ffmpeg not found; MP4 audio plays without gapless trimming"),
     }
     let players = Players::new(config.players.clone());
+    players.load(db.clone()).await?;
     let devices = Devices::new(players.clone(), db.clone()).await?;
     let playback = Playback::start(
         devices,

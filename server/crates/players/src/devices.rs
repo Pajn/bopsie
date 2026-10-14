@@ -16,12 +16,23 @@ use crate::{Change, Endpoint, EndpointState, Players};
 
 pub const MIGRATIONS: Migrations = Migrations {
     component: "players",
-    steps: &["
+    steps: &[
+        "
         CREATE TABLE device_endpoints (
             endpoint_id TEXT PRIMARY KEY,
             device_id TEXT NOT NULL
         ) STRICT;
-    "],
+    ",
+        "
+        -- Settings saved from the web UI, as JSON: a device's or an endpoint's, by its id.
+        CREATE TABLE player_settings (
+            scope TEXT NOT NULL,
+            id TEXT NOT NULL,
+            settings TEXT NOT NULL,
+            PRIMARY KEY (scope, id)
+        ) STRICT;
+    ",
+    ],
 };
 
 /// Protocols in order of preference, as Music Assistant ranks them: a device is first
@@ -35,16 +46,20 @@ pub struct Member {
     pub endpoint: Arc<dyn Endpoint>,
     pub state: EndpointState,
     pub health: Health,
+    /// Turned off in the device's settings: it plays nothing, and its state says unavailable.
+    pub disabled: bool,
 }
 
 /// A device as it is now.
 #[derive(Clone)]
 pub struct Device {
     pub id: String,
-    /// The config file's name, else its preferred endpoint's.
+    /// The name from its settings, else its preferred endpoint's.
     pub name: String,
-    /// Unless the config file disables it.
+    /// Unless its settings disable it.
     pub enabled: bool,
+    /// The loudest it may be set, from its settings.
+    pub max_volume: Option<u8>,
     /// In order of protocol preference.
     pub members: Vec<Member>,
 }
@@ -143,11 +158,22 @@ impl Devices {
             .players
             .all()
             .into_iter()
-            .map(|endpoint| Member {
-                id: endpoint.id().to_owned(),
-                state: endpoint.state(),
-                health: self.inner.players.health(endpoint.id()),
-                endpoint,
+            .map(|endpoint| {
+                let disabled = !self
+                    .inner
+                    .players
+                    .endpoint_settings(endpoint.id())
+                    .enabled
+                    .value;
+                let mut state = endpoint.state();
+                state.available &= !disabled;
+                Member {
+                    id: endpoint.id().to_owned(),
+                    state,
+                    health: self.inner.players.health(endpoint.id()),
+                    endpoint,
+                    disabled,
+                }
             })
             .collect();
         endpoints
@@ -181,12 +207,14 @@ impl Devices {
                     .iter()
                     .filter_map(|endpoint| by_id.remove(endpoint))
                     .collect();
-                let settings = self.inner.players.settings(&id);
+                let settings = self.inner.players.device_settings(&id);
                 Device {
                     name: settings
                         .name
+                        .value
                         .unwrap_or_else(|| members[0].state.name.clone()),
-                    enabled: settings.enabled,
+                    enabled: settings.enabled.value,
+                    max_volume: settings.max_volume.value,
                     id,
                     members,
                 }

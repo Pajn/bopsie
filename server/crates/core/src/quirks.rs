@@ -101,6 +101,8 @@ pub enum Source {
     Rule(String),
     /// The config file.
     Config,
+    /// Saved from the web UI, over the config file.
+    Saved,
 }
 
 macro_rules! each_quirk {
