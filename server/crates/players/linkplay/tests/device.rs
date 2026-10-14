@@ -255,3 +255,28 @@ async fn devices_join_and_leave_each_others_groups() {
     assert_eq!(endpoint.state().native_leader, None);
     provider.shutdown();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_without_a_countdown_is_timed_by_its_first_second() {
+    let network = Network::default();
+    let (provider, players) = provider().await;
+    // As Audio Pro's firmware: no getPlayerStatus, only UPnP's whole-second position.
+    let fake = network
+        .device("Kitchen", "10.0.0.3", "89ABCDEF0123456789ABCDEF", false)
+        .await;
+    fake.add_to(&provider);
+    let endpoint = players.get(&fake.id()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let samples = noise(5, 44_100 * 2 * 3);
+    let (handle, _) =
+        tokio::task::block_in_place(|| session(endpoint.as_ref(), dir.path(), &samples, LONG_LEAD));
+    let endpoint = provider.endpoint(&fake.id()).unwrap();
+    // Told to play 2.7 s ahead, it took 0.6 s: the start delay comes down.
+    assert!(
+        eventually(|| endpoint.start_delay_ms() < 2_000).await,
+        "{}",
+        endpoint.start_delay_ms()
+    );
+    tokio::task::block_in_place(|| handle.shutdown());
+    provider.shutdown();
+}

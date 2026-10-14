@@ -438,6 +438,18 @@ Audio Pro A28 (firmware 1.56.634247, `wmrm_version` 4.2) in a native group the o
   0.9 s, seen from both sides; `ConnectMasterAp:JoinGroupMaster:eth<leader_ip>:wifi0.0.0.0` on
   the follower within 0.6 s. The follower's volume in the group was kept by the leader and had
   to be set again with `multiroom:SlaveVolume` after rejoining.
+- **UPnP's position as a start signal.** Where `getPlayerStatus` is missing, as on the A28,
+  `GetPositionInfo` `RelTime` counts whole seconds from when the stream is audible. On the Amp
+  Pro, which has both, the moment `RelTime` first turned from 0 to 1, read every 50 ms, came
+  143, 128 and 126 ms after a second past the countdown's audible instant in three trials; so a
+  device without a countdown can be timed to within about 50 ms from that tick, less 1.13 s.
+  Measured this way, the A28 alone started 0.36 to 1.25 s from where it was aimed, varying from
+  start to start more than the Amp Pro did.
+- **Joining an AirPlay group from a native one.** Asked to join an AirPlay group while it
+  followed the Amp Pro, the A28 was removed from its native group with `SlaveKickout`, announced
+  AirPlay 1.2 s later, and started on time in the AirPlay group, 1.5 s after the request.
+  Rejoined to the Amp Pro afterwards, it ended its AirPlay session (`cliairplay` reported its
+  control channel failed) and withdrew AirPlay again.
 - **Playing a URL switches the leader's input** (`mode` from 49, HDMI, to 10, network);
   `setPlayerCmd:switchmode:HDMI` switches it back. A server that plays to a LinkPlay device
   takes it away from whatever input it was on.

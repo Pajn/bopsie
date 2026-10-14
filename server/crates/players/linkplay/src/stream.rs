@@ -37,6 +37,11 @@ pub const FIRST_DELAY_MS: i64 = 2_700;
 /// How often the countdown is read after `play`, and for how long.
 const COUNTDOWN_POLL: Duration = Duration::from_millis(100);
 const COUNTDOWN_WATCH: Duration = Duration::from_secs(8);
+/// How often UPnP's position is read after `play`, on devices without a countdown.
+const TICK_POLL: Duration = Duration::from_millis(40);
+/// How long after audio is audible UPnP's whole-second position turns to 1: a second, and
+/// about 130 ms more, as measured on a WiiM Amp Pro against its countdown.
+const TICK_AT_MS: i64 = 1_130;
 
 /// Streams waiting to be pulled, by token.
 #[derive(Clone, Default)]
@@ -219,16 +224,63 @@ async fn start(shared: Arc<Shared>, url: String, audible: Micros, generation: u6
         tracing::warn!(device = shared.id, %error, "cannot tell the device to play");
         return;
     }
-    if !shared.has_player_status() {
+    let heard = if shared.has_player_status() {
+        countdown(&shared, generation).await
+    } else {
+        first_tick(&shared, generation).await
+    };
+    let Some(heard) = heard else {
+        tracing::debug!(device = shared.id, "no start seen; keeping the start delay");
         return;
+    };
+    let off_ms = (heard - audible) / 1_000;
+    // Halfway to what this start says, so one odd start moves it only so far.
+    let next = (delay_ms + off_ms / 2).clamp(500, 8_000);
+    shared.timing.delay_ms.store(next, Ordering::SeqCst);
+    tracing::debug!(
+        device = shared.id,
+        off_ms,
+        delay_ms = next,
+        "audible relative to the timeline"
+    );
+}
+
+/// When the device became audible, from UPnP's whole-second position: the moment it first
+/// turns from 0 to 1, less [`TICK_AT_MS`]. For devices whose firmware has no countdown.
+async fn first_tick(shared: &Shared, generation: u64) -> Option<Micros> {
+    let watched = Instant::now();
+    // When the last reading below a second was asked for.
+    let mut before: Option<Micros> = None;
+    while watched.elapsed() < COUNTDOWN_WATCH {
+        tokio::time::sleep(TICK_POLL).await;
+        if shared.timing.generation.load(Ordering::SeqCst) != generation {
+            return None;
+        }
+        let asked = clock::now();
+        let Ok(Some(position)) = shared.upnp.position_ms().await else {
+            continue;
+        };
+        let answered = clock::now();
+        if position < 1_000 {
+            before = Some(asked);
+        } else if let Some(before) = before {
+            // It turned between the two readings.
+            return Some((before + answered) / 2 - TICK_AT_MS * 1_000);
+        }
     }
+    None
+}
+
+/// When the device will be audible, from the negative positions `getPlayerStatus` counts
+/// down with.
+async fn countdown(shared: &Shared, generation: u64) -> Option<Micros> {
     // Readings of when it will be audible, from each negative position.
     let mut readings = Vec::new();
     let watched = Instant::now();
     while watched.elapsed() < COUNTDOWN_WATCH && readings.len() < 3 {
         tokio::time::sleep(COUNTDOWN_POLL).await;
         if shared.timing.generation.load(Ordering::SeqCst) != generation {
-            return;
+            return None;
         }
         let asked = clock::now();
         let Ok(status) = shared.player_status().await else {
@@ -245,24 +297,10 @@ async fn start(shared: Arc<Shared>, url: String, audible: Micros, generation: u6
         }
     }
     if readings.is_empty() {
-        tracing::debug!(
-            device = shared.id,
-            "no countdown seen; keeping the start delay"
-        );
-        return;
+        return None;
     }
     readings.sort_unstable();
-    let heard = readings[readings.len() / 2];
-    let off_ms = (heard - audible) / 1_000;
-    // Halfway to what this start says, so one odd start moves it only so far.
-    let next = (delay_ms + off_ms / 2).clamp(500, 8_000);
-    shared.timing.delay_ms.store(next, Ordering::SeqCst);
-    tracing::debug!(
-        device = shared.id,
-        off_ms,
-        delay_ms = next,
-        "audible relative to the timeline"
-    );
+    Some(readings[readings.len() / 2])
 }
 
 impl Sink for LinkplaySink {

@@ -328,7 +328,16 @@ async fn upnp(State((device, _)): State<(Shared, Network)>, headers: HeaderMap) 
             };
             format!("<CurrentTransportState>{state}</CurrentTransportState>")
         }
-        "GetPositionInfo" => "<RelTime>00:00:00</RelTime>".to_owned(),
+        "GetPositionInfo" => {
+            // Whole seconds since it became audible, as the devices count.
+            let seconds = transport(&d).1.max(0) / 1_000;
+            format!(
+                "<RelTime>{:02}:{:02}:{:02}</RelTime>",
+                seconds / 3600,
+                seconds / 60 % 60,
+                seconds % 60
+            )
+        }
         "GetVolume" => format!("<CurrentVolume>{}</CurrentVolume>", d.volume),
         "GetMute" => format!("<CurrentMute>{}</CurrentMute>", u8::from(d.muted)),
         _ => String::new(),
