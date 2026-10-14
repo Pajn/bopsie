@@ -91,11 +91,11 @@ MA_URL=http://localhost:8095 MA_USERNAME=admin MA_PASSWORD=at-least-8-characters
 ### In a container
 
 The image has the server, ffmpeg and `cliairplay`. CI publishes it from `main` as
-`ghcr.io/<owner>/<repository>-server`, tagged `main` and with each commit's short hash. To build
-it yourself:
+`ghcr.io/<owner>/<repository>-server`, tagged `main` and with each commit's short hash. It
+carries the web UI, so it builds from the repository's root. To build it yourself, there:
 
 ```sh
-docker build -t bopsie-server .
+docker build -t bopsie-server -f server/Dockerfile .
 docker run -d --name bopsie --network host \
   -v bopsie-data:/data -v /path/to/music:/music:ro bopsie-server
 ```

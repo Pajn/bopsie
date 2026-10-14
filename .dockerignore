@@ -1,0 +1,14 @@
+# The server image builds from the repository's root, for the web UI it carries.
+.git
+.direnv
+**/node_modules
+**/.expo
+web/dist
+server/target
+server/cliairplay
+server/data
+server/config.toml
+# Of Bopsie, the install needs only its manifest and the patches it shares with the web UI.
+mobile/*
+!mobile/package.json
+!mobile/patches

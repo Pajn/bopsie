@@ -95,6 +95,28 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test --ci
 
+  web-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test --ci
+      - run: pnpm export
+
   server:
     runs-on: ubuntu-latest
     defaults:
@@ -126,7 +148,8 @@ jobs:
       - name: Build the image
         uses: docker/build-push-action@v6
         with:
-          context: server
+          context: .
+          file: server/Dockerfile
           load: true
           tags: bopsie-server:ci
           cache-from: type=gha
@@ -136,6 +159,7 @@ jobs:
           docker run -d --name bopsie -p 8095:8095 bopsie-server:ci
           for _ in $(seq 1 30); do curl -fsS localhost:8095/info && break; sleep 1; done
           curl -fsS localhost:8095/info
+          curl -fsS -H 'Accept: text/html' localhost:8095/players | grep -q '<div id="root">'
           docker exec bopsie cliairplay --check
           docker exec bopsie ffmpeg -version
           docker stop bopsie
@@ -165,7 +189,8 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/build-push-action@v6
         with:
-          context: server
+          context: .
+          file: server/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
