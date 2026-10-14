@@ -7,6 +7,9 @@ import { Button, Stack, Text } from '@/ui/primitives';
 
 const PAGES = [
   { href: '/players', title: 'Players' },
+  { href: '/queues', title: 'Queues' },
+  { href: '/library', title: 'Library' },
+  { href: '/logs', title: 'Logs' },
   { href: '/server', title: 'Server' },
 ] as const;
 

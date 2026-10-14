@@ -5,7 +5,7 @@ import { player, playerQueue, type QueueItem, queueItem } from '../schemas/playe
 /** `QueueOption`: where new media goes in the queue. */
 export type QueueOption = 'play' | 'replace' | 'next' | 'replace_next' | 'add';
 
-export type QueueCommand = 'play' | 'pause' | 'play_pause' | 'stop' | 'next' | 'previous';
+export type QueueCommand = 'play' | 'pause' | 'play_pause' | 'stop' | 'next' | 'previous' | 'clear';
 
 export const getPlayer = (connection: MaConnection, playerId: string) =>
   connection.command(
