@@ -60,6 +60,8 @@ pub struct Device {
     pub enabled: bool,
     /// The loudest it may be set, from its settings.
     pub max_volume: Option<u8>,
+    /// Whether it shows in the Spotify app, from its settings, if it is a speaker.
+    pub spotify_connect: bool,
     /// In order of protocol preference.
     pub members: Vec<Member>,
 }
@@ -215,6 +217,7 @@ impl Devices {
                         .unwrap_or_else(|| members[0].state.name.clone()),
                     enabled: settings.enabled.value,
                     max_volume: settings.max_volume.value,
+                    spotify_connect: settings.spotify_connect.value,
                     id,
                     members,
                 }

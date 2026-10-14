@@ -27,6 +27,7 @@ use bopsie_players_linkplay::{
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use bopsie_sources::Sources;
+use bopsie_sources_spotify::{Config as SpotifyConfig, SpotifyConnect};
 use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -105,7 +106,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     players.load(db.clone()).await?;
     let devices = Devices::new(players.clone(), db.clone()).await?;
     let playback = Playback::start(
-        devices,
+        devices.clone(),
         events.clone(),
         PlaybackConfig {
             ffmpeg,
@@ -133,6 +134,16 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         logs,
     };
     let api = Api::new(db, config.clone(), services, commands::registry()).await?;
+    let spotify = config.spotify.enabled.then(|| {
+        SpotifyConnect::start(
+            SpotifyConfig {
+                data_dir: config.storage.data_dir.clone(),
+                server_id: api.server_id.clone(),
+            },
+            devices,
+            api.sources.clone(),
+        )
+    });
 
     // Sendspin clients that connect directly, without a token.
     let sendspin = api.sendspin.clone();
@@ -184,10 +195,13 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     );
     shutdown_signal().await;
     tracing::info!("shutting down");
-    // Playback first, while speakers can still be told; then AirPlay's processes; then the
-    // listeners. WebSocket clients stay connected until told otherwise, so all of it is
+    // Spotify Connect first, so no one picks a speaker now; then playback, while speakers can
+    // still be told; then AirPlay's processes; then the listeners. WebSocket clients stay connected until told otherwise, so all of it is
     // bounded.
     let shutdown = async {
+        if let Some(spotify) = spotify {
+            spotify.shutdown();
+        }
         playback.shutdown().await;
         if let Some(airplay) = airplay {
             let _ = tokio::task::spawn_blocking(move || airplay.shutdown()).await;

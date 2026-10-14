@@ -86,6 +86,13 @@ impl LiveWriter {
         true
     }
 
+    /// How much audio is written and not yet taken.
+    pub fn buffered(&self) -> Duration {
+        let samples = self.shared.state.lock().unwrap().samples.len();
+        let frames = samples / usize::from(self.shared.format.channels);
+        Duration::from_secs_f64(frames as f64 / f64::from(self.shared.format.sample_rate))
+    }
+
     /// Drops what the reader has not taken yet, as when the producer jumps elsewhere.
     pub fn clear(&self) {
         self.shared.state.lock().unwrap().samples.clear();
@@ -160,7 +167,9 @@ mod tests {
         let mut out = Vec::new();
         assert_eq!(input.read(&mut out).unwrap(), Read::Pending);
         assert!(writer.write(&[1.0, 2.0, 3.0, 4.0]));
+        assert_eq!(writer.buffered(), Duration::from_millis(2));
         assert_eq!(input.read(&mut out).unwrap(), Read::Data);
+        assert_eq!(writer.buffered(), Duration::ZERO);
         assert_eq!(out, [1.0, 2.0, 3.0, 4.0]);
         drop(writer);
         assert_eq!(input.read(&mut out).unwrap(), Read::End);

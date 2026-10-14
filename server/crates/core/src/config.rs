@@ -19,6 +19,7 @@ pub struct Config {
     pub audio: AudioConfig,
     pub airplay: AirplayConfig,
     pub linkplay: LinkplayConfig,
+    pub spotify: SpotifyConfig,
     pub web: WebConfig,
     /// Settings for one player, by player id.
     pub players: BTreeMap<String, PlayerConfig>,
@@ -110,6 +111,20 @@ impl Default for AirplayConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct SpotifyConfig {
+    /// Show speakers in the Spotify app as Spotify Connect devices, each one that its settings
+    /// do not turn off.
+    pub enabled: bool,
+}
+
+impl Default for SpotifyConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct LinkplayConfig {
     /// Find and play to LinkPlay speakers: WiiM, Audio Pro and others.
     pub enabled: bool,
@@ -146,6 +161,9 @@ pub struct PlayerConfig {
     /// The loudest the player may be set, 0 to 100. The server holds it there whoever turns
     /// it up.
     pub max_volume: Option<u8>,
+    /// Whether the player shows in the Spotify app as a Spotify Connect device; by default a
+    /// speaker does.
+    pub spotify_connect: Option<bool>,
     /// Over the shipped quirk rules.
     pub quirks: Quirks,
 }
@@ -157,6 +175,7 @@ impl Default for PlayerConfig {
             enabled: true,
             password: None,
             max_volume: None,
+            spotify_connect: None,
             quirks: Quirks::default(),
         }
     }

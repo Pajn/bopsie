@@ -590,6 +590,7 @@ dependencies = [
  "bopsie-providers-filesystem",
  "bopsie-queues",
  "bopsie-sources",
+ "bopsie-sources-spotify",
  "clap",
  "tokio",
  "tracing",
@@ -608,12 +609,18 @@ dependencies = [
 name = "bopsie-sources-spotify"
 version = "0.1.0"
 dependencies = [
+ "bopsie-audio",
+ "bopsie-core",
+ "bopsie-players",
+ "bopsie-sources",
  "futures",
+ "hex",
  "librespot-connect",
  "librespot-core",
  "librespot-discovery",
  "librespot-metadata",
  "librespot-playback",
+ "sha2 0.11.1",
  "tokio",
  "tracing",
  "tracing-subscriber",
