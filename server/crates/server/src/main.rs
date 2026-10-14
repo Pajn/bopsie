@@ -59,6 +59,7 @@ async fn main() -> ExitCode {
         .with(tracing_subscriber::fmt::layer())
         .with(logs.clone())
         .init();
+    choose_tls();
     match run(Args::parse(), logs).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -66,6 +67,13 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Chooses rustls's aws-lc-rs backend for the whole process. librespot brings the ring backend
+/// as well as the aws-lc-rs one the server uses, and with both rustls will not pick one itself.
+fn choose_tls() {
+    // Already chosen, as by an earlier call, is as good.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
 async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
@@ -312,5 +320,14 @@ async fn shutdown_signal() {
     tokio::select! {
         () = interrupt => {}
         () = terminate => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn tls_clients_can_be_made_with_every_backend_linked_in() {
+        super::choose_tls();
+        let _ = rustls::ClientConfig::builder();
     }
 }

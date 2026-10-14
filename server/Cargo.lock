@@ -592,6 +592,7 @@ dependencies = [
  "bopsie-sources",
  "bopsie-sources-spotify",
  "clap",
+ "rustls 0.23.46",
  "tokio",
  "tracing",
  "tracing-subscriber",

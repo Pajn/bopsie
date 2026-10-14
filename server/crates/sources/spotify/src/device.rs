@@ -245,7 +245,7 @@ async fn run(inner: Weak<Inner>) {
         "announced for Spotify Connect"
     );
     if let Some(credentials) = cache.as_ref().and_then(Cache::credentials) {
-        connect(&device, &session_config, cache.clone(), credentials).await;
+        connect_apart(&device, &session_config, &cache, credentials).await;
     }
     loop {
         let credentials = tokio::select! {
@@ -256,13 +256,30 @@ async fn run(inner: Weak<Inner>) {
             break;
         };
         tracing::info!(device = device.id, "picked in the Spotify app");
-        connect(&device, &session_config, cache.clone(), credentials).await;
+        connect_apart(&device, &session_config, &cache, credentials).await;
     }
     tracing::info!(
         device = device.id,
         "no longer announced for Spotify Connect"
     );
     discovery.shutdown().await;
+}
+
+/// Connects on a task of its own, so that a panic in librespot does not end the announcement.
+async fn connect_apart(
+    device: &Arc<Inner>,
+    session_config: &SessionConfig,
+    cache: &Option<Cache>,
+    credentials: Credentials,
+) {
+    let connecting = tokio::spawn({
+        let (device, session_config, cache) =
+            (device.clone(), session_config.clone(), cache.clone());
+        async move { connect(&device, &session_config, cache, credentials).await }
+    });
+    if let Err(error) = connecting.await {
+        tracing::warn!(device = device.id, %error, "connecting to Spotify failed");
+    }
 }
 
 async fn connect(
@@ -312,6 +329,7 @@ async fn connect(
     };
     match Spirc::new(config, session, credentials, player, mixer).await {
         Ok((spirc, task)) => {
+            tracing::info!(device = device.id, "connected to Spotify");
             *device.spirc.lock().unwrap() = Some(spirc);
             let ended = Arc::downgrade(device);
             tokio::spawn(async move {
