@@ -5,7 +5,7 @@
 
 mod common;
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -42,7 +42,16 @@ struct Speaker {
     frames: Arc<Mutex<Vec<(u32, u64)>>>,
     /// Outputs made for it.
     outputs: AtomicU64,
+    trouble: Arc<Trouble>,
+    available: AtomicBool,
     players: Players,
+}
+
+/// What the next write to a speaker's output does wrong.
+#[derive(Default)]
+struct Trouble {
+    fail: AtomicBool,
+    panic: AtomicBool,
 }
 
 impl Speaker {
@@ -62,6 +71,8 @@ impl Speaker {
             volume: Mutex::new(40),
             frames: Arc::default(),
             outputs: AtomicU64::new(0),
+            trouble: Arc::default(),
+            available: AtomicBool::new(true),
             players: players.clone(),
         });
         players.register(speaker.clone());
@@ -83,8 +94,12 @@ impl Speaker {
     }
 }
 
+/// Takes audio as a speaker would: no more than half a second ahead of playing it.
 struct Counting {
     format: OutputFormat,
+    trouble: Arc<Trouble>,
+    begun: std::time::Instant,
+    taken: u64,
     frames: Arc<Mutex<Vec<(u32, u64)>>>,
     written: Arc<AtomicU64>,
 }
@@ -94,7 +109,18 @@ impl Sink for Counting {
         self.format
     }
     fn write(&mut self, _at: u64, data: &[u8]) -> std::io::Result<()> {
+        if self.trouble.fail.swap(false, Ordering::SeqCst) {
+            return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+        }
+        assert!(
+            !self.trouble.panic.swap(false, Ordering::SeqCst),
+            "an output that panics"
+        );
         let frames = (data.len() / self.format.bytes_per_frame()) as u64;
+        self.taken += frames;
+        let ahead = Duration::from_secs_f64(self.taken as f64 / f64::from(self.format.sample_rate))
+            .saturating_sub(self.begun.elapsed());
+        std::thread::sleep(ahead.saturating_sub(Duration::from_millis(500)));
         self.written.fetch_add(frames, Ordering::SeqCst);
         let mut all = self.frames.lock().unwrap();
         match all.iter_mut().find(|(r, _)| *r == self.format.sample_rate) {
@@ -116,7 +142,7 @@ impl Endpoint for Speaker {
         EndpointState {
             name: self.name.clone(),
             provider: self.provider,
-            available: true,
+            available: self.available.load(Ordering::SeqCst),
             volume: Some(*self.volume.lock().unwrap()),
             muted: Some(false),
             device: DeviceInfo {
@@ -146,6 +172,9 @@ impl Endpoint for Speaker {
         self.outputs.fetch_add(1, Ordering::SeqCst);
         Box::new(Counting {
             format,
+            trouble: self.trouble.clone(),
+            begun: std::time::Instant::now(),
+            taken: 0,
             frames: self.frames.clone(),
             written: Arc::default(),
         })
@@ -403,4 +432,98 @@ async fn a_speaker_over_two_protocols_is_one_player() {
     .await;
     assert_eq!(leader["group_members"], json!(["aplounge", "phone"]));
     assert_eq!(leader["playback_state"], "playing");
+}
+
+#[tokio::test]
+async fn an_output_that_fails_rejoins_its_group() {
+    let (server, token) = start_set_up_with(10).await;
+    let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let bedroom = Speaker::register(&server.players, "bedroom", "airplay", &[CD], None);
+    let mut client = signed_in(&server, &token).await;
+    until(&mut client, "players/all", json!({}), |all| {
+        all.as_array().unwrap().len() == 2
+    })
+    .await;
+    play_album(&mut client, "kitchen").await;
+    client
+        .result(
+            "players/cmd/group",
+            json!({"player_id": "bedroom", "target_player": "kitchen"}),
+        )
+        .await;
+    eventually(|| bedroom.frames() > 0).await;
+
+    bedroom.trouble.fail.store(true, Ordering::SeqCst);
+    eventually(|| bedroom.outputs.load(Ordering::SeqCst) == 2).await;
+    let rejoined = bedroom.frames();
+    eventually(|| bedroom.frames() > rejoined).await;
+    assert_eq!(
+        kitchen.outputs.load(Ordering::SeqCst),
+        1,
+        "the rest play on"
+    );
+    assert_eq!(player(&mut client, "bedroom").await["synced_to"], "kitchen");
+}
+
+#[tokio::test]
+async fn a_crashed_engine_plays_on_from_where_it_was() {
+    let (server, token) = start_set_up_with(10).await;
+    let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let mut client = signed_in(&server, &token).await;
+    until(&mut client, "players/all", json!({}), |all| {
+        all.as_array().unwrap().len() == 1
+    })
+    .await;
+    play_album(&mut client, "kitchen").await;
+    let playing = until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["state"] == "playing" && q["elapsed_time"].as_f64().unwrap() > 1.0,
+    )
+    .await;
+    let before = playing["elapsed_time"].as_f64().unwrap();
+
+    kitchen.trouble.panic.store(true, Ordering::SeqCst);
+    eventually(|| kitchen.outputs.load(Ordering::SeqCst) == 2).await;
+    let after = until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["state"] == "playing",
+    )
+    .await;
+    assert_eq!(after["current_index"], 0);
+    assert!(
+        after["elapsed_time"].as_f64().unwrap() >= before,
+        "from where it was, not the start"
+    );
+}
+
+#[tokio::test]
+async fn a_group_whose_leader_goes_pauses() {
+    let (server, token) = start_set_up_with(10).await;
+    let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let mut client = signed_in(&server, &token).await;
+    until(&mut client, "players/all", json!({}), |all| {
+        all.as_array().unwrap().len() == 1
+    })
+    .await;
+    play_album(&mut client, "kitchen").await;
+    until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["state"] == "playing",
+    )
+    .await;
+    kitchen.available.store(false, Ordering::SeqCst);
+    server.players.changed("kitchen");
+    until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["state"] == "paused",
+    )
+    .await;
 }

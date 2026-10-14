@@ -36,6 +36,10 @@ pub enum Notice {
     Finished,
     /// Playback was stopped or paused.
     Stopped,
+    /// The output with this key failed and left the session.
+    OutputFailed(String),
+    /// The engine crashed: the session has none until one is attached again.
+    Crashed(String),
 }
 
 /// Where playback is in the current item.
@@ -77,6 +81,8 @@ impl TrackSource for Source {
 }
 
 struct Running {
+    /// Tells this engine from the one that replaced it.
+    id: u64,
     handle: EngineHandle,
     format: PcmFormat,
     timeline: Option<Timeline>,
@@ -129,8 +135,11 @@ impl QueueSession {
             sinks,
         );
         let events = std::mem::replace(&mut handle.events, mpsc::unbounded_channel().1);
-        tokio::spawn(follow(events, self.clone(), timeline));
+        static ENGINES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = ENGINES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tokio::spawn(follow(events, self.clone(), timeline, id));
         if let Some(old) = self.running.lock().unwrap().replace(Running {
+            id,
             handle,
             format,
             timeline,
@@ -299,9 +308,27 @@ async fn follow(
     mut events: mpsc::UnboundedReceiver<Tagged>,
     session: QueueSession,
     timeline: Option<Timeline>,
+    engine: u64,
 ) {
     let current = || *session.epoch.lock().unwrap();
     while let Some(tagged) = events.recv().await {
+        // What befalls the engine and its outputs holds whatever the epoch.
+        match &tagged.event {
+            Event::OutputFailed { key, .. } => {
+                let _ = session.notices.send(Notice::OutputFailed(key.clone()));
+                continue;
+            }
+            Event::Crashed { error } => {
+                let mut running = session.running.lock().unwrap();
+                if running.as_ref().is_some_and(|r| r.id == engine) {
+                    *running = None;
+                    drop(running);
+                    let _ = session.notices.send(Notice::Crashed(error.clone()));
+                }
+                return;
+            }
+            _ => {}
+        }
         if tagged.epoch != current() {
             continue;
         }
@@ -310,7 +337,10 @@ async fn follow(
             Event::TrackStarted { at, .. } | Event::Seeked { at, .. } | Event::Idle { at } => {
                 timeline.map(|t| t.instant_of(*at))
             }
-            Event::TrackEnded { .. } | Event::TrackFailed { .. } => None,
+            Event::TrackEnded { .. }
+            | Event::TrackFailed { .. }
+            | Event::OutputFailed { .. }
+            | Event::Crashed { .. } => None,
         };
         if let Some(when) = when {
             let wait = when - clock::now();
@@ -349,7 +379,10 @@ async fn follow(
                     *session.position.lock().unwrap() = Position::default();
                     Some(Notice::Finished)
                 }
-                Event::Idle { .. } | Event::TrackEnded { .. } => None,
+                Event::Idle { .. }
+                | Event::TrackEnded { .. }
+                | Event::OutputFailed { .. }
+                | Event::Crashed { .. } => None,
             }
         };
         if let Some(notice) = notice {

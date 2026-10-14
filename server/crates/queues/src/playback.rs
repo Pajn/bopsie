@@ -7,14 +7,15 @@
 //! is refused, with the planner's reason. Whatever a session reports is passed on as Music
 //! Assistant's events, and to the devices themselves as group state and what is playing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{Realtime, Settings};
 use bopsie_audio::timeline::{Micros, Timeline};
+use bopsie_core::backoff::{self, Backoff};
 use bopsie_core::clock;
 use bopsie_core::events::{Event, EventBus, EventType};
 use bopsie_core::media::Track;
@@ -32,6 +33,9 @@ use crate::state::{Effect, PlaybackState, Queue, QueueError, QueueOption, Repeat
 
 /// Recent audio kept for members that join a playing group.
 const RING_SECONDS: usize = 10;
+/// Crashes of one queue's engine within [`CRASH_WINDOW`] after which it stops.
+const MAX_CRASHES: usize = 3;
+const CRASH_WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -60,6 +64,12 @@ struct Inner {
     entries: Mutex<BTreeMap<String, Entry>>,
     /// Whether each device could play when last seen, to tell when one comes back.
     available: Mutex<BTreeMap<String, bool>>,
+    /// How long each device whose output failed waits before it rejoins.
+    backoffs: Mutex<BTreeMap<String, Backoff>>,
+    /// Devices waiting to rejoin.
+    rejoining: Mutex<BTreeSet<String>>,
+    /// When each queue's engine recently crashed.
+    crashes: Mutex<BTreeMap<String, Vec<Instant>>>,
     rng: Mutex<StdRng>,
 }
 
@@ -120,6 +130,9 @@ impl Playback {
                 config,
                 entries: Mutex::default(),
                 available: Mutex::default(),
+                backoffs: Mutex::default(),
+                rejoining: Mutex::default(),
+                crashes: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
             }),
         };
@@ -233,26 +246,154 @@ impl Playback {
         if available && was == Some(false) {
             self.reconnect(id);
         }
+        // A leader that goes leaves its group with nothing to follow: it pauses where it was.
+        if !available
+            && was == Some(true)
+            && let Ok(entry) = self.entry(id)
+            && entry.synced_to.is_none()
+            && entry.session.snapshot().state == PlaybackState::Playing
+        {
+            tracing::warn!(queue = id, "the group's leader is gone; pausing");
+            entry.session.pause();
+        }
         self.publish(EventType::PlayerUpdated, id, self.player(id, None));
         self.publish(EventType::QueueUpdated, id, self.queue(id));
     }
 
     fn reconnect(&self, id: &str) {
-        let Some(leader) = self.leader_of(id) else {
-            return;
-        };
-        let Ok(entry) = self.entry(&leader) else {
-            return;
-        };
-        if let (Some(plan), Some((_, Some(timeline)))) = (&entry.plan, entry.session.engine())
-            && let Some(carrier) = plan.carrier(id)
-            && let Ok(device) = self.device(id)
-            && let Some(member) = device.member(&carrier.endpoint)
+        if let Some(leader) = self.leader_of(id)
+            && let Err(error) = self.carry(&leader, id)
         {
-            entry.session.add_sink(
-                id.to_owned(),
-                member.endpoint.output(carrier.format, timeline),
+            tracing::warn!(device = id, %error, "cannot put a device back in its group");
+        }
+    }
+
+    /// Puts `device`, the leader or a member of `leader`'s group, into the group's running
+    /// engine: through its carrier, when the plan carries it; else the group is planned again,
+    /// and if it must change how it plays to carry the device, it plays on from where it was.
+    fn carry(&self, leader: &str, device: &str) -> Result<()> {
+        let leading = self.entry(leader)?;
+        let (Some(running), Some((_, Some(timeline)))) =
+            (leading.plan.clone(), leading.session.engine())
+        else {
+            // Not playing: the next start plans the group with it.
+            return Ok(());
+        };
+        let plan = if running.carrier(device).is_some() {
+            running.clone()
+        } else {
+            self.plan_for(leader, &leading.members, Some(running.strategy))?
+        };
+        let same_stream = running.strategy == plan.strategy
+            && running.sample_rate == plan.sample_rate
+            && running.channels == plan.channels;
+        if same_stream {
+            if let Some(carrier) = plan.carrier(device)
+                && let Some(member) = self.device(device)?.member(&carrier.endpoint)
+            {
+                leading.session.add_sink(
+                    device.to_owned(),
+                    member.endpoint.output(carrier.format, timeline),
+                );
+            }
+            self.set_plan(leader, Some(plan));
+        } else if leading.session.snapshot().state == PlaybackState::Playing {
+            tracing::info!(
+                queue = leader,
+                from = ?running.strategy,
+                to = ?plan.strategy,
+                "the group changes how it plays to carry a member"
             );
+            let position = leading.session.position(clock::now());
+            self.begin(leader, resume_at(position))?;
+        }
+        Ok(())
+    }
+
+    /// An output of `queue_id`'s group failed and left its engine: it is put back after a
+    /// wait that grows while it keeps failing, unless by then it no longer plays in the group,
+    /// the group stopped or its engine was replaced.
+    fn output_failed(&self, queue_id: &str, device: &str) {
+        if !self
+            .inner
+            .rejoining
+            .lock()
+            .unwrap()
+            .insert(device.to_owned())
+        {
+            return;
+        }
+        let wait = self
+            .inner
+            .backoffs
+            .lock()
+            .unwrap()
+            .entry(device.to_owned())
+            .or_insert_with(|| Backoff::new(backoff::Policy::RECONNECT))
+            .failed(Instant::now());
+        tracing::info!(
+            queue = queue_id,
+            device,
+            ?wait,
+            "an output failed; it rejoins after a wait"
+        );
+        let engine = self
+            .entry(queue_id)
+            .ok()
+            .and_then(|entry| entry.session.engine());
+        let (playback, queue_id, device) = (self.clone(), queue_id.to_owned(), device.to_owned());
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            playback.inner.rejoining.lock().unwrap().remove(&device);
+            let Ok(entry) = playback.entry(&queue_id) else {
+                return;
+            };
+            let wanted = playback.leader_of(&device).as_deref() == Some(queue_id.as_str())
+                && entry.session.snapshot().state == PlaybackState::Playing
+                && entry.session.engine() == engine
+                && playback.device(&device).is_ok_and(|d| d.available());
+            if !wanted {
+                // A device that comes back is put back by player_changed; a new engine
+                // already has it.
+                return;
+            }
+            playback.reconnect(&device);
+            if let Some(backoff) = playback.inner.backoffs.lock().unwrap().get_mut(&device) {
+                backoff.working(Instant::now());
+            }
+        });
+    }
+
+    /// `queue_id`'s engine crashed: the group plays on from where it was, unless it keeps
+    /// crashing.
+    fn crashed(&self, queue_id: &str, error: &str) {
+        let now = Instant::now();
+        let recent = {
+            let mut crashes = self.inner.crashes.lock().unwrap();
+            let times = crashes.entry(queue_id.to_owned()).or_default();
+            times.retain(|at| now.duration_since(*at) < CRASH_WINDOW);
+            times.push(now);
+            times.len()
+        };
+        let Ok(entry) = self.entry(queue_id) else {
+            return;
+        };
+        if recent > MAX_CRASHES {
+            tracing::error!(
+                queue = queue_id,
+                error,
+                "the engine keeps crashing; stopping"
+            );
+            entry.session.stop();
+            return;
+        }
+        if entry.session.snapshot().state != PlaybackState::Playing {
+            return;
+        }
+        tracing::warn!(queue = queue_id, error, "the engine crashed; playing on");
+        let position = entry.session.position(clock::now());
+        if let Err(error) = self.begin(queue_id, resume_at(position)) {
+            tracing::warn!(queue = queue_id, %error, "cannot play on after a crash");
         }
     }
 
@@ -314,6 +455,8 @@ impl Playback {
                     }
                 }
             }
+            Notice::OutputFailed(device) => self.output_failed(queue_id, &device),
+            Notice::Crashed(error) => self.crashed(queue_id, &error),
             Notice::Failed {
                 queue_item_id,
                 error,
@@ -669,8 +812,8 @@ impl Playback {
         let mut members = leading.members.clone();
         members.retain(|m| m != player);
         members.push(player.to_owned());
-        let running = leading.plan.clone();
-        let plan = self.plan_for(&leader, &members, running.as_ref().map(|p| p.strategy))?;
+        let current = leading.plan.as_ref().map(|p| p.strategy);
+        let plan = self.plan_for(&leader, &members, current)?;
         if let Some(dropped) = plan.dropped.iter().find(|d| d.device == player) {
             let leader_name = self.device(&leader)?.name;
             return Err(Error::new(
@@ -698,31 +841,7 @@ impl Playback {
             }
         }
         let playing = leading.session.snapshot().state == PlaybackState::Playing;
-        if let (Some(running), Some((_, Some(timeline)))) = (&running, leading.session.engine()) {
-            let same_stream = running.strategy == plan.strategy
-                && running.sample_rate == plan.sample_rate
-                && running.channels == plan.channels;
-            if same_stream {
-                if let Some(carrier) = plan.carrier(player)
-                    && let Some(member) = self.device(player)?.member(&carrier.endpoint)
-                {
-                    leading.session.add_sink(
-                        player.to_owned(),
-                        member.endpoint.output(carrier.format, timeline),
-                    );
-                }
-                self.set_plan(&leader, Some(plan));
-            } else if playing {
-                tracing::info!(
-                    queue = leader,
-                    from = ?running.strategy,
-                    to = ?plan.strategy,
-                    "the group changes how it plays for a member that joins"
-                );
-                let position = leading.session.position(clock::now());
-                self.begin(&leader, resume_at(position))?;
-            }
-        }
+        self.carry(&leader, player)?;
         if playing {
             self.announce(&leader);
         }

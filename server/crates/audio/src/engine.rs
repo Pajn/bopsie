@@ -96,6 +96,10 @@ pub enum Event {
     },
     /// Nothing is left to play; what was written ends at timeline frame `at`.
     Idle { at: u64 },
+    /// An output failed and was dropped from the session. Not tied to an epoch.
+    OutputFailed { key: String, error: String },
+    /// The session's thread panicked: the session is over. Not tied to an epoch.
+    Crashed { error: String },
 }
 
 /// What anchors a session to real time.
@@ -161,13 +165,35 @@ pub fn spawn(
     let (events, outbox) = async_mpsc::unbounded_channel();
     let thread = std::thread::Builder::new()
         .name("stream-engine".to_owned())
-        .spawn(move || Engine::new(settings, source, sinks, events).run(inbox))
+        .spawn(move || {
+            let crashed = events.clone();
+            let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Engine::new(settings, source, sinks, events).run(inbox)
+            }));
+            if let Err(panic) = ran {
+                let error = panic_message(panic.as_ref());
+                tracing::error!(error, "the stream engine crashed");
+                let _ = crashed.send(Tagged {
+                    epoch: 0,
+                    event: Event::Crashed { error },
+                });
+            }
+        })
         .expect("spawning the engine thread");
     EngineHandle {
         commands,
         events: outbox,
         thread: Some(thread),
     }
+}
+
+/// What a panic said.
+fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic".to_owned())
 }
 
 /// Opens a decoder for `path` that produces audio the session can take.
@@ -330,12 +356,25 @@ impl Engine {
         true
     }
 
+    /// Reports an output that failed, which is no longer part of the session.
+    fn output_failed(&self, key: &str, error: impl std::fmt::Display) {
+        tracing::warn!(sink = key, %error, "an output failed; dropping it");
+        self.emit(Event::OutputFailed {
+            key: key.to_owned(),
+            error: error.to_string(),
+        });
+    }
+
     fn add_sink(&mut self, key: String, mut sink: Box<dyn Sink>) {
-        assert_eq!(
-            sink.format().sample_rate,
-            self.settings.format.sample_rate,
-            "sinks take the session's rate"
-        );
+        if sink.format().sample_rate != self.settings.format.sample_rate {
+            let error = format!(
+                "it takes {} Hz and the session plays {} Hz",
+                sink.format().sample_rate,
+                self.settings.format.sample_rate
+            );
+            self.output_failed(&key, error);
+            return;
+        }
         // While playing, the newcomer gets what is still to play of the recent audio.
         if self.current.is_some()
             && let Some(realtime) = self.settings.realtime
@@ -347,7 +386,8 @@ impl Engine {
                 let mut packed = Vec::new();
                 pack(&samples, sink.format().bits, &mut packed);
                 if let Err(error) = sink.write(from, &packed) {
-                    tracing::warn!(sink = key, %error, "a joining output failed to take audio");
+                    self.output_failed(&key, error);
+                    return;
                 }
             }
         }
@@ -500,12 +540,12 @@ impl Engine {
                 packed
             });
             if let Err(error) = sink.write(at, packed) {
-                tracing::warn!(sink = key, %error, "an output failed; dropping it");
-                failed.push(key.clone());
+                failed.push((key.clone(), error));
             }
         }
-        for key in failed {
+        for (key, error) in failed {
             self.sinks.remove(&key);
+            self.output_failed(&key, error);
         }
         self.head += (samples.len() / usize::from(self.settings.format.channels)) as u64;
     }

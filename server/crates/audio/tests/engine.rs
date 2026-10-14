@@ -249,6 +249,136 @@ fn stopping_and_restarting() {
     handle.shutdown();
 }
 
+/// A sink that fails after taking `ok` writes, or panics instead when `panics`.
+struct Failing {
+    ok: usize,
+    panics: bool,
+}
+
+impl Sink for Failing {
+    fn format(&self) -> OutputFormat {
+        output(16)
+    }
+    fn write(&mut self, _at: u64, _data: &[u8]) -> std::io::Result<()> {
+        if self.ok == 0 {
+            assert!(!self.panics, "a sink that panics");
+            return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+        }
+        self.ok -= 1;
+        Ok(())
+    }
+    fn finish(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn an_output_that_fails_is_dropped_and_reported() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = noise(9, 44_100 * 2);
+    write_wav(&dir.path().join("a.wav"), 44_100, 2, &a).unwrap();
+    let wav = dir.path().join("out.wav");
+    let sinks: Vec<(String, Box<dyn Sink>)> = vec![
+        (
+            "good".into(),
+            Box::new(WavSink::create(&wav, output(16)).unwrap()),
+        ),
+        (
+            "bad".into(),
+            Box::new(Failing {
+                ok: 2,
+                panics: false,
+            }),
+        ),
+    ];
+    let settings = Settings {
+        format: SESSION,
+        ffmpeg: None,
+        ring_frames: 0,
+        realtime: None,
+    };
+    let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
+    let mut handle = engine::spawn(settings, Box::new(source), sinks);
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before: None,
+    });
+    let mut failed = Vec::new();
+    loop {
+        match handle.events.blocking_recv().unwrap().event {
+            Event::OutputFailed { key, .. } => failed.push(key),
+            Event::Idle { .. } => break,
+            _ => {}
+        }
+    }
+    handle.shutdown();
+    assert_eq!(failed, ["bad"]);
+    assert!(
+        std::fs::read(&wav).unwrap()[44..] == bytes(&a),
+        "the rest play on"
+    );
+}
+
+#[test]
+fn an_output_of_the_wrong_rate_is_refused() {
+    let wrong = OutputFormat {
+        sample_rate: 48_000,
+        ..output(16)
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let sinks: Vec<(String, Box<dyn Sink>)> = vec![(
+        "wrong".into(),
+        Box::new(WavSink::create(&dir.path().join("w.wav"), wrong).unwrap()),
+    )];
+    let settings = Settings {
+        format: SESSION,
+        ffmpeg: None,
+        ring_frames: 0,
+        realtime: None,
+    };
+    let mut handle = engine::spawn(settings, Box::new(Tracks(VecDeque::new())), sinks);
+    let event = handle.events.blocking_recv().unwrap().event;
+    assert!(
+        matches!(&event, Event::OutputFailed { key, .. } if key == "wrong"),
+        "{event:?}"
+    );
+    handle.shutdown();
+}
+
+#[test]
+fn a_panic_ends_the_session_with_a_report() {
+    let dir = tempfile::tempdir().unwrap();
+    write_wav(&dir.path().join("a.wav"), 44_100, 2, &noise(10, 44_100 * 2)).unwrap();
+    let sinks: Vec<(String, Box<dyn Sink>)> = vec![(
+        "bad".into(),
+        Box::new(Failing {
+            ok: 1,
+            panics: true,
+        }),
+    )];
+    let settings = Settings {
+        format: SESSION,
+        ffmpeg: None,
+        ring_frames: 0,
+        realtime: None,
+    };
+    let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
+    let mut handle = engine::spawn(settings, Box::new(source), sinks);
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before: None,
+    });
+    let mut last = None;
+    while let Some(tagged) = handle.events.blocking_recv() {
+        last = Some(tagged.event);
+    }
+    assert!(
+        matches!(&last, Some(Event::Crashed { error }) if error == "a sink that panics"),
+        "{last:?}"
+    );
+    handle.shutdown();
+}
+
 mod realtime {
     use std::sync::{Arc, Mutex};
 
