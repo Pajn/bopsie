@@ -44,12 +44,16 @@ struct Args {
     config: Option<PathBuf>,
 }
 
+/// What is logged unless `RUST_LOG` says otherwise. The tag reader warns about every odd tag it
+/// skips, which buries everything else in a large library.
+const DEFAULT_LOG: &str = "info,lofty=error";
+
 #[tokio::main]
 async fn main() -> ExitCode {
     // The web UI tails the log: it keeps what the log prints.
     let logs = Tail::default();
     tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG)))
         .with(tracing_subscriber::fmt::layer())
         .with(logs.clone())
         .init();

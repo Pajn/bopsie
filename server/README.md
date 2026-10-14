@@ -32,7 +32,7 @@ cargo run -p bopsie-server -- --config config.toml
 
 The config file is optional; [`config.example.toml`](config.example.toml) lists every key with
 its default. The server listens on port 8095 and keeps its database in `data/`. Logging follows
-`RUST_LOG`, at `info` by default.
+`RUST_LOG`, at `info` by default, with the tag reader's warnings about odd tags left out.
 
 Music comes from the folders under `[library]`. The server scans them at startup and on
 `music/sync`; a rescan reads only files whose size or modification time changed. Album art is a
