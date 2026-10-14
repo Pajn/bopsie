@@ -20,6 +20,9 @@ use bopsie_library::provider::MusicProvider;
 use bopsie_players::planner::Policy;
 use bopsie_players::{Devices, Players};
 use bopsie_players_airplay::{AirplayProvider, Config as AirplayConfig};
+use bopsie_players_linkplay::{
+    Config as LinkplayConfig, LinkplayProvider, ServerAddress as LinkplayServer,
+};
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use clap::Parser;
@@ -102,12 +105,14 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
     playback.persist(db.clone(), library.clone()).await?;
     let airplay = start_airplay(&config, players.clone(), db.clone()).await;
+    let linkplay = start_linkplay(&config, players.clone());
     let services = Services {
         library: library.clone(),
         events,
         players,
         playback: playback.clone(),
         airplay: airplay.clone(),
+        linkplay: linkplay.clone(),
     };
     let api = Api::new(db, config.server.clone(), services, commands::registry()).await?;
 
@@ -169,6 +174,9 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(airplay) = airplay {
             let _ = tokio::task::spawn_blocking(move || airplay.shutdown()).await;
         }
+        if let Some(linkplay) = linkplay {
+            let _ = tokio::task::spawn_blocking(move || linkplay.shutdown()).await;
+        }
         let _ = closing.send(true);
         let _ = direct_server.await;
         server.await
@@ -220,6 +228,37 @@ async fn start_airplay(config: &Config, players: Players, db: Database) -> Optio
     };
     if let Err(error) = provider.discover() {
         tracing::error!(%error, "AirPlay discovery could not start");
+    }
+    Some(provider)
+}
+
+/// LinkPlay, unless the config file turns it off.
+fn start_linkplay(config: &Config, players: Players) -> Option<LinkplayProvider> {
+    if !config.linkplay.enabled {
+        return None;
+    }
+    let mut linkplay_config = LinkplayConfig::new(LinkplayServer {
+        port: config.server.bind.port(),
+        base_url: config.server.base_url.clone(),
+    });
+    if let Some(path) = &config.linkplay.certificate {
+        match std::fs::read(path) {
+            Ok(pem) => linkplay_config.certificate = pem,
+            Err(error) => {
+                tracing::error!(path = %path.display(), %error, "LinkPlay certificate unreadable; LinkPlay is off");
+                return None;
+            }
+        }
+    }
+    let provider = match LinkplayProvider::new(players, linkplay_config) {
+        Ok(provider) => provider,
+        Err(error) => {
+            tracing::error!(%error, "LinkPlay could not start");
+            return None;
+        }
+    };
+    if let Err(error) = provider.discover() {
+        tracing::error!(%error, "LinkPlay discovery could not start");
     }
     Some(provider)
 }

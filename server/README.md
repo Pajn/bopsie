@@ -56,6 +56,16 @@ clock, which needs UDP ports 319 and 320 (root, or `CAP_NET_BIND_SERVICE` on Lin
 that show a PIN, such as Apple TVs and HomePods, are paired with the `airplay/pair_start` and
 `airplay/pair_finish` commands; speakers with a password take it from the config.
 
+LinkPlay speakers, such as WiiM's and Audio Pro's, are found by mDNS and controlled over their
+HTTP API. A LinkPlay device cannot be told when to start, only what to play, so the server
+serves it a stream it pulls from the API's port, and tells it to play that as long before the
+audio is due as it took last time. Several LinkPlay speakers in a group are grouped by their
+own multiroom: the server streams to the leader, and the leader carries the rest, at 48 kHz
+16-bit at most. A group made in the vendor's app shows as it is. Playing to a LinkPlay speaker
+switches it to its network input, as it would for any app, and leaves it there. Devices that
+ask for a client certificate, as Audio Pro's do, are shown LinkPlay's; see
+[`crates/players/linkplay/NOTICE`](crates/players/linkplay/NOTICE).
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh

@@ -69,6 +69,7 @@ pub async fn start_with(seconds: u32) -> Server {
         players: players.clone(),
         playback,
         airplay: None,
+        linkplay: None,
     };
     let api = Api::new(db, ServerConfig::default(), services, commands::registry())
         .await

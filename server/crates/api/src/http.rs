@@ -20,7 +20,13 @@ use crate::commands::auth::{LOGIN_FAILED, UNNAMED_DEVICE};
 use crate::{Api, imageproxy, info, sendspin, ws};
 
 pub fn router(api: Arc<Api>) -> Router {
-    Router::new()
+    // The streams LinkPlay devices pull, on the API's port so that they reach the server
+    // wherever the API does.
+    let streams = api
+        .linkplay
+        .as_ref()
+        .map(|linkplay| linkplay.hub().routes());
+    let router = Router::new()
         .route("/info", get(server_info))
         .route("/setup", post(setup))
         .route("/auth/login", post(login))
@@ -29,7 +35,11 @@ pub fn router(api: Arc<Api>) -> Router {
         .route("/ws", get(websocket))
         .route("/imageproxy/{proxy_id}", get(imageproxy::serve))
         .route("/sendspin", get(sendspin::upgrade))
-        .with_state(api)
+        .with_state(api);
+    match streams {
+        Some(streams) => router.merge(streams),
+        None => router,
+    }
 }
 
 type ApiState = State<Arc<Api>>;

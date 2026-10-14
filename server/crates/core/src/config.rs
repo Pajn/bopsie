@@ -18,6 +18,7 @@ pub struct Config {
     pub sendspin: SendspinConfig,
     pub audio: AudioConfig,
     pub airplay: AirplayConfig,
+    pub linkplay: LinkplayConfig,
     /// Settings for one player, by player id.
     pub players: BTreeMap<String, PlayerConfig>,
     pub planner: PlannerConfig,
@@ -102,6 +103,25 @@ impl Default for AirplayConfig {
         Self {
             binary: None,
             ptp: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LinkplayConfig {
+    /// Find and play to LinkPlay speakers: WiiM, Audio Pro and others.
+    pub enabled: bool,
+    /// A PEM file with the client certificate and key to present to devices that ask for one,
+    /// instead of the LinkPlay certificate the server carries.
+    pub certificate: Option<PathBuf>,
+}
+
+impl Default for LinkplayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            certificate: None,
         }
     }
 }

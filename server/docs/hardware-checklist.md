@@ -12,6 +12,8 @@ time, and how they recover.
 - An AirPlay speaker that pairs with a PIN, such as an Apple TV or a HomePod with restricted
   access, for the pairing check. Skip that check without one.
 - A phone with Bopsie, signed in to the server.
+- Two LinkPlay speakers, such as a WiiM and an Audio Pro, for the LinkPlay checks. Note the
+  input each is on and its volume first, to put back afterwards.
 - The server's log at `info`, with `RUST_LOG=info,bopsie_players_airplay=debug` for the AirPlay
   checks, to read the lines quoted below.
 
@@ -71,8 +73,24 @@ Each line says what to do, what to hear, and what the log shows when it went rig
 16. **A crash.** Kill the server with `kill -9` while it plays, then start it. Log:
     `ended cliairplay processes an earlier run left`, then `PTP daemon running`. Playing works.
 
+### LinkPlay
+
+18. **LinkPlay solo.** Play to a LinkPlay speaker. It is audible within about four seconds, and
+    Bopsie's position follows what is heard. Log at debug: `audible relative to the timeline`
+    with `off_ms` within a few hundred.
+19. **LinkPlay group.** Add the second LinkPlay speaker in Bopsie's output sheet. It plays the
+    same audio as the leader within a few seconds; Bopsie shows it following. Remove it: it
+    stops, the leader plays on.
+20. **A group made in the vendor's app.** Group the two in the vendor's app. Within ten seconds
+    Bopsie shows the follower following; ungroup them in the app and it shows that too.
+21. **AirPlay it withdrew.** With a LinkPlay speaker that has AirPlay following another, add it
+    to an AirPlay group in Bopsie. It leaves the LinkPlay group and joins the AirPlay group
+    within half a minute.
+22. **Afterwards.** Put each LinkPlay speaker back on its input: playing to it switched it to
+    the network.
+
 ### The library
 
-17. **An unmounted folder.** Unmount (or rename) a music folder, then `music/sync`. Bopsie still
+23. **An unmounted folder.** Unmount (or rename) a music folder, then `music/sync`. Bopsie still
     lists its music. Mount it again and sync: nothing changed. Log: `scan failed` naming the
     provider, `it lists nothing`.

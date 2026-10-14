@@ -21,6 +21,7 @@ use bopsie_core::events::EventBus;
 use bopsie_library::Library;
 use bopsie_players::Players;
 use bopsie_players_airplay::AirplayProvider;
+use bopsie_players_linkplay::LinkplayProvider;
 use bopsie_players_sendspin::SendspinServer;
 use bopsie_queues::Playback;
 
@@ -38,6 +39,8 @@ pub struct Services {
     pub playback: Playback,
     /// AirPlay, when `cliairplay` is installed.
     pub airplay: Option<AirplayProvider>,
+    /// LinkPlay, unless the config file turns it off.
+    pub linkplay: Option<LinkplayProvider>,
 }
 
 /// Everything a request handler can reach.
@@ -47,6 +50,7 @@ pub struct Api {
     pub events: EventBus,
     pub playback: Playback,
     pub airplay: Option<AirplayProvider>,
+    pub linkplay: Option<LinkplayProvider>,
     /// The Sendspin server role, which `/sendspin` and the direct listener hand clients to.
     pub sendspin: SendspinServer,
     /// Generated on first start and stable after, so clients can tell servers apart.
@@ -82,6 +86,7 @@ impl Api {
             events: services.events,
             playback: services.playback,
             airplay: services.airplay,
+            linkplay: services.linkplay,
             sendspin,
             server_id,
             config,
@@ -116,6 +121,7 @@ pub(crate) mod tests {
             events,
             players,
             airplay: None,
+            linkplay: None,
         };
         Api::new(db, ServerConfig::default(), services, Registry::default())
             .await

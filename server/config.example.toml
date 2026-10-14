@@ -35,6 +35,15 @@ bind = "0.0.0.0:8927"
 # root, or CAP_NET_BIND_SERVICE on Linux. Without it, each speaker keeps its own clock.
 ptp = true
 
+[linkplay]
+# LinkPlay speakers on the network (WiiM, Audio Pro, Arylic and others) are found by mDNS,
+# played by a stream they pull from the server, and grouped by their own multiroom.
+enabled = true
+# Devices that ask for a client certificate, as Audio Pro's do, are shown LinkPlay's, which the
+# server carries (crates/players/linkplay/NOTICE). Another may be given as a PEM file holding
+# the certificate and its key.
+# certificate = "/etc/bopsie/linkplay-client.pem"
+
 [planner]
 # The protocols a group may play over, in order of preference. A group plays over one of them;
 # a speaker that cannot play over the one chosen cannot join.

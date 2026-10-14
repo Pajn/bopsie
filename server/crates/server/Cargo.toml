@@ -12,6 +12,7 @@ bopsie-library.workspace = true
 bopsie-providers-filesystem.workspace = true
 bopsie-players.workspace = true
 bopsie-players-airplay.workspace = true
+bopsie-players-linkplay.workspace = true
 bopsie-players-sendspin.workspace = true
 bopsie-queues.workspace = true
 bopsie-api.workspace = true
