@@ -3,6 +3,7 @@
 
 pub mod lifetime;
 pub mod scope;
+pub mod users;
 
 use std::sync::Arc;
 
