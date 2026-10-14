@@ -3,9 +3,12 @@
 //!
 //! Protocol crates implement the traits defined here and depend on this crate, never the reverse.
 
+pub mod devices;
 mod facts;
+pub mod linking;
 pub mod quirks;
 
+pub use devices::{Device, Devices, Member};
 pub use facts::{Capabilities, Facts, Pairing};
 
 use std::collections::BTreeMap;
@@ -88,6 +91,7 @@ pub trait Endpoint: Send + Sync {
 pub enum Change {
     Added(String),
     Updated(String),
+    Removed(String),
 }
 
 /// Every endpoint the server knows. An endpoint that disconnects stays, unavailable, so that

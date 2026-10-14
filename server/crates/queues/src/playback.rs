@@ -114,6 +114,8 @@ impl Playback {
                 match changes.recv().await {
                     Ok(Change::Added(id)) => watcher.add_player(&id),
                     Ok(Change::Updated(id)) => watcher.player_changed(&id),
+                    // Endpoints stay registered once added.
+                    Ok(Change::Removed(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }

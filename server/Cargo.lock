@@ -322,9 +322,12 @@ version = "0.1.0"
 dependencies = [
  "bopsie-audio",
  "bopsie-core",
+ "rusqlite",
  "serde",
+ "tempfile",
  "tokio",
  "toml",
+ "tracing",
 ]
 
 [[package]]

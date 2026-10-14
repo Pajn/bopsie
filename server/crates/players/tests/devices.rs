@@ -1,0 +1,207 @@
+//! Endpoints linked into devices, whose ids outlive a restart.
+
+use std::sync::{Arc, Mutex};
+
+use bopsie_audio::OutputFormat;
+use bopsie_audio::sink::Sink;
+use bopsie_audio::timeline::Timeline;
+use bopsie_core::config::PlayerConfig;
+use bopsie_core::db::Database;
+use bopsie_players::devices::MIGRATIONS;
+use bopsie_players::{
+    Capabilities, Change, DeviceInfo, Devices, Endpoint, EndpointState, Facts, NowPlaying, Players,
+};
+
+struct Fake {
+    id: String,
+    state: Mutex<EndpointState>,
+}
+
+impl Fake {
+    fn new(id: &str, provider: &'static str, facts: Facts) -> Arc<Self> {
+        Arc::new(Self {
+            id: id.to_owned(),
+            state: Mutex::new(EndpointState {
+                name: format!("{id} name"),
+                provider,
+                available: true,
+                volume: None,
+                muted: None,
+                device: DeviceInfo {
+                    model: None,
+                    manufacturer: None,
+                    software_version: None,
+                },
+                app: false,
+                owner_token: None,
+                facts,
+                capabilities: Capabilities {
+                    formats: Vec::new(),
+                    lead: 0,
+                    sync_group: true,
+                    max_group_size: None,
+                    volume: true,
+                    mute: true,
+                    pairing: Default::default(),
+                },
+                quirks: Default::default(),
+            }),
+        })
+    }
+}
+
+impl Endpoint for Fake {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn state(&self) -> EndpointState {
+        self.state.lock().unwrap().clone()
+    }
+    fn output(&self, _: OutputFormat, _: Timeline) -> Box<dyn Sink> {
+        unimplemented!("not played to")
+    }
+    fn set_volume(&self, _: u8) {}
+    fn set_muted(&self, _: bool) {}
+    fn set_now_playing(&self, _: Option<&NowPlaying>) {}
+    fn set_group(&self, _: bool, _: &str) {}
+}
+
+fn mac(mac: &str) -> Facts {
+    Facts {
+        mac: Some(mac.to_owned()),
+        ..Facts::default()
+    }
+}
+
+fn ids(devices: &Devices) -> Vec<(String, Vec<String>)> {
+    devices
+        .all()
+        .into_iter()
+        .map(|d| (d.id, d.members.into_iter().map(|m| m.id).collect()))
+        .collect()
+}
+
+fn owned(pairs: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+    pairs
+        .iter()
+        .map(|(d, es)| {
+            (
+                (*d).to_owned(),
+                es.iter().map(|e| (*e).to_owned()).collect(),
+            )
+        })
+        .collect()
+}
+
+/// Lets writes to the database land.
+async fn settle() {
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+}
+
+#[tokio::test]
+async fn a_speaker_over_two_protocols_is_one_device_whose_id_outlives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+    {
+        let players = Players::default();
+        let devices = Devices::new(
+            players.clone(),
+            Database::open(&path, &[MIGRATIONS]).unwrap(),
+        )
+        .await
+        .unwrap();
+        players.register(Fake::new("speaker", "sendspin", mac("aabbcc001122")));
+        players.register(Fake::new("phone", "sendspin", Facts::default()));
+        assert_eq!(
+            ids(&devices),
+            owned(&[("phone", &["phone"]), ("speaker", &["speaker"])])
+        );
+        // Its AirPlay endpoint is found: the device keeps its id, preferring AirPlay.
+        players.register(Fake::new("apaabbcc001122", "airplay", mac("AABBCC001122")));
+        assert_eq!(
+            ids(&devices),
+            owned(&[
+                ("phone", &["phone"]),
+                ("speaker", &["apaabbcc001122", "speaker"])
+            ])
+        );
+        let device = devices.get("speaker").unwrap();
+        assert_eq!(device.primary().id, "apaabbcc001122");
+        assert_eq!(device.name, "apaabbcc001122 name");
+        assert_eq!(devices.device_of("apaabbcc001122").unwrap().id, "speaker");
+        settle().await;
+    }
+    // After a restart the AirPlay endpoint is found first, and is still that device.
+    let players = Players::default();
+    let devices = Devices::new(
+        players.clone(),
+        Database::open(&path, &[MIGRATIONS]).unwrap(),
+    )
+    .await
+    .unwrap();
+    players.register(Fake::new("apaabbcc001122", "airplay", mac("aabbcc001122")));
+    assert_eq!(ids(&devices), owned(&[("speaker", &["apaabbcc001122"])]));
+}
+
+#[tokio::test]
+async fn devices_are_announced_as_they_link() {
+    let players = Players::default();
+    let devices = Devices::new(
+        players.clone(),
+        Database::open_in_memory(&[MIGRATIONS]).unwrap(),
+    )
+    .await
+    .unwrap();
+    let mut changes = devices.subscribe();
+    players.register(Fake::new("ap1", "airplay", mac("aa")));
+    assert_eq!(changes.recv().await.unwrap(), Change::Added("ap1".into()));
+    players.register(Fake::new("ss1", "sendspin", mac("bb")));
+    assert_eq!(changes.recv().await.unwrap(), Change::Added("ss1".into()));
+    players.changed("ap1");
+    assert_eq!(changes.recv().await.unwrap(), Change::Updated("ap1".into()));
+
+    // ss1 turns out to be the same speaker as ap1, which ss1 found first.
+    players.register(Fake::new("ss1", "sendspin", mac("aa")));
+    let mut seen = vec![changes.recv().await.unwrap(), changes.recv().await.unwrap()];
+    seen.sort_by_key(|c| format!("{c:?}"));
+    assert_eq!(
+        seen,
+        [Change::Removed("ss1".into()), Change::Updated("ap1".into())]
+    );
+}
+
+#[tokio::test]
+async fn the_config_file_names_and_disables_devices() {
+    let players = Players::new(
+        [
+            (
+                "ap1".to_owned(),
+                PlayerConfig {
+                    name: Some("Kitchen".into()),
+                    ..PlayerConfig::default()
+                },
+            ),
+            (
+                "ap2".to_owned(),
+                PlayerConfig {
+                    enabled: false,
+                    ..PlayerConfig::default()
+                },
+            ),
+        ]
+        .into(),
+    );
+    let devices = Devices::new(
+        players.clone(),
+        Database::open_in_memory(&[MIGRATIONS]).unwrap(),
+    )
+    .await
+    .unwrap();
+    players.register(Fake::new("ap1", "airplay", mac("aa")));
+    players.register(Fake::new("ap2", "airplay", mac("bb")));
+    let kitchen = devices.get("ap1").unwrap();
+    assert_eq!(kitchen.name, "Kitchen");
+    assert!(kitchen.available());
+    let disabled = devices.get("ap2").unwrap();
+    assert!(!disabled.enabled && !disabled.available());
+}
