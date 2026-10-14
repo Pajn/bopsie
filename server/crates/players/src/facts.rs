@@ -5,6 +5,7 @@ use std::net::IpAddr;
 
 use bopsie_audio::OutputFormat;
 use bopsie_audio::timeline::Micros;
+pub use bopsie_core::quirks::Pairing;
 
 /// What discovery learned about an endpoint, beyond its [`crate::DeviceInfo`].
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -19,20 +20,6 @@ pub struct Facts {
     pub features: Option<u64>,
     /// AirPlay's status flags.
     pub status_flags: Option<u64>,
-}
-
-/// How an endpoint has to be paired before it plays.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Pairing {
-    #[default]
-    None,
-    /// Paired afresh on every connection, without the user.
-    Transient,
-    /// Paired once with a PIN the speaker shows.
-    Pin,
-    /// A password on every connection.
-    Password,
 }
 
 /// What an endpoint can do over its protocol.

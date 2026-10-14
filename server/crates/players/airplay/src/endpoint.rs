@@ -228,20 +228,10 @@ impl Endpoint for AirplayEndpoint {
     fn state(&self) -> EndpointState {
         let state = self.shared.state.lock().unwrap();
         let records = &state.speaker.records;
-        let needs_pairing = records.requires_pin() && state.credentials.is_none();
-        let pairing = if records.requires_pin() {
-            Pairing::Pin
-        } else if records.requires_password() {
-            Pairing::Password
-        } else if records.airplay2() {
-            Pairing::Transient
-        } else {
-            Pairing::None
-        };
-        EndpointState {
+        let mut endpoint = EndpointState {
             name: state.speaker.name.clone(),
             provider: "airplay",
-            available: state.discovered && state.failure.is_none() && !needs_pairing,
+            available: state.discovered && state.failure.is_none(),
             volume: Some(state.volume),
             muted: Some(state.muted),
             device: DeviceInfo {
@@ -266,9 +256,20 @@ impl Endpoint for AirplayEndpoint {
                 max_group_size: Some(MAX_GROUP_SIZE),
                 volume: true,
                 mute: true,
-                pairing,
+                pairing: state.speaker.pairing(),
             },
+            quirks: Default::default(),
+        };
+        endpoint.quirks = self.shared.players.resolve_quirks(
+            &self.shared.id,
+            &endpoint,
+            &state.speaker.quirk_defaults(),
+        );
+        // A speaker that pairs with a PIN plays once it has been paired.
+        if endpoint.quirks.quirks.pairing == Some(Pairing::Pin) && state.credentials.is_none() {
+            endpoint.available = false;
         }
+        endpoint
     }
 
     fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {

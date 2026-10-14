@@ -1,0 +1,21 @@
+# Quirk rules: where a kind of speaker deviates from what its protocol promises. A rule applies
+# to an endpoint when everything in its `match` does; later rules win over earlier ones, and the
+# config file's [players.<id>.quirks] win over every rule.
+#
+# match keys, all optional:
+#   provider       "airplay" or "sendspin"
+#   manufacturer   exact, ignoring case
+#   model          ignoring case; * matches any run of characters
+#   firmware       likewise
+#   features       AirPlay feature bits that must all be set, by number
+#   status_flags   AirPlay status flag bits that must all be set, by number
+#
+# quirks are the keys of config.example.toml's [players.<id>.quirks]. Every rule says why, in
+# `cause`, with where that was found.
+
+[[rule]]
+name = "Sonos over AirPlay"
+cause = """Sonos accepts 48 kHz 24-bit over AirPlay and then plays silence at full session \
+health (cliairplay DESIGN.md §11)."""
+match = { provider = "airplay", manufacturer = "Sonos" }
+quirks = { max_sample_format = { sample_rate = 44100, bits = 16 } }

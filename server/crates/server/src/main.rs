@@ -84,7 +84,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         Some(path) => tracing::info!(path = %path.display(), "using ffmpeg"),
         None => tracing::info!("ffmpeg not found; MP4 audio plays without gapless trimming"),
     }
-    let players = Players::default();
+    let players = Players::new(config.players.clone());
     let playback = Playback::start(
         players.clone(),
         events.clone(),
@@ -181,7 +181,11 @@ async fn start_airplay(config: &Config, players: Players, db: Database) -> Optio
     }
     let airplay_config = AirplayConfig {
         binary,
-        passwords: config.airplay.passwords.clone(),
+        passwords: config
+            .players
+            .iter()
+            .filter_map(|(id, player)| Some((id.clone(), player.password.clone()?)))
+            .collect(),
         env: Vec::new(),
         ptp: config.airplay.ptp,
         pipes: config.storage.data_dir.join("airplay"),

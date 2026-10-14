@@ -35,6 +35,18 @@ bind = "0.0.0.0:8927"
 # root, or CAP_NET_BIND_SERVICE on Linux. Without it, each speaker keeps its own clock.
 ptp = true
 
-[airplay.passwords]
-# Passwords for speakers that ask for one, by player id.
-# apaabbcc001122 = "password"
+# Settings for one player, by its player id (players/all lists them). Every key is optional.
+# [players.apaabbcc001122]
+# name = "Kitchen"          # instead of the name the speaker gives itself
+# enabled = false           # hide it and never play to it
+# password = "password"     # for speakers that ask for one
+#
+# Quirks, over the rules shipped in crates/players/quirks.toml:
+# [players.apaabbcc001122.quirks]
+# max_sample_format = { sample_rate = 44100, bits = 16 }
+# min_lead_ms = 3000        # start playback at least this far ahead
+# sync_adjust_ms = 20       # play this much later (or earlier, if negative) than the group
+# protocol = "airplay2"     # AirPlay route: auto, raop, airplay2 or airplay2-compat
+# timing = "ntp"            # AirPlay timing: auto, ptp or ntp
+# pairing = "transient"     # none, transient, pin or password, when detection is wrong
+# disconnect_on_idle_s = 300

@@ -121,7 +121,7 @@ impl Endpoint for SendspinEndpoint {
             .player_support()
             .map(|support| support.supported_commands.as_slice())
             .unwrap_or_default();
-        EndpointState {
+        let mut endpoint = EndpointState {
             name: info.name.clone(),
             provider: "sendspin",
             available: info.connected && info.available,
@@ -147,7 +147,13 @@ impl Endpoint for SendspinEndpoint {
                 mute: commands.iter().any(|c| c == "mute"),
                 pairing: Pairing::None,
             },
-        }
+            quirks: Default::default(),
+        };
+        endpoint.quirks =
+            self.shared
+                .players
+                .resolve_quirks(&self.shared.id, &endpoint, &Default::default());
+        endpoint
     }
 
     fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {

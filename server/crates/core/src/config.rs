@@ -1,10 +1,13 @@
 //! The server's TOML config file. Every key has a default, so a missing file means a server
 //! with defaults; an unknown key is an error, so a typo does not silently do nothing.
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+
+use crate::quirks::Quirks;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -15,6 +18,8 @@ pub struct Config {
     pub sendspin: SendspinConfig,
     pub audio: AudioConfig,
     pub airplay: AirplayConfig,
+    /// Settings for one player, by player id.
+    pub players: BTreeMap<String, PlayerConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -74,8 +79,6 @@ pub struct AirplayConfig {
     pub binary: Option<PathBuf>,
     /// Run one shared PTP clock for AirPlay 2 groups. It needs UDP ports 319 and 320.
     pub ptp: bool,
-    /// Passwords by player id, for speakers that ask for one.
-    pub passwords: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for AirplayConfig {
@@ -83,7 +86,30 @@ impl Default for AirplayConfig {
         Self {
             binary: None,
             ptp: true,
-            passwords: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlayerConfig {
+    /// The name shown, instead of the one the player gives itself.
+    pub name: Option<String>,
+    /// A disabled player is not shown and cannot be played to.
+    pub enabled: bool,
+    /// For speakers that ask for one.
+    pub password: Option<String>,
+    /// Over the shipped quirk rules.
+    pub quirks: Quirks,
+}
+
+impl Default for PlayerConfig {
+    fn default() -> Self {
+        Self {
+            name: None,
+            enabled: true,
+            password: None,
+            quirks: Quirks::default(),
         }
     }
 }
@@ -180,13 +206,30 @@ mod tests {
     }
 
     #[test]
-    fn airplay_passwords() {
+    fn player_settings() {
         let config = Config::parse(
-            "[airplay]\nptp = false\n[airplay.passwords]\napaabbcc001122 = \"secret\"\n",
+            r#"
+            [airplay]
+            ptp = false
+
+            [players.apaabbcc001122]
+            name = "Kitchen"
+            password = "secret"
+
+            [players.apaabbcc001122.quirks]
+            sync_adjust_ms = 25
+            timing = "ntp"
+            "#,
         )
         .unwrap();
         assert!(!config.airplay.ptp);
-        assert_eq!(config.airplay.passwords["apaabbcc001122"], "secret");
+        let kitchen = &config.players["apaabbcc001122"];
+        assert_eq!(kitchen.name.as_deref(), Some("Kitchen"));
+        assert!(kitchen.enabled, "enabled unless said otherwise");
+        assert_eq!(kitchen.password.as_deref(), Some("secret"));
+        assert_eq!(kitchen.quirks.sync_adjust_ms, Some(25));
+        assert_eq!(kitchen.quirks.timing, Some(crate::quirks::Timing::Ntp));
+        assert!(Config::parse("[players.x.quirks]\nunknown = 1\n").is_err());
     }
 
     #[test]

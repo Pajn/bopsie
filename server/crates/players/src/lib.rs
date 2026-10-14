@@ -4,6 +4,7 @@
 //! Protocol crates implement the traits defined here and depend on this crate, never the reverse.
 
 mod facts;
+pub mod quirks;
 
 pub use facts::{Capabilities, Facts, Pairing};
 
@@ -13,7 +14,10 @@ use std::sync::{Arc, Mutex};
 use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
+use bopsie_core::config::PlayerConfig;
 use tokio::sync::broadcast;
+
+use crate::quirks::{Quirks, Resolved, Subject};
 
 /// What a player says about itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +43,8 @@ pub struct EndpointState {
     pub owner_token: Option<String>,
     pub facts: Facts,
     pub capabilities: Capabilities,
+    /// Its quirks, from [`Players::resolve_quirks`].
+    pub quirks: Resolved,
 }
 
 /// What is playing, for endpoints that show it.
@@ -90,18 +96,45 @@ pub enum Change {
 pub struct Players {
     endpoints: Arc<Mutex<BTreeMap<String, Arc<dyn Endpoint>>>>,
     changes: broadcast::Sender<Change>,
+    /// The config file's settings, by player id.
+    settings: Arc<BTreeMap<String, PlayerConfig>>,
 }
 
 impl Default for Players {
     fn default() -> Self {
-        Self {
-            endpoints: Arc::default(),
-            changes: broadcast::channel(256).0,
-        }
+        Self::new(BTreeMap::new())
     }
 }
 
 impl Players {
+    /// A registry with the config file's settings for each player.
+    pub fn new(settings: BTreeMap<String, PlayerConfig>) -> Self {
+        Self {
+            endpoints: Arc::default(),
+            changes: broadcast::channel(256).0,
+            settings: Arc::new(settings),
+        }
+    }
+
+    /// The config file's settings for `id`.
+    pub fn settings(&self, id: &str) -> PlayerConfig {
+        self.settings.get(id).cloned().unwrap_or_default()
+    }
+
+    /// The quirks of endpoint `id`, whose state is `state`, over its protocol's `defaults`.
+    pub fn resolve_quirks(&self, id: &str, state: &EndpointState, defaults: &Quirks) -> Resolved {
+        quirks::resolve(
+            defaults,
+            quirks::shipped(),
+            &Subject {
+                provider: state.provider,
+                device: &state.device,
+                facts: &state.facts,
+            },
+            self.settings.get(id).map(|settings| &settings.quirks),
+        )
+    }
+
     /// Adds an endpoint, or replaces the one with the same id, as when a player reconnects.
     pub fn register(&self, endpoint: Arc<dyn Endpoint>) {
         let id = endpoint.id().to_owned();

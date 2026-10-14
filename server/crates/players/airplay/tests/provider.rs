@@ -202,3 +202,24 @@ async fn a_speaker_announced_over_mdns_is_found() {
     assert!(found, "the speaker was not discovered");
     assert_eq!(s.players.get(ID).unwrap().state().name, "Announced Speaker");
 }
+
+#[tokio::test]
+async fn the_config_file_overrides_how_a_speaker_says_it_pairs() {
+    let mut s = setup();
+    let settings = bopsie_core::config::PlayerConfig {
+        quirks: bopsie_players::quirks::Quirks {
+            pairing: Some(bopsie_players::Pairing::Transient),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    s.players = Players::new([(ID.to_owned(), settings)].into());
+    let provider = s.provider(false).await;
+    provider.see(sighting("0x8"));
+    let state = s.players.get(ID).unwrap().state();
+    assert!(state.available, "no PIN asked for");
+    assert_eq!(
+        state.quirks.source("pairing"),
+        Some(&bopsie_players::quirks::Source::Config)
+    );
+}

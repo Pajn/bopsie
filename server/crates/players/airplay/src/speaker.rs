@@ -3,6 +3,9 @@
 use std::net::IpAddr;
 use std::path::Path;
 
+use bopsie_players::Pairing;
+use bopsie_players::quirks::{AirplayProtocol, Quirks, Timing};
+
 use crate::txt::Records;
 
 /// RTSP ports when a record names none.
@@ -40,6 +43,36 @@ pub struct StreamOptions {
 }
 
 impl Speaker {
+    /// How the speaker says it pairs.
+    pub fn pairing(&self) -> Pairing {
+        if self.records.requires_pin() {
+            Pairing::Pin
+        } else if self.records.requires_password() {
+            Pairing::Password
+        } else if self.records.airplay2() {
+            Pairing::Transient
+        } else {
+            Pairing::None
+        }
+    }
+
+    /// AirPlay's own behaviour, which quirk rules and the config file may change.
+    pub fn quirk_defaults(&self) -> Quirks {
+        // With no RAOP fallback, AirPlay 2 is forced: a receiver that advertises no features
+        // cannot be recognised from them.
+        let protocol = if self.raop.is_none() && self.airplay.is_some() {
+            AirplayProtocol::Airplay2
+        } else {
+            AirplayProtocol::Auto
+        };
+        Quirks {
+            protocol: Some(protocol),
+            timing: Some(Timing::Auto),
+            pairing: Some(self.pairing()),
+            ..Quirks::default()
+        }
+    }
+
     /// Whether the stream goes over AirPlay 2, which takes the `_airplay` service's port.
     fn uses_airplay2(&self) -> bool {
         self.airplay.is_some() && (self.records.airplay2() || self.raop.is_none())

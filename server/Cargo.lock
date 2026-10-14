@@ -324,6 +324,7 @@ dependencies = [
  "bopsie-core",
  "serde",
  "tokio",
+ "toml",
 ]
 
 [[package]]

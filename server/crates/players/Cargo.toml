@@ -10,6 +10,7 @@ bopsie-core.workspace = true
 bopsie-audio.workspace = true
 tokio.workspace = true
 serde.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true
