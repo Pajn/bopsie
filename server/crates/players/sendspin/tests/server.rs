@@ -26,7 +26,10 @@ async fn serve(State(server): State<SendspinServer>, upgrade: WebSocketUpgrade) 
 }
 
 async fn start() -> (SocketAddr, Players) {
-    let players = Players::default();
+    start_with(Players::default()).await
+}
+
+async fn start_with(players: Players) -> (SocketAddr, Players) {
     let server = SendspinServer {
         players: players.clone(),
         server_id: "server-1".to_owned(),
@@ -301,6 +304,33 @@ async fn grouped_clients_get_the_same_audio_at_the_same_time() {
         strip(&kitchen) == strip(&bedroom),
         "both play the same audio at the same times"
     );
+}
+
+#[tokio::test]
+async fn a_sync_adjustment_moves_when_a_client_plays() {
+    let settings = bopsie_core::config::PlayerConfig {
+        quirks: bopsie_players::quirks::Quirks {
+            sync_adjust_ms: Some(40),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let (addr, players) = start_with(Players::new([("kitchen".to_owned(), settings)].into())).await;
+    let mut kitchen = Client::connect(addr, "kitchen", 1_048_576).await;
+    let mut bedroom = Client::connect(addr, "bedroom", 1_048_576).await;
+    registered(&players, "kitchen").await;
+    registered(&players, "bedroom").await;
+    let dir = tempfile::tempdir().unwrap();
+    let handle = play(&players, &["kitchen", "bedroom"], dir.path(), 12_000);
+
+    let _ = kitchen.message("stream/end").await;
+    let _ = bedroom.message("stream/end").await;
+    handle.shutdown();
+    assert_eq!(kitchen.chunks.len(), bedroom.chunks.len());
+    for ((_, late, a), (_, on_time, b)) in kitchen.chunks.iter().zip(&bedroom.chunks) {
+        assert_eq!(a, b);
+        assert_eq!(late - on_time, 40_000, "40 ms later");
+    }
 }
 
 #[tokio::test]

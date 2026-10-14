@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
@@ -29,6 +30,9 @@ pub const FORMAT: OutputFormat = OutputFormat {
 pub const LEAD: Micros = 2_500_000;
 
 const DEFAULT_VOLUME: u8 = 30;
+
+/// How often an idle session is checked for, for the `disconnect_on_idle_s` quirk.
+const IDLE_CHECK: Duration = Duration::from_secs(1);
 
 /// The most speakers one PTP clock serves.
 const MAX_GROUP_SIZE: usize = 8;
@@ -110,7 +114,34 @@ impl AirplayEndpoint {
                 }
             },
         );
-        Arc::new(Self { shared, supervisor })
+        let endpoint = Arc::new(Self { shared, supervisor });
+        let watched = Arc::downgrade(&endpoint);
+        std::thread::Builder::new()
+            .name("airplay-idle".into())
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(IDLE_CHECK);
+                    let Some(endpoint) = watched.upgrade() else {
+                        return;
+                    };
+                    endpoint.disconnect_if_idle();
+                }
+            })
+            .expect("spawning a thread");
+        endpoint
+    }
+
+    /// Ends the session of a speaker whose `disconnect_on_idle_s` quirk says it has been idle
+    /// too long.
+    fn disconnect_if_idle(&self) {
+        let Some(limit) = self.state().quirks.quirks.disconnect_on_idle_s else {
+            return;
+        };
+        let limit = Duration::from_secs(u64::from(limit));
+        if self.supervisor.idle_for().is_some_and(|idle| idle >= limit) {
+            tracing::info!(speaker = self.shared.id, "disconnecting an idle speaker");
+            self.supervisor.disconnect();
+        }
     }
 
     /// New records for the speaker from discovery.
@@ -167,6 +198,7 @@ fn launch(shared: &Shared, launcher: &Launcher) -> Launch {
         credentials: state.credentials.clone(),
         password: state.password.clone(),
         ptp_shared: *launcher.ptp_shared.lock().unwrap(),
+        quirks: shared.snapshot(&state).quirks.quirks,
     };
     Launch {
         binary: launcher.binary.clone(),
@@ -184,6 +216,50 @@ fn rand_u32() -> u32 {
 }
 
 impl Shared {
+    /// The endpoint's state, as `state` has it.
+    fn snapshot(&self, state: &State) -> EndpointState {
+        let records = &state.speaker.records;
+        let mut endpoint = EndpointState {
+            name: state.speaker.name.clone(),
+            provider: "airplay",
+            available: state.discovered && state.failure.is_none(),
+            volume: Some(state.volume),
+            muted: Some(state.muted),
+            device: DeviceInfo {
+                model: records.model().map(str::to_owned),
+                manufacturer: records.manufacturer().map(str::to_owned),
+                software_version: records.firmware().map(str::to_owned),
+            },
+            app: false,
+            owner_token: None,
+            facts: Facts {
+                mac: self.id.strip_prefix("ap").map(str::to_owned),
+                serial: records.serial().map(str::to_owned),
+                uuid: records.uuid().map(str::to_owned),
+                address: Some(state.speaker.address),
+                features: Some(records.features()),
+                status_flags: Some(records.status_flags()),
+            },
+            capabilities: Capabilities {
+                formats: vec![FORMAT],
+                lead: LEAD,
+                sync_group: true,
+                max_group_size: Some(MAX_GROUP_SIZE),
+                volume: true,
+                mute: true,
+                pairing: state.speaker.pairing(),
+            },
+            quirks: Default::default(),
+        };
+        endpoint.quirks =
+            self.players
+                .resolve_quirks(&self.id, &endpoint, &state.speaker.quirk_defaults());
+        // A speaker that pairs with a PIN plays once it has been paired.
+        if endpoint.quirks.quirks.pairing == Some(Pairing::Pin) && state.credentials.is_none() {
+            endpoint.available = false;
+        }
+        endpoint
+    }
     fn observe(&self, status: &Status) {
         match status {
             Status::Connected => {
@@ -227,53 +303,17 @@ impl Endpoint for AirplayEndpoint {
 
     fn state(&self) -> EndpointState {
         let state = self.shared.state.lock().unwrap();
-        let records = &state.speaker.records;
-        let mut endpoint = EndpointState {
-            name: state.speaker.name.clone(),
-            provider: "airplay",
-            available: state.discovered && state.failure.is_none(),
-            volume: Some(state.volume),
-            muted: Some(state.muted),
-            device: DeviceInfo {
-                model: records.model().map(str::to_owned),
-                manufacturer: records.manufacturer().map(str::to_owned),
-                software_version: records.firmware().map(str::to_owned),
-            },
-            app: false,
-            owner_token: None,
-            facts: Facts {
-                mac: self.shared.id.strip_prefix("ap").map(str::to_owned),
-                serial: records.serial().map(str::to_owned),
-                uuid: records.uuid().map(str::to_owned),
-                address: Some(state.speaker.address),
-                features: Some(records.features()),
-                status_flags: Some(records.status_flags()),
-            },
-            capabilities: Capabilities {
-                formats: vec![FORMAT],
-                lead: LEAD,
-                sync_group: true,
-                max_group_size: Some(MAX_GROUP_SIZE),
-                volume: true,
-                mute: true,
-                pairing: state.speaker.pairing(),
-            },
-            quirks: Default::default(),
-        };
-        endpoint.quirks = self.shared.players.resolve_quirks(
-            &self.shared.id,
-            &endpoint,
-            &state.speaker.quirk_defaults(),
-        );
-        // A speaker that pairs with a PIN plays once it has been paired.
-        if endpoint.quirks.quirks.pairing == Some(Pairing::Pin) && state.credentials.is_none() {
-            endpoint.available = false;
-        }
-        endpoint
+        self.shared.snapshot(&state)
     }
 
     fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {
-        Box::new(AirplaySink::new(self.supervisor.clone(), format, timeline))
+        let adjust_ms = self.state().quirks.quirks.sync_adjust_ms.unwrap_or(0);
+        Box::new(AirplaySink::new(
+            self.supervisor.clone(),
+            format,
+            timeline,
+            adjust_ms,
+        ))
     }
 
     fn set_volume(&self, volume: u8) {

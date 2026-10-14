@@ -35,10 +35,17 @@ pub struct SendspinSink {
     generation: u64,
     /// When the last chunk sent ends.
     last_end: Micros,
+    /// How much later than the timeline this client plays, from its `sync_adjust_ms` quirk.
+    adjust: Micros,
 }
 
 impl SendspinSink {
-    pub(crate) fn new(shared: Arc<Shared>, format: OutputFormat, timeline: Timeline) -> Self {
+    pub(crate) fn new(
+        shared: Arc<Shared>,
+        format: OutputFormat,
+        timeline: Timeline,
+        adjust: Micros,
+    ) -> Self {
         let (capacity, delay, lead) = {
             let info = shared.info.lock().unwrap();
             (
@@ -58,6 +65,7 @@ impl SendspinSink {
             started: false,
             generation: 0,
             last_end: 0,
+            adjust,
         }
     }
 
@@ -80,8 +88,8 @@ impl SendspinSink {
 
     fn send_chunk(&mut self, at: u64, audio: &[u8]) -> io::Result<()> {
         let frames = (audio.len() / self.frame_bytes()) as u64;
-        let timestamp = self.timeline.instant_of(at);
-        let duration = self.timeline.instant_of(at + frames) - timestamp;
+        let timestamp = self.timeline.instant_of(at) + self.adjust;
+        let duration = self.timeline.instant_of(at + frames) + self.adjust - timestamp;
         let bytes = (AUDIO_HEADER_BYTES + audio.len()) as u64;
         loop {
             if self.shared.out.is_closed() {

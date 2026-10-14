@@ -10,7 +10,9 @@ use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{self, Command, Event, Realtime, Settings, TrackRequest, TrackSource};
 use bopsie_audio::timeline::Timeline;
 use bopsie_core::clock;
+use bopsie_core::config::PlayerConfig;
 use bopsie_fixtures::{noise, write_wav};
+use bopsie_players::quirks::{AirplayProtocol, Quirks, Timing};
 use bopsie_players::{Endpoint, NowPlaying, Players};
 use bopsie_players_airplay::endpoint::{AirplayEndpoint, FORMAT, Launcher};
 use bopsie_players_airplay::speaker::Speaker;
@@ -46,6 +48,23 @@ fn speaker(flags: &str) -> Speaker {
 }
 
 fn fake_with(env: &[(&str, &str)], flags: &str) -> Fake {
+    fake_in(env, flags, Players::default())
+}
+
+/// A fake speaker whose quirks the config file sets.
+fn fake_quirked(quirks: Quirks) -> Fake {
+    let settings = PlayerConfig {
+        quirks,
+        ..PlayerConfig::default()
+    };
+    fake_in(
+        &[],
+        "0x4",
+        Players::new([("apaabbcc001122".to_owned(), settings)].into()),
+    )
+}
+
+fn fake_in(env: &[(&str, &str)], flags: &str, players: Players) -> Fake {
     let dir = tempfile::tempdir().unwrap();
     let mut all_env = vec![(
         "FAKE_CLIAIRPLAY_DIR".to_owned(),
@@ -59,7 +78,7 @@ fn fake_with(env: &[(&str, &str)], flags: &str) -> Fake {
         env: all_env,
         ptp_shared: Arc::new(Mutex::new(false)),
     };
-    let endpoint = AirplayEndpoint::new(speaker(flags), launcher, None, None, Players::default());
+    let endpoint = AirplayEndpoint::new(speaker(flags), launcher, None, None, players);
     Fake { dir, endpoint }
 }
 
@@ -423,4 +442,73 @@ fn a_process_that_ends_is_started_again() {
     let _ = until_idle(&mut handle);
     handle.shutdown();
     assert!(Path::new(&fake.capture("args")).exists(), "a new process");
+}
+
+#[test]
+fn quirks_choose_the_route_and_timing() {
+    let quirked = fake_quirked(Quirks {
+        protocol: Some(AirplayProtocol::Airplay2Compat),
+        timing: Some(Timing::Ntp),
+        ..Quirks::default()
+    });
+    quirked.endpoint.prepare();
+    let args = std::fs::read_to_string(quirked.capture("args")).unwrap();
+    let args: Vec<&str> = args.lines().collect();
+    assert!(
+        args.windows(2)
+            .any(|w| w == ["--protocol", "airplay2-compat"])
+    );
+    assert!(args.windows(2).any(|w| w == ["--timing", "ntp"]));
+
+    let plain = fake();
+    plain.endpoint.prepare();
+    let args = std::fs::read_to_string(plain.capture("args")).unwrap();
+    assert!(
+        !args.contains("--timing"),
+        "cliairplay's own choice: {args}"
+    );
+}
+
+#[test]
+fn a_sync_adjustment_moves_when_the_speaker_plays() {
+    let fake = fake_quirked(Quirks {
+        sync_adjust_ms: Some(150),
+        ..Quirks::default()
+    });
+    let samples = noise(1, 22_050 * 2);
+    let (mut handle, timeline) = session(&fake, &samples);
+    let events = until_idle(&mut handle);
+    let Event::TrackStarted { at, .. } = events[0] else {
+        panic!("{events:?}")
+    };
+    handle.shutdown();
+    let start_ms: u64 = fake
+        .commands()
+        .iter()
+        .find_map(|(_, c)| c.strip_prefix("START_UNIX_MS=")?.parse().ok())
+        .expect("a start was commanded");
+    let on_timeline = clock::unix_ms(timeline.instant_of(at));
+    assert!(
+        start_ms.abs_diff(on_timeline + 150) <= 2,
+        "{} ms after the timeline",
+        start_ms as i64 - on_timeline as i64
+    );
+}
+
+#[test]
+fn an_idle_speaker_is_disconnected_when_its_quirk_says_so() {
+    let quirked = fake_quirked(Quirks {
+        disconnect_on_idle_s: Some(1),
+        ..Quirks::default()
+    });
+    quirked.endpoint.prepare();
+    assert!(quirked.endpoint.supervisor().is_running());
+    assert!(eventually(|| !quirked.endpoint.supervisor().is_running()));
+    assert!(quirked.actions().contains(&"ACTION=DISCONNECT".to_owned()));
+
+    // Without the quirk the session stays.
+    let plain = fake();
+    plain.endpoint.prepare();
+    std::thread::sleep(Duration::from_millis(2_500));
+    assert!(plain.endpoint.supervisor().is_running());
 }

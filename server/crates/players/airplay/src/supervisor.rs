@@ -28,6 +28,8 @@ const START_TIMEOUT: Duration = Duration::from_secs(8);
 /// How long to wait for buffered audio before starting anyway.
 const AUDIO_TIMEOUT: Duration = Duration::from_secs(2);
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a process gets to end its session cleanly when told to.
+const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// How much later than asked a start may be and still count as on time.
 pub const LATE_TOLERANCE_MS: u64 = 20;
 /// How long after a failed start the next attempt waits.
@@ -126,6 +128,8 @@ struct Inner {
     connecting: std::sync::atomic::AtomicBool,
     /// Why the last connection failed, until one succeeds.
     last_failure: Mutex<Option<Failure>>,
+    /// When the process last took audio, or started.
+    last_active: Mutex<Instant>,
 }
 
 #[derive(Clone)]
@@ -159,6 +163,7 @@ impl Supervisor {
                 failed_at: Mutex::default(),
                 connecting: std::sync::atomic::AtomicBool::new(false),
                 last_failure: Mutex::default(),
+                last_active: Mutex::new(Instant::now()),
             }),
         }
     }
@@ -296,6 +301,7 @@ impl Supervisor {
         self.read_lines(stderr, generation, true);
         *self.inner.stdin.lock().unwrap() = child.stdin.take();
         *self.inner.running.lock().unwrap() = Some(Running { child, generation });
+        *self.inner.last_active.lock().unwrap() = Instant::now();
 
         let pipe = self.open_pipe(&launch.cmdpipe)?;
         *self.inner.pipe.lock().unwrap() = Some(pipe);
@@ -442,7 +448,15 @@ impl Supervisor {
         let stdin = stdin
             .as_mut()
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
-        stdin.write_all(data)
+        stdin.write_all(data)?;
+        *self.inner.last_active.lock().unwrap() = Instant::now();
+        Ok(())
+    }
+
+    /// How long a running process has gone without audio.
+    pub fn idle_for(&self) -> Option<Duration> {
+        self.is_running()
+            .then(|| self.inner.last_active.lock().unwrap().elapsed())
     }
 
     /// When the speaker can start playing in step with our clock, as far as is known now.
@@ -502,6 +516,14 @@ impl Supervisor {
         *self.inner.streaming.lock().unwrap() = false;
         self.wait("the flush", FLUSH_TIMEOUT, |s| s.flushes > before)
             .map(drop)
+    }
+
+    /// Ends the session cleanly, so the speaker knows it is over, then the process.
+    pub fn disconnect(&self) {
+        if self.command(&["ACTION=DISCONNECT".into()]).is_ok() {
+            let _ = self.wait("the disconnection", DISCONNECT_TIMEOUT, |s| s.exited);
+        }
+        self.kill();
     }
 
     /// Ends the process, if one runs.

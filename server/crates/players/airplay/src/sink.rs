@@ -40,10 +40,17 @@ pub struct AirplaySink {
     pending_at: u64,
     /// When this stream began waiting for the speaker's clock.
     waiting_since: Option<Instant>,
+    /// How much later than the timeline the speaker plays, from its `sync_adjust_ms` quirk.
+    adjust_ms: i64,
 }
 
 impl AirplaySink {
-    pub fn new(supervisor: Supervisor, format: OutputFormat, timeline: Timeline) -> Self {
+    pub fn new(
+        supervisor: Supervisor,
+        format: OutputFormat,
+        timeline: Timeline,
+        adjust_ms: i32,
+    ) -> Self {
         Self {
             supervisor,
             format,
@@ -53,6 +60,7 @@ impl AirplaySink {
             pending: Vec::new(),
             pending_at: 0,
             waiting_since: None,
+            adjust_ms: i64::from(adjust_ms),
         }
     }
 
@@ -63,12 +71,13 @@ impl AirplaySink {
     /// The first timeline frame audible at or after Unix time `unix_ms`.
     fn frame_at_unix(&self, unix_ms: u64) -> u64 {
         let now_ms = clock::unix_ms(clock::now());
-        let micros = clock::now() + (unix_ms as i64 - now_ms as i64) * 1_000;
+        let micros = clock::now() + (unix_ms as i64 - now_ms as i64 - self.adjust_ms) * 1_000;
         self.timeline.frame_at(micros) + 1
     }
 
+    /// When the speaker plays `frame`, in Unix milliseconds.
     fn unix_ms_of(&self, frame: u64) -> u64 {
-        clock::unix_ms(self.timeline.instant_of(frame))
+        (clock::unix_ms(self.timeline.instant_of(frame)) as i64 + self.adjust_ms) as u64
     }
 
     /// Adds audio for frame `at` on to what is kept, as far back as it may reach.

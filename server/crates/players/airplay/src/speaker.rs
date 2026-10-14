@@ -40,6 +40,8 @@ pub struct StreamOptions {
     pub password: Option<String>,
     /// Use the shared PTP daemon's clock.
     pub ptp_shared: bool,
+    /// The speaker's resolved quirks: its route, timing and pairing.
+    pub quirks: Quirks,
 }
 
 impl Speaker {
@@ -73,23 +75,30 @@ impl Speaker {
         }
     }
 
-    /// Whether the stream goes over AirPlay 2, which takes the `_airplay` service's port.
-    fn uses_airplay2(&self) -> bool {
-        self.airplay.is_some() && (self.records.airplay2() || self.raop.is_none())
+    /// Whether a stream over `protocol` goes over AirPlay 2, which takes the `_airplay`
+    /// service's port.
+    fn uses_airplay2(&self, protocol: AirplayProtocol) -> bool {
+        self.airplay.is_some()
+            && match protocol {
+                AirplayProtocol::Auto => self.records.airplay2() || self.raop.is_none(),
+                AirplayProtocol::Raop => self.raop.is_none(),
+                AirplayProtocol::Airplay2 | AirplayProtocol::Airplay2Compat => true,
+            }
     }
 
-    /// The arguments for a `cliairplay` stream to this speaker, as Music Assistant builds them.
+    /// The arguments for a `cliairplay` stream to this speaker, as Music Assistant builds them,
+    /// with what its quirks change.
     pub fn stream_args(&self, options: &StreamOptions, cmdpipe: &Path) -> Vec<String> {
-        // With no RAOP fallback, AirPlay 2 is forced: a receiver that advertises no features
-        // cannot be recognised from them.
-        let protocol = if self.raop.is_none() && self.airplay.is_some() {
-            "airplay2"
-        } else {
-            "auto"
-        };
+        let quirks = &options.quirks;
+        let defaults = self.quirk_defaults();
+        let protocol = quirks
+            .protocol
+            .or(defaults.protocol)
+            .unwrap_or(AirplayProtocol::Auto);
+        let airplay2 = self.uses_airplay2(protocol);
         let mut args: Vec<String> = vec![
             "--protocol".into(),
-            protocol.into(),
+            protocol.as_arg().into(),
             "--dacp".into(),
             options.dacp_id.clone(),
             "--activeremote".into(),
@@ -102,7 +111,7 @@ impl Speaker {
             options.bit_depth.to_string(),
         ];
         match (&self.airplay, &self.raop) {
-            (Some((port, host)), _) if self.uses_airplay2() => {
+            (Some((port, host)), _) if airplay2 => {
                 args.extend(["--port".into(), port_or(*port, AIRPLAY_PORT)]);
                 args.extend(["--name".into(), self.name.clone()]);
                 args.extend(["--hostname".into(), host.clone()]);
@@ -133,8 +142,18 @@ impl Speaker {
         if let Some(password) = &options.password {
             args.extend(["--password".into(), password.clone()]);
         }
-        if options.ptp_shared && self.uses_airplay2() {
+        if options.ptp_shared && airplay2 {
             args.push("--ptp-shared".into());
+        }
+        if let Some(timing) = quirks.timing.filter(|t| *t != Timing::Auto) {
+            args.extend(["--timing".into(), timing.as_arg().into()]);
+        }
+        // Transient pairing for a speaker whose flags say otherwise.
+        if quirks.pairing == Some(Pairing::Transient)
+            && self.pairing() != Pairing::Transient
+            && airplay2
+        {
+            args.push("--ap2-native".into());
         }
         args.push(self.address.to_string());
         args
@@ -167,6 +186,7 @@ mod tests {
             credentials: None,
             password: None,
             ptp_shared: true,
+            quirks: Quirks::default(),
         }
     }
 

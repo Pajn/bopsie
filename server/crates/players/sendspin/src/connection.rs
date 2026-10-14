@@ -157,7 +157,13 @@ impl Endpoint for SendspinEndpoint {
     }
 
     fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {
-        Box::new(SendspinSink::new(self.shared.clone(), format, timeline))
+        let adjust_ms = self.state().quirks.quirks.sync_adjust_ms.unwrap_or(0);
+        Box::new(SendspinSink::new(
+            self.shared.clone(),
+            format,
+            timeline,
+            Micros::from(adjust_ms) * 1_000,
+        ))
     }
 
     fn set_volume(&self, volume: u8) {
