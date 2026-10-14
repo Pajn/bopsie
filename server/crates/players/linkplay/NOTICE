@@ -1,0 +1,11 @@
+linkplay-client.pem is the TLS client certificate and key LinkPlay devices that require mutual
+TLS, such as Audio Pro's, accept for their HTTP API. It is self-signed in LinkPlay's name
+(CN=www.linkplay.com, valid 2018-11-15 to 2046-04-01, SHA-256 fingerprint
+C7:2B:BC:07:6D:AD:BB:F9:9B:62:84:6A:DD:1E:9D:0E:15:95:43:A7:82:27:00:30:01:F9:62:1C:01:BB:CF:93).
+
+It is copied from python-linkplay (src/linkplay/consts.py, MTLS_CERTIFICATE_CONTENTS, at commit
+d7713e87a187901b99db3eb14d2a4d66fc1a0a18), which Home Assistant's linkplay integration uses, and
+is the same file pywiim ships. pywiim credits linkplay-cli, which took it from yamaha-soundbar.
+LinkPlay has not published or licensed it as far as is known; it is included, as those projects
+include it, only so that the server can talk to such devices. The config file's
+[linkplay] certificate setting replaces it with another file.

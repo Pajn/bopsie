@@ -8,6 +8,7 @@ members = [
     "crates/players",
     "crates/players/airplay",
     "crates/players/sendspin",
+    "crates/players/linkplay",
     "crates/queues",
     "crates/api",
     "crates/server",
@@ -27,6 +28,7 @@ bopsie-providers-filesystem = { path = "crates/providers/filesystem" }
 bopsie-players = { path = "crates/players" }
 bopsie-players-airplay = { path = "crates/players/airplay" }
 bopsie-players-sendspin = { path = "crates/players/sendspin" }
+bopsie-players-linkplay = { path = "crates/players/linkplay" }
 bopsie-queues = { path = "crates/queues" }
 bopsie-api = { path = "crates/api" }
 bopsie-fixtures = { path = "crates/fixtures" }
@@ -43,6 +45,10 @@ lofty = "0.25"
 mdns-sd = "0.21"
 nix = { version = "0.31", features = ["fs", "signal"] }
 rand = "0.10"
+rcgen = "0.14"
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
+rustls-pki-types = { version = "1.15", features = ["std"] }
 rubato = "5.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
 schemars = "1.2"
@@ -54,6 +60,7 @@ tempfile = "3.27"
 thiserror = "2.0"
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
 tokio = { version = "1.53", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs", "tls12"] }
 tokio-tungstenite = "0.30"
 toml = "1.1"
 tower = { version = "0.5", features = ["util"] }

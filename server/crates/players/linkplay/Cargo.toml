@@ -1,0 +1,28 @@
+[package]
+name = "bopsie-players-linkplay"
+description = "The LinkPlay PlayerProvider: WiiM, Audio Pro and other LinkPlay speakers, played natively and grouped by their own multiroom."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+bopsie-players.workspace = true
+bopsie-audio.workspace = true
+bopsie-core.workspace = true
+hex.workspace = true
+mdns-sd.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+tokio-rustls.workspace = true
+
+[lints]
+workspace = true
