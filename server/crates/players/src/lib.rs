@@ -9,10 +9,12 @@ pub mod health;
 pub mod linking;
 pub mod planner;
 pub mod quirks;
+pub mod remote;
 pub mod settings;
 
 pub use devices::{Device, Devices, Member};
 pub use facts::{Capabilities, Facts, NativeGroup, Pairing};
+pub use remote::Remote;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -133,6 +135,9 @@ pub struct Players {
     db: Arc<OnceLock<Database>>,
     /// What outputs saw of each endpoint.
     logs: Arc<Mutex<BTreeMap<String, health::Log>>>,
+    /// What speakers' own controls asked for, by endpoint.
+    remotes: broadcast::Sender<(String, Remote)>,
+    guard: Arc<Mutex<remote::Guard>>,
 }
 
 impl Default for Players {
@@ -153,6 +158,8 @@ impl Players {
             })),
             db: Arc::default(),
             logs: Arc::default(),
+            remotes: broadcast::channel(64).0,
+            guard: Arc::default(),
         }
     }
 
@@ -178,6 +185,27 @@ impl Players {
             .get(id)
             .map(|log| log.health(std::time::Instant::now()))
             .unwrap_or_default()
+    }
+
+    /// Endpoint `id`'s own controls asked for `remote`. A quick repeat of the same command is
+    /// taken for the same press and dropped.
+    pub fn remote(&self, id: &str, remote: Remote) {
+        if !self
+            .guard
+            .lock()
+            .unwrap()
+            .admit(id, remote, std::time::Instant::now())
+        {
+            tracing::debug!(endpoint = id, ?remote, "a repeat of the same press");
+            return;
+        }
+        tracing::info!(endpoint = id, ?remote, "the speaker's own controls");
+        let _ = self.remotes.send((id.to_owned(), remote));
+    }
+
+    /// What speakers' own controls ask for, as they ask.
+    pub fn remotes(&self) -> broadcast::Receiver<(String, Remote)> {
+        self.remotes.subscribe()
     }
 
     /// What outputs saw of `id` lately, newest first, each with how long ago.

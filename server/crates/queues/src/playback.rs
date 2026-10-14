@@ -25,7 +25,7 @@ use bopsie_core::{Error, ErrorCode, Result};
 use bopsie_library::Library;
 use bopsie_players::devices::PROTOCOLS;
 use bopsie_players::planner::{self, Plan, Policy, Strategy};
-use bopsie_players::{Change, Device, Devices, Member, NowPlaying};
+use bopsie_players::{Change, Device, Devices, Member, NowPlaying, Remote};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde_json::{Value, json};
@@ -138,6 +138,9 @@ pub enum QueueCommand {
     Clear,
 }
 
+/// How far a speaker's volume buttons move its volume.
+const REMOTE_VOLUME_STEP: u8 = 5;
+
 fn not_found(id: &str) -> Error {
     Error::new(
         ErrorCode::PlayerUnavailable,
@@ -189,6 +192,7 @@ impl Playback {
             }),
         };
         let mut changes = devices.subscribe();
+        let mut remotes = devices.players().remotes();
         for device in devices.all() {
             playback.add_player(&device.id);
         }
@@ -204,6 +208,16 @@ impl Playback {
                 }
             }
         });
+        let listener = playback.clone();
+        tokio::spawn(async move {
+            loop {
+                match remotes.recv().await {
+                    Ok((endpoint, remote)) => listener.remote(&endpoint, remote),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
         let ticker = playback.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -213,6 +227,53 @@ impl Playback {
             }
         });
         playback
+    }
+
+    /// Carries out what a speaker's own controls asked for, on the group it plays in: a pause
+    /// pressed on one speaker pauses all of them, as it would in the app.
+    fn remote(&self, endpoint: &str, remote: Remote) {
+        let Some(device) = self.inner.devices.device_of(endpoint) else {
+            return;
+        };
+        let Some(queue) = self.leader_of(&device.id) else {
+            return;
+        };
+        let playing = self
+            .entry(&queue)
+            .is_ok_and(|entry| entry.session.snapshot().state == PlaybackState::Playing);
+        let result = match remote {
+            // Some speakers answer the server's own play or pause with the same command;
+            // one that changes nothing is taken for that.
+            Remote::Play if playing => Ok(()),
+            Remote::Pause if !playing => Ok(()),
+            Remote::Play => self.command(&queue, QueueCommand::Play),
+            Remote::Pause => self.command(&queue, QueueCommand::Pause),
+            Remote::PlayPause => self.command(&queue, QueueCommand::PlayPause),
+            Remote::Stop => self.command(&queue, QueueCommand::Stop),
+            Remote::Next => self.command(&queue, QueueCommand::Next),
+            Remote::Previous => self.command(&queue, QueueCommand::Previous),
+            Remote::VolumeUp | Remote::VolumeDown => {
+                let current = self
+                    .active(&device.id)
+                    .ok()
+                    .and_then(|(_, member)| member.state.volume)
+                    .unwrap_or(0);
+                let next = if remote == Remote::VolumeUp {
+                    current.saturating_add(REMOTE_VOLUME_STEP).min(100)
+                } else {
+                    current.saturating_sub(REMOTE_VOLUME_STEP)
+                };
+                self.volume_set(&device.id, next)
+            }
+            // A speaker that went to another source leaves its group, which plays on; a
+            // speaker playing on its own pauses where it was.
+            Remote::Released if queue != device.id => self.ungroup(&device.id),
+            Remote::Released if playing => self.command(&queue, QueueCommand::Pause),
+            Remote::Released => Ok(()),
+        };
+        if let Err(error) = result {
+            tracing::warn!(device = device.id, ?remote, %error, "cannot do what the speaker asked");
+        }
     }
 
     fn entry(&self, id: &str) -> Result<Entry> {
