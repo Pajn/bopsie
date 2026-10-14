@@ -2,6 +2,9 @@
 //! learns from the engine's events which item is playing, how far in, and when it has run
 //! out.
 //!
+//! In place of its queue, a session can play a source's live input, such as Spotify Connect's.
+//! The queue rests, paused, until it plays again, which takes the engine back.
+//!
 //! The engine writes ahead of what can be heard. Events about real-time sessions take effect
 //! when what they describe becomes audible, so the current item changes when the listener hears
 //! the new track, not when the engine starts writing it.
@@ -11,7 +14,7 @@ use std::time::Duration;
 
 use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{
-    self, Command, EngineHandle, Event, Settings, Tagged, TrackRequest, TrackSource,
+    self, Command, EngineHandle, Event, Input, Settings, Tagged, TrackRequest, TrackSource,
 };
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
@@ -40,6 +43,8 @@ pub enum Notice {
     OutputFailed(String),
     /// The engine crashed: the session has none until one is attached again.
     Crashed(String),
+    /// The queue played again while this source played, and took the engine from it.
+    TakenBack(String),
 }
 
 /// Where playback is in the current item.
@@ -60,13 +65,37 @@ impl Position {
     }
 }
 
-/// Hands the queue's items to the engine, while the queue is meant to be playing.
+/// What a session plays in place of its queue.
+#[derive(Default)]
+struct Live {
+    /// The source, while the session plays it.
+    source: Option<String>,
+    /// Its input, until the engine takes it.
+    input: Option<Input>,
+}
+
+/// The track id a source's input plays under.
+const LIVE_ID: &str = "live";
+
+/// Hands the engine a source's input while the session plays one, and the queue's items
+/// while the queue is meant to be playing.
 struct Source {
     queue: Arc<Mutex<Queue>>,
+    live: Arc<Mutex<Live>>,
 }
 
 impl TrackSource for Source {
     fn next(&mut self) -> Option<TrackRequest> {
+        {
+            let mut live = self.live.lock().unwrap();
+            if live.source.is_some() {
+                return live.input.take().map(|input| TrackRequest {
+                    id: LIVE_ID.to_owned(),
+                    input,
+                    start: Duration::ZERO,
+                });
+            }
+        }
         let mut queue = self.queue.lock().unwrap();
         if queue.state != PlaybackState::Playing {
             return None;
@@ -86,11 +115,13 @@ struct Running {
     handle: EngineHandle,
     format: PcmFormat,
     timeline: Option<Timeline>,
+    max_ahead: Micros,
 }
 
 #[derive(Clone)]
 pub struct QueueSession {
     queue: Arc<Mutex<Queue>>,
+    live: Arc<Mutex<Live>>,
     running: Arc<Mutex<Option<Running>>>,
     /// The epoch of the last `Restart` or `Stop`; older events are ignored.
     epoch: Arc<Mutex<u64>>,
@@ -114,6 +145,7 @@ impl QueueSession {
         };
         Self {
             queue: Arc::new(Mutex::new(queue)),
+            live: Arc::default(),
             running: Arc::default(),
             epoch: Arc::default(),
             position: Arc::new(Mutex::new(position)),
@@ -132,10 +164,12 @@ impl QueueSession {
     pub fn attach(&self, settings: Settings, sinks: Vec<(String, Box<dyn Sink>)>) {
         let format = settings.format;
         let timeline = settings.realtime.map(|realtime| realtime.timeline);
+        let max_ahead = settings.max_ahead;
         let mut handle = engine::spawn(
             settings,
             Box::new(Source {
                 queue: self.queue.clone(),
+                live: self.live.clone(),
             }),
             sinks,
         );
@@ -148,9 +182,82 @@ impl QueueSession {
             handle,
             format,
             timeline,
+            max_ahead,
         }) {
             old.handle.send(Command::Shutdown);
         }
+    }
+
+    /// How far beyond its lead the running engine reads ahead.
+    pub fn max_ahead(&self) -> Option<Micros> {
+        self.running.lock().unwrap().as_ref().map(|r| r.max_ahead)
+    }
+
+    /// How much of what the engine wrote is yet to be heard.
+    pub fn ahead(&self) -> Duration {
+        let running = self.running.lock().unwrap();
+        let Some(running) = running.as_ref() else {
+            return Duration::ZERO;
+        };
+        let Some(timeline) = running.timeline else {
+            return Duration::ZERO;
+        };
+        let ahead = timeline.instant_of(running.handle.head()) - clock::now();
+        Duration::from_micros(ahead.max(0) as u64)
+    }
+
+    /// The source the session plays in place of its queue, if it does.
+    pub fn live_source(&self) -> Option<String> {
+        self.live.lock().unwrap().source.clone()
+    }
+
+    /// Plays `source`'s `input` in place of the queue, which pauses where it is. The start is
+    /// held back until [`QueueSession::release`] with the epoch returned, so that the outputs
+    /// can get ready first.
+    pub fn play_live(&self, source: &str, input: Input) -> u64 {
+        {
+            let mut queue = self.queue.lock().unwrap();
+            if queue.state == PlaybackState::Playing {
+                let position = self.position(clock::now());
+                let _ = queue.pause(position);
+                let mut held = self.position.lock().unwrap();
+                held.offset = position;
+                held.since = None;
+            }
+        }
+        *self.live.lock().unwrap() = Live {
+            source: Some(source.to_owned()),
+            input: Some(input),
+        };
+        self.next_epoch()
+    }
+
+    /// Starts the source's input afresh, as after it jumped within what it plays. The outputs
+    /// are ready, so it starts at once.
+    pub fn restart_live(&self, input: Input) {
+        self.live.lock().unwrap().input = Some(input);
+        let epoch = self.next_epoch();
+        self.send(Command::Restart {
+            epoch,
+            not_before: None,
+        });
+    }
+
+    /// Stops playing the source's input, which plays again with [`QueueSession::play_live`].
+    pub fn pause_live(&self) {
+        self.live.lock().unwrap().input = None;
+        let epoch = self.next_epoch();
+        self.send(Command::Stop { epoch });
+    }
+
+    /// Stops playing the source: the queue rests, paused, as it was. Returns the source.
+    pub fn end_live(&self) -> Option<String> {
+        let ended = std::mem::take(&mut *self.live.lock().unwrap()).source;
+        if ended.is_some() {
+            let epoch = self.next_epoch();
+            self.send(Command::Stop { epoch });
+        }
+        ended
     }
 
     /// The running engine's format and timeline, if one is attached.
@@ -227,6 +334,12 @@ impl QueueSession {
     fn change<T>(&self, f: impl FnOnce(&mut Queue) -> (T, Effect)) -> (T, Effect) {
         let mut queue = self.queue.lock().unwrap();
         let (value, effect) = f(&mut queue);
+        // The queue playing again takes the engine back from a source.
+        if let Effect::PlayFrom(_) = effect
+            && let Some(source) = std::mem::take(&mut *self.live.lock().unwrap()).source
+        {
+            let _ = self.notices.send(Notice::TakenBack(source));
+        }
         match effect {
             Effect::PlayFrom(_) => queue.state = PlaybackState::Playing,
             Effect::Stop => queue.stopped(),

@@ -10,6 +10,7 @@ members = [
     "crates/players/sendspin",
     "crates/players/linkplay",
     "crates/queues",
+    "crates/sources",
     "crates/sources/spotify",
     "crates/api",
     "crates/server",
@@ -31,6 +32,7 @@ bopsie-players-airplay = { path = "crates/players/airplay" }
 bopsie-players-sendspin = { path = "crates/players/sendspin" }
 bopsie-players-linkplay = { path = "crates/players/linkplay" }
 bopsie-queues = { path = "crates/queues" }
+bopsie-sources = { path = "crates/sources" }
 bopsie-sources-spotify = { path = "crates/sources/spotify" }
 bopsie-api = { path = "crates/api" }
 bopsie-fixtures = { path = "crates/fixtures" }

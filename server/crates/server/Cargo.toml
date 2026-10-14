@@ -15,6 +15,7 @@ bopsie-players-airplay.workspace = true
 bopsie-players-linkplay.workspace = true
 bopsie-players-sendspin.workspace = true
 bopsie-queues.workspace = true
+bopsie-sources.workspace = true
 bopsie-api.workspace = true
 axum.workspace = true
 clap.workspace = true

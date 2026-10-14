@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use bopsie_audio::PcmFormat;
+use bopsie_audio::engine::{Input, LIVE_AHEAD, QUEUE_AHEAD};
 use bopsie_audio::engine::{Realtime, Settings};
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::backoff::{self, Backoff};
@@ -26,11 +27,12 @@ use bopsie_library::Library;
 use bopsie_players::devices::PROTOCOLS;
 use bopsie_players::planner::{self, Plan, Policy, Strategy};
 use bopsie_players::{Change, Controls, Device, Devices, Member, NowPlaying, Remote, Repeat};
+use bopsie_sources::{Control, Happened, Source, SourceEvent, Sources};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde_json::{Value, json};
 
-use crate::model::{self, Grouping, PlayerPlayback, PlayerView};
+use crate::model::{self, Grouping, PlayerPlayback, PlayerView, SourceEntry, SourcePlayback};
 use crate::session::{Notice, QueueSession};
 use crate::state::{Effect, PlaybackState, Queue, QueueError, QueueOption, RepeatMode};
 use crate::store::{self, SavedQueue};
@@ -113,6 +115,8 @@ struct Inner {
     /// Devices whose native groups the server is changing, and since when.
     settling: Mutex<BTreeMap<String, Instant>>,
     rng: Mutex<StdRng>,
+    /// Sources that play to groups, once [`Playback::follow_sources`] is called.
+    sources: OnceLock<Sources>,
 }
 
 #[derive(Clone)]
@@ -189,6 +193,7 @@ impl Playback {
                 closing: AtomicBool::new(false),
                 settling: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
+                sources: OnceLock::new(),
             }),
         };
         let mut changes = devices.subscribe();
@@ -238,9 +243,12 @@ impl Playback {
         let Some(queue) = self.leader_of(&device.id) else {
             return;
         };
-        let playing = self
-            .entry(&queue)
-            .is_ok_and(|entry| entry.session.snapshot().state == PlaybackState::Playing);
+        let playing = match self.live_of(&queue) {
+            Some(source) => source.state().playing,
+            None => self
+                .entry(&queue)
+                .is_ok_and(|entry| entry.session.snapshot().state == PlaybackState::Playing),
+        };
         let result = match remote {
             // Some speakers answer the server's own play or pause with the same command;
             // one that changes nothing is taken for that.
@@ -293,6 +301,182 @@ impl Playback {
         if let Err(error) = result {
             tracing::warn!(device = device.id, ?remote, %error, "cannot do what the speaker asked");
         }
+    }
+
+    /// Plays sources to the groups of the players they are announced for. Needs a Tokio
+    /// runtime.
+    pub fn follow_sources(&self, sources: Sources) {
+        let mut events = sources.subscribe();
+        if self.inner.sources.set(sources).is_err() {
+            return;
+        }
+        let listener = self.clone();
+        tokio::spawn(async move {
+            loop {
+                match events.recv().await {
+                    Ok(event) => listener.source_event(event),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
+    fn source(&self, id: &str) -> Option<Arc<dyn Source>> {
+        self.inner.sources.get()?.get(id)
+    }
+
+    /// The sources announced for `player`.
+    fn sources_of(&self, player: &str) -> Vec<Arc<dyn Source>> {
+        self.inner
+            .sources
+            .get()
+            .map(|sources| sources.of_player(player))
+            .unwrap_or_default()
+    }
+
+    /// The source the group led by `leader` plays, if it plays one.
+    fn live_of(&self, leader: &str) -> Option<Arc<dyn Source>> {
+        let id = self.entry(leader).ok()?.session.live_source()?;
+        self.source(&id)
+    }
+
+    fn source_event(&self, event: SourceEvent) {
+        let Some(source) = self.source(&event.source) else {
+            // A source that is gone ends what it played.
+            for (leader, entry) in self.inner.entries.lock().unwrap().clone() {
+                if entry.session.live_source().as_deref() == Some(event.source.as_str()) {
+                    self.end_source(&leader);
+                }
+            }
+            return;
+        };
+        let Some(leader) = self.leader_of(source.player()) else {
+            return;
+        };
+        let live = self.live_of(&leader).is_some_and(|s| s.id() == source.id());
+        match event.happened {
+            Happened::Playing => self.play_source(&leader, source),
+            Happened::Paused if live => self.pause_source(&leader, source.as_ref()),
+            // A seek while paused, as the rewind after a pause, waits for play.
+            Happened::Seeked if live && source.state().playing => {
+                if let Ok(entry) = self.entry(&leader) {
+                    entry.session.restart_live(Input::decoder(source.input()));
+                }
+            }
+            Happened::MediaChanged if live => self.announce_source(&leader, source),
+            Happened::Volume(volume) if live => {
+                if let Err(error) = self.group_volume(&leader, volume) {
+                    tracing::warn!(queue = leader, %error, "cannot follow the source's volume");
+                }
+            }
+            Happened::Ended if live => self.end_source(&leader),
+            _ => {}
+        }
+    }
+
+    /// Plays `source` to the group led by `leader`, in place of its queue or another source.
+    fn play_source(&self, leader: &str, source: Arc<dyn Source>) {
+        let Ok(entry) = self.entry(leader) else {
+            return;
+        };
+        if let Some(other) = self.live_of(leader)
+            && other.id() != source.id()
+        {
+            other.control(Control::Release);
+        }
+        tracing::info!(queue = leader, source = source.id(), "playing a source");
+        self.inner.absent.lock().unwrap().remove(leader);
+        let session = entry.session;
+        let epoch = session.play_live(source.id(), Input::decoder(source.input()));
+        let playback = self.clone();
+        let leader = leader.to_owned();
+        tokio::spawn(async move {
+            let not_before = playback.prepare(&leader).await;
+            match playback.ensure_engine(&leader) {
+                Ok(()) => session.release(epoch, not_before),
+                Err(error) => {
+                    tracing::warn!(queue = leader, %error, "cannot play the source");
+                    session.abandon(epoch);
+                }
+            }
+            playback.announce_source(&leader, source);
+            playback.changed(&leader);
+        });
+    }
+
+    /// The source paused: the speakers stop at once, and the source goes back by what they
+    /// had not played yet.
+    fn pause_source(&self, leader: &str, source: &dyn Source) {
+        let Ok(entry) = self.entry(leader) else {
+            return;
+        };
+        let unheard = entry.session.ahead();
+        entry.session.pause_live();
+        source.unheard(unheard);
+        for id in self.group_of(leader) {
+            if let Ok((_, member)) = self.active(&id) {
+                member.endpoint.set_group(false, leader);
+            }
+        }
+        self.changed(leader);
+    }
+
+    /// The group stops playing its source; its queue rests, paused, as it was.
+    fn end_source(&self, leader: &str) {
+        let Ok(entry) = self.entry(leader) else {
+            return;
+        };
+        if let Some(source) = entry.session.end_live() {
+            tracing::info!(queue = leader, source, "the source stopped playing");
+        }
+        for id in self.group_of(leader) {
+            if let Ok((_, member)) = self.active(&id) {
+                member.endpoint.set_group(false, leader);
+                member.endpoint.set_now_playing(None);
+            }
+        }
+        self.changed(leader);
+    }
+
+    /// Tells the group's devices what the source plays, when they can hear it: what the
+    /// source says now, the speakers play after the audio already on its way.
+    fn announce_source(&self, leader: &str, source: Arc<dyn Source>) {
+        let delay = self
+            .entry(leader)
+            .map(|entry| entry.session.ahead())
+            .unwrap_or_default();
+        let playback = self.clone();
+        let leader = leader.to_owned();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            if playback
+                .live_of(&leader)
+                .is_none_or(|s| s.id() != source.id())
+            {
+                return;
+            }
+            let state = source.state();
+            let now_playing = state.media.as_ref().map(|media| NowPlaying {
+                title: media.title.clone(),
+                artist: media.artist.clone(),
+                album: media.album.clone(),
+                album_artist: media.artist.clone(),
+                year: None,
+                track_number: None,
+                artwork_url: media.artwork_url.clone(),
+                duration: media.duration_ms,
+                position: state.position_at(clock::now()),
+                playing: state.playing,
+            });
+            for id in playback.group_of(&leader) {
+                if let Ok((_, member)) = playback.active(&id) {
+                    member.endpoint.set_group(state.playing, &leader);
+                    member.endpoint.set_now_playing(now_playing.as_ref());
+                }
+            }
+            playback.changed(&leader);
+        });
     }
 
     fn entry(&self, id: &str) -> Result<Entry> {
@@ -889,6 +1073,9 @@ impl Playback {
                 member.endpoint.set_controls(&controls);
             }
         }
+        if let Some(source) = self.live_of(queue_id) {
+            source.control(Control::Volume(controls.volume));
+        }
     }
 
     fn on_notice(&self, queue_id: &str, notice: Notice) {
@@ -900,6 +1087,16 @@ impl Playback {
                         member.endpoint.set_group(false, queue_id);
                         member.endpoint.set_now_playing(None);
                     }
+                }
+            }
+            Notice::TakenBack(source) => {
+                if let Some(source) = self.source(&source) {
+                    tracing::info!(
+                        queue = queue_id,
+                        source = source.id(),
+                        "the queue plays again"
+                    );
+                    source.control(Control::Release);
                 }
             }
             Notice::OutputFailed(device) => self.output_failed(queue_id, &device),
@@ -996,7 +1193,16 @@ impl Playback {
     fn ensure_engine(&self, leader: &str) -> Result<()> {
         let entry = self.entry(leader)?;
         let plan = self.plan_for(leader, &entry.members, None)?;
-        if entry.session.engine().is_some() && entry.plan.as_ref() == Some(&plan) {
+        // A source's live input is read only a little ahead, a queue's well ahead.
+        let max_ahead = if entry.session.live_source().is_some() {
+            LIVE_AHEAD
+        } else {
+            QUEUE_AHEAD
+        };
+        if entry.session.engine().is_some()
+            && entry.plan.as_ref() == Some(&plan)
+            && entry.session.max_ahead() == Some(max_ahead)
+        {
             return Ok(());
         }
         for dropped in &plan.dropped {
@@ -1031,7 +1237,7 @@ impl Playback {
             format,
             ffmpeg: self.inner.config.ffmpeg.clone(),
             ring_frames: format.sample_rate as usize * RING_SECONDS,
-            max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
+            max_ahead,
             realtime: Some(Realtime {
                 timeline,
                 lead: plan.lead,
@@ -1156,6 +1362,14 @@ impl Playback {
         // Whatever the user asks for replaces playing on when the leader comes back.
         self.inner.absent.lock().unwrap().remove(&leader);
         let session = self.entry(&leader)?.session;
+        // While the group plays a source, its transport controls the source.
+        if let Some(source) = self.live_of(&leader)
+            && let Some(control) = source_control(&command, &source.state())
+        {
+            source.control(control);
+            self.changed(&leader);
+            return Ok(());
+        }
         match command {
             QueueCommand::Play => self.begin(&leader, |q, _| ((), q.play()))?,
             QueueCommand::Pause => session.pause(),
@@ -1673,13 +1887,16 @@ impl Playback {
         let entry = self.entry(queue_id).ok()?;
         let device = self.device(queue_id).ok()?;
         let queue = entry.session.snapshot();
-        Some(model::queue(
+        let mut value = model::queue(
             queue_id,
             &device.name,
             device.available(),
             &queue,
             entry.session.position(clock::now()),
-        ))
+        );
+        // While a source plays to the group, the queue rests.
+        value["active"] = json!(entry.session.live_source().is_none());
+        Some(value)
     }
 
     pub fn queue_items(&self, queue_id: &str, limit: usize, offset: usize) -> Option<Vec<Value>> {
@@ -1748,6 +1965,9 @@ impl Playback {
         let leading = self.entry(&leader).ok()?;
         let queue = leading.session.snapshot();
         let elapsed = leading.session.position(clock::now());
+        let live = self
+            .live_of(&leader)
+            .map(|source| (source.id().to_owned(), source.state()));
         let group_volume = (!entry.members.is_empty())
             .then(|| {
                 self.group_of(id)
@@ -1789,6 +2009,17 @@ impl Playback {
                 queue_id: &leader,
                 current: queue.current(),
                 elapsed,
+                source: live
+                    .as_ref()
+                    .map(|(source, state)| SourcePlayback { id: source, state }),
+                sources: self
+                    .sources_of(id)
+                    .iter()
+                    .map(|source| SourceEntry {
+                        id: source.id().to_owned(),
+                        name: source.name(),
+                    })
+                    .collect(),
             },
             viewer_owns,
             self.inner.config.base_url.as_deref(),
@@ -1823,6 +2054,8 @@ impl Playback {
                 queue_id: &device.id,
                 current: None,
                 elapsed: Duration::ZERO,
+                source: None,
+                sources: Vec::new(),
             },
             false,
             self.inner.config.base_url.as_deref(),
@@ -1891,6 +2124,25 @@ fn output_protocols(device: &Device) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+/// What a queue command asks of the source a group plays, if it is for the source: transport
+/// is, and shuffle, repeat and clearing stay with the queue.
+fn source_control(command: &QueueCommand, state: &bopsie_sources::SourceState) -> Option<Control> {
+    let position = |seconds: f64| (seconds.max(0.0) * 1_000.0) as u64;
+    Some(match *command {
+        QueueCommand::Play => Control::Play,
+        QueueCommand::Pause | QueueCommand::Stop => Control::Pause,
+        QueueCommand::PlayPause if state.playing => Control::Pause,
+        QueueCommand::PlayPause => Control::Play,
+        QueueCommand::Next => Control::Next,
+        QueueCommand::Previous => Control::Previous,
+        QueueCommand::Seek(seconds) => Control::Seek(position(seconds)),
+        QueueCommand::Skip(seconds) => Control::Seek(position(
+            state.position_at(clock::now()) as f64 / 1_000.0 + seconds,
+        )),
+        QueueCommand::Shuffle(_) | QueueCommand::Repeat(_) | QueueCommand::Clear => return None,
+    })
 }
 
 fn now_playing(

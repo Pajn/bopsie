@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod source;
 pub mod speaker;
 
 use std::net::SocketAddr;
@@ -17,6 +18,7 @@ use bopsie_library::Library;
 use bopsie_players::{Devices, Players};
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
+use bopsie_sources::Sources;
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -32,6 +34,8 @@ pub struct Server {
     pub addr: SocketAddr,
     /// Where endpoints register, for tests that add their own.
     pub players: Players,
+    /// Where sources register, for tests that add their own.
+    pub sources: Sources,
     _dir: tempfile::TempDir,
 }
 
@@ -72,11 +76,14 @@ async fn start_full(seconds: u32, web: Web) -> Server {
     .await
     .unwrap();
     let playback = Playback::start(devices, events.clone(), PlaybackConfig::default());
+    let sources = Sources::default();
+    playback.follow_sources(sources.clone());
     let services = Services {
         library,
         events,
         players: players.clone(),
         playback,
+        sources: sources.clone(),
         airplay: None,
         linkplay: None,
         web,
@@ -93,6 +100,7 @@ async fn start_full(seconds: u32, web: Web) -> Server {
         api,
         addr,
         players,
+        sources,
         _dir: dir,
     }
 }

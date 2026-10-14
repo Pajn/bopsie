@@ -378,6 +378,7 @@ dependencies = [
  "bopsie-players-sendspin",
  "bopsie-providers-filesystem",
  "bopsie-queues",
+ "bopsie-sources",
  "futures",
  "image",
  "jsonwebtoken",
@@ -561,6 +562,7 @@ dependencies = [
  "bopsie-fixtures",
  "bopsie-library",
  "bopsie-players",
+ "bopsie-sources",
  "rand 0.10.3",
  "rusqlite",
  "serde",
@@ -587,10 +589,19 @@ dependencies = [
  "bopsie-players-sendspin",
  "bopsie-providers-filesystem",
  "bopsie-queues",
+ "bopsie-sources",
  "clap",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "bopsie-sources"
+version = "0.1.0"
+dependencies = [
+ "bopsie-audio",
+ "tokio",
 ]
 
 [[package]]

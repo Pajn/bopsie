@@ -26,6 +26,7 @@ use bopsie_players_linkplay::{
 };
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
+use bopsie_sources::Sources;
 use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -115,6 +116,8 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         },
     );
     playback.persist(db.clone(), library.clone()).await?;
+    let sources = Sources::default();
+    playback.follow_sources(sources.clone());
     let airplay = start_airplay(&config, players.clone(), db.clone()).await;
     let linkplay = start_linkplay(&config, players.clone());
     let services = Services {
@@ -122,6 +125,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         events,
         players,
         playback: playback.clone(),
+        sources,
         airplay: airplay.clone(),
         linkplay: linkplay.clone(),
         web: config.web.dir.clone().map_or(Web::Embedded, Web::Dir),

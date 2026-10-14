@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use bopsie_core::media::Track;
 use bopsie_players::EndpointState;
 use bopsie_players::health::Health;
+use bopsie_sources::SourceState;
 use serde_json::{Value, json};
 
 use crate::state::{PlaybackState, Queue, QueueItem, RepeatMode};
@@ -141,6 +142,22 @@ pub struct PlayerPlayback<'a> {
     pub queue_id: &'a str,
     pub current: Option<&'a QueueItem>,
     pub elapsed: Duration,
+    /// The source the player's group plays in place of its queue, if it plays one.
+    pub source: Option<SourcePlayback<'a>>,
+    /// The sources announced for the player.
+    pub sources: Vec<SourceEntry>,
+}
+
+/// A source as its group plays it.
+pub struct SourcePlayback<'a> {
+    pub id: &'a str,
+    pub state: &'a SourceState,
+}
+
+/// A source announced for a player: Music Assistant's `PlayerSource`.
+pub struct SourceEntry {
+    pub id: String,
+    pub name: String,
 }
 
 /// How a player stands in its group.
@@ -189,26 +206,78 @@ pub fn player(
             .chain(grouping.members.iter().map(String::as_str))
             .collect()
     };
-    let current_media = playback.current.map_or(Value::Null, |item| {
-        let track = &item.track;
-        json!({
-            "uri": track.fields.uri,
-            "media_type": "track",
-            "title": track.fields.name,
-            "artist": first_artist(track),
-            "album": track.album.as_ref().map(|a| a.name.as_str()),
-            "album_artist": first_artist(track),
-            "image_url": artwork_url(track, base_url),
-            "duration": track.duration,
-            "stream_duration": null,
-            "source_id": playback.queue_id,
-            "queue_item_id": item.queue_item_id,
-            "custom_data": null,
-            "elapsed_time": playback.elapsed.as_secs_f64(),
-            "elapsed_time_last_updated": unix_now(),
+    let source_media = playback.source.as_ref().map(|source| {
+        let elapsed = source.state.position_at(bopsie_core::clock::now()) as f64 / 1_000.0;
+        source.state.media.as_ref().map_or(Value::Null, |media| {
+            json!({
+                "uri": media.uri,
+                "media_type": "track",
+                "title": media.title,
+                "artist": media.artist,
+                "album": media.album,
+                "album_artist": media.artist,
+                "image_url": media.artwork_url,
+                "duration": media.duration_ms / 1_000,
+                "stream_duration": null,
+                "source_id": source.id,
+                "queue_item_id": null,
+                "custom_data": null,
+                "elapsed_time": elapsed,
+                "elapsed_time_last_updated": unix_now(),
+            })
         })
     });
-    let state = state_name(playback.state);
+    let current_media = source_media.unwrap_or_else(|| {
+        playback.current.map_or(Value::Null, |item| {
+            let track = &item.track;
+            json!({
+                "uri": track.fields.uri,
+                "media_type": "track",
+                "title": track.fields.name,
+                "artist": first_artist(track),
+                "album": track.album.as_ref().map(|a| a.name.as_str()),
+                "album_artist": first_artist(track),
+                "image_url": artwork_url(track, base_url),
+                "duration": track.duration,
+                "stream_duration": null,
+                "source_id": playback.queue_id,
+                "queue_item_id": item.queue_item_id,
+                "custom_data": null,
+                "elapsed_time": playback.elapsed.as_secs_f64(),
+                "elapsed_time_last_updated": unix_now(),
+            })
+        })
+    });
+    let (state, elapsed, active_source) = match &playback.source {
+        Some(source) => (
+            if source.state.playing {
+                "playing"
+            } else {
+                "paused"
+            },
+            source.state.position_at(bopsie_core::clock::now()) as f64 / 1_000.0,
+            source.id,
+        ),
+        None => (
+            state_name(playback.state),
+            playback.elapsed.as_secs_f64(),
+            playback.queue_id,
+        ),
+    };
+    let source_list: Vec<Value> = playback
+        .sources
+        .iter()
+        .map(|source| {
+            json!({
+                "id": source.id,
+                "name": source.name,
+                "passive": false,
+                "can_play_pause": true,
+                "can_seek": true,
+                "can_next_previous": true,
+            })
+        })
+        .collect();
     json!({
         "player_id": id,
         "provider": endpoint.provider,
@@ -227,7 +296,7 @@ pub fn player(
         },
         "supported_features": view.features,
         "playback_state": state,
-        "elapsed_time": playback.elapsed.as_secs_f64(),
+        "elapsed_time": elapsed,
         "elapsed_time_last_updated": unix_now(),
         "powered": true,
         "volume_level": endpoint.volume,
@@ -239,8 +308,8 @@ pub fn player(
         "active_sound_mode": null,
         "sound_mode_list": [],
         "options": [],
-        "active_source": playback.queue_id,
-        "source_list": [],
+        "active_source": active_source,
+        "source_list": source_list,
         "active_group": null,
         "current_media": current_media,
         "enabled": view.enabled,
