@@ -10,7 +10,7 @@ use bopsie_players::devices::Member;
 use bopsie_players::health::{Health, Level};
 use bopsie_players::planner::{Policy, Reason, Strategy, plan as make_plan};
 use bopsie_players::{
-    Capabilities, Device, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying,
+    Capabilities, Device, DeviceInfo, Endpoint, EndpointState, Facts, NativeGroup, NowPlaying,
 };
 
 struct Stub;
@@ -58,6 +58,8 @@ struct Spec {
     quirks: Quirks,
     max_group_size: Option<usize>,
     lead_ms: i64,
+    /// Its LinkPlay multiroom version, for a LinkPlay endpoint.
+    native: Option<u32>,
 }
 
 fn airplay(id: &'static str) -> Spec {
@@ -70,6 +72,21 @@ fn airplay(id: &'static str) -> Spec {
         quirks: Quirks::default(),
         max_group_size: Some(8),
         lead_ms: 2_500,
+        native: None,
+    }
+}
+
+fn linkplay(id: &'static str, version: u32) -> Spec {
+    Spec {
+        id,
+        provider: "linkplay",
+        formats: vec![CD, DAT],
+        available: true,
+        health: Level::Good,
+        quirks: Quirks::default(),
+        max_group_size: None,
+        lead_ms: 3_500,
+        native: Some(version),
     }
 }
 
@@ -83,6 +100,7 @@ fn sendspin(id: &'static str) -> Spec {
         quirks: Quirks::default(),
         max_group_size: None,
         lead_ms: 300,
+        native: None,
     }
 }
 
@@ -127,12 +145,15 @@ impl Spec {
                 capabilities: Capabilities {
                     formats: self.formats.clone(),
                     lead: self.lead_ms * 1_000,
-                    sync_group: true,
+                    sync_group: self.native.is_none(),
                     max_group_size: self.max_group_size,
                     volume: true,
                     mute: true,
                     pairing: Default::default(),
-                    native_group: None,
+                    native_group: self.native.map(|version| NativeGroup {
+                        family: "linkplay",
+                        version,
+                    }),
                 },
                 quirks: resolved,
                 native_leader: None,
@@ -379,4 +400,102 @@ fn unavailable_devices() {
         "Gone can't join Kitchen: it isn't available"
     );
     assert!(make_plan(&gone, &[], &policy(), None).is_none());
+}
+
+/// Each carrier as (device, endpoint, whether the leader carries it natively).
+fn native_carriers(plan: &bopsie_players::planner::Plan) -> Vec<(String, String, bool)> {
+    plan.carriers
+        .iter()
+        .map(|c| (c.device.clone(), c.endpoint.clone(), c.native))
+        .collect()
+}
+
+#[test]
+fn linkplay_devices_group_natively() {
+    let amp = device("amp", &[linkplay("lp1", 4)]);
+    let speaker = device("speaker", &[linkplay("lp2", 4)]);
+    let plan = plan_for(&amp, std::slice::from_ref(&speaker));
+    assert_eq!(plan.strategy, Strategy::Native);
+    assert_eq!(
+        native_carriers(&plan),
+        [
+            ("amp".to_owned(), "lp1".to_owned(), false),
+            ("speaker".to_owned(), "lp2".to_owned(), true)
+        ]
+    );
+    assert_eq!(plan.streamed().count(), 1, "only the leader is streamed to");
+    assert_eq!(plan.lead, 3_500_000);
+
+    // Alone, too: it has nothing else to play over.
+    let plan = plan_for(&amp, &[]);
+    assert_eq!(plan.strategy, Strategy::Native);
+    assert_eq!(plan.sample_rate, 44_100);
+}
+
+#[test]
+fn a_native_group_takes_only_its_own_multiroom() {
+    let amp = device("amp", &[linkplay("lp1", 4)]);
+    let old = device("old", &[linkplay("lp2", 2)]);
+    let sonos = device("sonos", &[airplay("ap1")]);
+    let plan = plan_for(&amp, &[old, sonos.clone()]);
+    assert_eq!(plan.strategy, Strategy::Native);
+    let reasons: Vec<_> = plan.dropped.iter().map(|d| d.reason.clone()).collect();
+    assert_eq!(
+        reasons,
+        [
+            Reason::NotNativeCompatible { family: "linkplay" },
+            Reason::NotNativeCompatible { family: "linkplay" }
+        ]
+    );
+    assert_eq!(
+        plan.dropped[1].message("Amp"),
+        "Sonos can't join Amp: it can't join a LinkPlay group"
+    );
+
+    // Led by the AirPlay speaker, an AirPlay-less LinkPlay device is left out.
+    let plan = plan_for(&sonos, std::slice::from_ref(&amp));
+    assert_eq!(plan.strategy, Strategy::AirplayDirect);
+    assert_eq!(
+        plan.dropped[0].reason,
+        Reason::NoCommonProtocol {
+            protocol: "airplay"
+        }
+    );
+}
+
+#[test]
+fn a_linkplay_device_with_airplay_plays_over_whichever_serves_more() {
+    let a28 = device("a28", &[airplay("ap1"), linkplay("lp1", 4)]);
+    let amp = device("amp", &[linkplay("lp2", 4)]);
+    let sonos = device("sonos", &[airplay("ap2")]);
+    // Alone, AirPlay's timing wins the tie.
+    assert_eq!(plan_for(&a28, &[]).strategy, Strategy::AirplayDirect);
+    // With the AirPlay-less amp, only its own multiroom serves both.
+    assert_eq!(
+        plan_for(&a28, std::slice::from_ref(&amp)).strategy,
+        Strategy::Native
+    );
+    // With an AirPlay speaker, AirPlay does.
+    assert_eq!(
+        plan_for(&a28, std::slice::from_ref(&sonos)).strategy,
+        Strategy::AirplayDirect
+    );
+    // A group already playing natively stays so on a tie.
+    assert_eq!(
+        make_plan(&a28, &[], &policy(), Some(Strategy::Native))
+            .unwrap()
+            .strategy,
+        Strategy::Native
+    );
+}
+
+#[test]
+fn a_native_group_plays_no_more_than_48_khz_16_bit() {
+    let hires = OutputFormat {
+        sample_rate: 96_000,
+        channels: 2,
+        bits: 24,
+    };
+    let amp = device("amp", &[linkplay("lp1", 4).formats(&[hires, DAT])]);
+    assert_eq!(plan_for(&amp, &[]).sample_rate, 48_000);
 }

@@ -545,7 +545,7 @@ impl Playback {
             && running.sample_rate == plan.sample_rate
             && running.channels == plan.channels;
         if same_stream {
-            if let Some(carrier) = plan.carrier(device)
+            if let Some(carrier) = plan.carrier(device).filter(|c| !c.native)
                 && let Some(member) = self.device(device)?.member(&carrier.endpoint)
             {
                 leading.session.add_sink(
@@ -823,8 +823,7 @@ impl Playback {
         };
         let timeline = Timeline::new(format.sample_rate, clock::now());
         let sinks = plan
-            .carriers
-            .iter()
+            .streamed()
             .filter_map(|carrier| {
                 let device = self.inner.devices.get(&carrier.device)?;
                 let member = device.member(&carrier.endpoint)?;
@@ -916,8 +915,7 @@ impl Playback {
         let members = self.entry(leader).ok()?.members;
         let plan = self.plan_for(leader, &members, None).ok()?;
         let preparing: Vec<_> = plan
-            .carriers
-            .iter()
+            .streamed()
             .filter_map(|carrier| {
                 let device = self.inner.devices.get(&carrier.device)?;
                 Some(device.member(&carrier.endpoint)?.endpoint.clone())

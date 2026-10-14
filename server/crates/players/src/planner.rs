@@ -18,7 +18,8 @@ pub enum Strategy {
     AirplayDirect,
     /// One Sendspin stream per device, on the server's clock.
     SendspinDirect,
-    /// The leader's own multiroom carries the others. Not chosen yet: no provider has it.
+    /// The server streams to the leader, and the leader's own multiroom, such as LinkPlay's,
+    /// carries the others.
     Native,
 }
 
@@ -65,6 +66,8 @@ pub struct Carrier {
     /// The format its output takes: the group's rate and channels, at the bit depth it
     /// prefers.
     pub format: OutputFormat,
+    /// It follows the leader in its vendor's multiroom: the server streams only to the leader.
+    pub native: bool,
 }
 
 /// Why a device cannot play in a group.
@@ -86,12 +89,17 @@ pub enum Reason {
     GroupFull {
         max: usize,
     },
+    /// The leader's own multiroom cannot carry it: another vendor's, or another version.
+    NotNativeCompatible {
+        family: &'static str,
+    },
 }
 
 fn protocol_name(protocol: &str) -> &str {
     match protocol {
         "airplay" => "AirPlay",
         "sendspin" => "Sendspin",
+        "linkplay" => "LinkPlay",
         other => other,
     }
 }
@@ -114,6 +122,9 @@ impl fmt::Display for Reason {
                 "it can't play the group's {sample_rate} Hz {channels}-channel audio"
             ),
             Self::GroupFull { max } => write!(f, "the group already has {max} speakers"),
+            Self::NotNativeCompatible { family } => {
+                write!(f, "it can't join a {} group", protocol_name(family))
+            }
         }
     }
 }
@@ -151,7 +162,18 @@ impl Plan {
     pub fn carrier(&self, device: &str) -> Option<&Carrier> {
         self.carriers.iter().find(|c| c.device == device)
     }
+
+    /// The carriers the server streams to: all but those the leader carries natively.
+    pub fn streamed(&self) -> impl Iterator<Item = &Carrier> {
+        self.carriers.iter().filter(|c| !c.native)
+    }
 }
+
+/// The most a native group carries: LinkPlay groups play at 48 kHz 16-bit at most.
+const NATIVE_CAP: SampleCap = SampleCap {
+    sample_rate: 48_000,
+    bits: 16,
+};
 
 /// Whether `format` is within a `max_sample_format` quirk.
 fn within(format: &OutputFormat, cap: Option<SampleCap>) -> bool {
@@ -189,8 +211,8 @@ fn lead(member: &Member) -> Micros {
 }
 
 /// How `leader` and `members` play together, preferring `current`'s strategy when it serves
-/// as many: the strategy that serves the most members, earliest in `policy` among equals.
-/// `None` when the leader cannot play at all.
+/// as many: the strategy that serves the most members, earliest in `policy` among equals, and
+/// the leader's own multiroom after those. `None` when the leader cannot play at all.
 pub fn plan(
     leader: &Device,
     members: &[Device],
@@ -201,12 +223,17 @@ pub fn plan(
         return None;
     }
     let mut best: Option<Plan> = None;
-    for strategy in policy
+    let candidates = policy
         .protocols
         .iter()
         .filter_map(|p| Strategy::for_protocol(p))
-    {
-        let Some(candidate) = plan_with(strategy, leader, members) else {
+        .map(|strategy| (strategy, plan_with(strategy, leader, members)))
+        .chain(std::iter::once((
+            Strategy::Native,
+            plan_native(leader, members),
+        )));
+    for (strategy, candidate) in candidates {
+        let Some(candidate) = candidate else {
             continue;
         };
         let better = match &best {
@@ -278,6 +305,7 @@ fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<
         device: leader.id.clone(),
         endpoint: head.id.clone(),
         format,
+        native: false,
     }];
     let mut max = head.state.capabilities.max_group_size;
     let mut lead_needed = lead(head);
@@ -310,6 +338,7 @@ fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<
             device: device.id.clone(),
             endpoint: member.id.clone(),
             format: own,
+            native: false,
         });
     }
     // Dropped members in the order they were given.
@@ -320,6 +349,64 @@ fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<
         sample_rate: format.sample_rate,
         channels: format.channels,
         lead: lead_needed,
+        dropped,
+    })
+}
+
+/// `device`'s healthiest available endpoint with a native multiroom.
+fn native_endpoint(device: &Device) -> Option<&Member> {
+    device
+        .members
+        .iter()
+        .filter(|m| m.state.available && m.state.capabilities.native_group.is_some())
+        .min_by_key(|m| m.health.level)
+}
+
+/// The leader streamed to, carrying every member its own multiroom can.
+fn plan_native(leader: &Device, members: &[Device]) -> Option<Plan> {
+    let head = native_endpoint(leader)?;
+    let native = head.state.capabilities.native_group?;
+    let format = *formats(head).find(|f| within(f, Some(NATIVE_CAP)))?;
+    let mut carriers = vec![Carrier {
+        device: leader.id.clone(),
+        endpoint: head.id.clone(),
+        format,
+        native: false,
+    }];
+    let mut dropped = Vec::new();
+    for device in members {
+        let drop = |reason| Dropped {
+            device: device.id.clone(),
+            name: device.name.clone(),
+            reason,
+        };
+        if !device.available() {
+            dropped.push(drop(Reason::Unavailable));
+            continue;
+        }
+        let member = device
+            .members
+            .iter()
+            .find(|m| m.state.available && m.state.capabilities.native_group == Some(native));
+        let Some(member) = member else {
+            dropped.push(drop(Reason::NotNativeCompatible {
+                family: native.family,
+            }));
+            continue;
+        };
+        carriers.push(Carrier {
+            device: device.id.clone(),
+            endpoint: member.id.clone(),
+            format,
+            native: true,
+        });
+    }
+    Some(Plan {
+        strategy: Strategy::Native,
+        carriers,
+        sample_rate: format.sample_rate,
+        channels: format.channels,
+        lead: lead(head),
         dropped,
     })
 }
