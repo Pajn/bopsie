@@ -15,9 +15,24 @@ pub enum Remote {
     Previous,
     VolumeUp,
     VolumeDown,
+    /// The group's volume, 0 to 100, as a controller sets it.
+    Volume(u8),
+    Mute(bool),
+    Repeat(Repeat),
+    Shuffle(bool),
+    /// Milliseconds into the current track.
+    Seek(u64),
     /// The speaker switched to another source, or was turned off: it no longer plays what the
     /// server sends.
     Released,
+}
+
+/// What a controller asks the queue to repeat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Repeat {
+    Off,
+    One,
+    All,
 }
 
 impl Remote {
@@ -40,7 +55,7 @@ impl Remote {
     fn window(self) -> Duration {
         match self {
             Self::Next | Self::Previous => Duration::from_secs(2),
-            Self::VolumeUp | Self::VolumeDown => Duration::from_millis(150),
+            Self::VolumeUp | Self::VolumeDown | Self::Volume(_) => Duration::from_millis(150),
             _ => Duration::from_millis(500),
         }
     }

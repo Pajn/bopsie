@@ -4,7 +4,7 @@ mod common;
 
 use std::time::Duration;
 
-use bopsie_players::Remote;
+use bopsie_players::{Remote, Repeat};
 use serde_json::{Value, json};
 
 use common::speaker::*;
@@ -30,6 +30,15 @@ async fn until(
     }
 }
 
+/// Waits until `holds` is true.
+async fn eventually(what: &str, holds: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while !holds() {
+        assert!(tokio::time::Instant::now() < deadline, "{what} never held");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 async fn queue_state(client: &mut Client, state: &'static str) {
     until(
         client,
@@ -43,7 +52,7 @@ async fn queue_state(client: &mut Client, state: &'static str) {
 #[tokio::test]
 async fn a_button_on_any_speaker_controls_its_whole_group() {
     let (server, token) = start_set_up_with(10).await;
-    let _kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
     let bedroom = Speaker::register(&server.players, "bedroom", "airplay", &[CD], None);
     let mut client = server.connect().await;
     client.result("auth", json!({"token": token})).await;
@@ -110,6 +119,55 @@ async fn a_button_on_any_speaker_controls_its_whole_group() {
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+
+    // A controller sets the group's volume, mute, repeat and shuffle, and seeks.
+    server.players.remote("bedroom", Remote::Volume(60));
+    eventually("the group volume", || {
+        *kitchen.volume.lock().unwrap() == 60 || *bedroom.volume.lock().unwrap() == 60
+    })
+    .await;
+    server.players.remote("bedroom", Remote::Mute(true));
+    eventually("the group muted", || {
+        *kitchen.muted.lock().unwrap() && *bedroom.muted.lock().unwrap()
+    })
+    .await;
+    server
+        .players
+        .remote("bedroom", Remote::Repeat(Repeat::All));
+    until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["repeat_mode"] == "all",
+    )
+    .await;
+    server.players.remote("bedroom", Remote::Shuffle(true));
+    until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["shuffle_enabled"] == true,
+    )
+    .await;
+    // Every member is told the group's state.
+    eventually("the controls", || {
+        bedroom.controls.lock().unwrap().is_some_and(|c| {
+            c.muted && c.repeat == Repeat::All && c.shuffle && c.seek_max_ms.is_some()
+        })
+    })
+    .await;
+    server.players.remote("bedroom", Remote::Seek(2_000));
+    until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| {
+            q["elapsed_time"]
+                .as_f64()
+                .is_some_and(|t| (2.0..4.0).contains(&t))
+        },
+    )
+    .await;
 
     // A member switched to another source leaves the group, which plays on.
     server.players.remote("bedroom", Remote::Released);

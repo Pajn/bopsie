@@ -14,7 +14,7 @@ pub mod settings;
 
 pub use devices::{Device, Devices, Member};
 pub use facts::{Capabilities, Facts, NativeGroup, Pairing};
-pub use remote::Remote;
+pub use remote::{Remote, Repeat};
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -81,6 +81,19 @@ pub struct NowPlaying {
     pub playing: bool,
 }
 
+/// The state of the group an endpoint plays in, for endpoints that control it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Controls {
+    /// The loudest member's volume, 0 to 100.
+    pub volume: u8,
+    /// Whether every member is muted.
+    pub muted: bool,
+    pub repeat: Repeat,
+    pub shuffle: bool,
+    /// The current track's length in milliseconds, when there is one to seek in.
+    pub seek_max_ms: Option<u64>,
+}
+
 /// One protocol reachable at one address: a player the server can stream to.
 pub trait Endpoint: Send + Sync {
     fn id(&self) -> &str;
@@ -93,6 +106,8 @@ pub trait Endpoint: Send + Sync {
     fn set_now_playing(&self, now_playing: Option<&NowPlaying>);
     /// Whether the group the endpoint is in is playing, and which group that is.
     fn set_group(&self, playing: bool, group_id: &str);
+    /// The state of the group the endpoint plays in, for a speaker or app that controls it.
+    fn set_controls(&self, _controls: &Controls) {}
     /// Gets ready to play, and says when it can start, on the server's clock, if that needs
     /// longer than its lead: a speaker that has to connect, or whose clock has yet to follow
     /// ours. May block for seconds.

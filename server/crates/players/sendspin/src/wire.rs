@@ -2,6 +2,7 @@
 //! `{"type", "payload"}` and binary audio frames with a 9-byte header. Unknown message types and
 //! fields are ignored, as the protocol requires.
 
+use bopsie_players::{Controls, Remote, Repeat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -255,6 +256,67 @@ pub fn mute_command(muted: bool) -> String {
     )
 }
 
+/// What the controller role offers, as Music Assistant does but for `switch`; `seek` only while
+/// there is a track to seek in.
+pub const CONTROLLER_COMMANDS: &[&str] = &[
+    "play",
+    "pause",
+    "stop",
+    "next",
+    "previous",
+    "volume",
+    "mute",
+    "repeat_off",
+    "repeat_one",
+    "repeat_all",
+    "shuffle",
+    "unshuffle",
+];
+const SEEK: &str = "seek";
+
+/// The group's state, for the controller role.
+pub fn server_state_controller(controls: &Controls) -> String {
+    let repeat = match controls.repeat {
+        Repeat::Off => "off",
+        Repeat::One => "one",
+        Repeat::All => "all",
+    };
+    let mut commands = CONTROLLER_COMMANDS.to_vec();
+    let mut controller = json!({
+        "volume": controls.volume.min(100),
+        "muted": controls.muted,
+        "repeat": repeat,
+        "shuffle": controls.shuffle,
+    });
+    if let Some(max) = controls.seek_max_ms {
+        commands.push(SEEK);
+        controller["seek_max_ms"] = json!(max);
+    }
+    controller["supported_commands"] = json!(commands);
+    message("server/state", json!({ "controller": controller }))
+}
+
+/// What a controller's `client/command` asks for, if it is a command the server offers.
+pub fn controller_command(payload: &Value) -> Option<Remote> {
+    let controller = payload.get("controller")?;
+    Some(match controller.get("command")?.as_str()? {
+        "play" => Remote::Play,
+        "pause" => Remote::Pause,
+        "stop" => Remote::Stop,
+        "next" => Remote::Next,
+        "previous" => Remote::Previous,
+        "volume" => Remote::Volume(controller.get("volume")?.as_u64()?.min(100) as u8),
+        "mute" => Remote::Mute(controller.get("mute")?.as_bool()?),
+        "repeat_off" => Remote::Repeat(Repeat::Off),
+        "repeat_one" => Remote::Repeat(Repeat::One),
+        "repeat_all" => Remote::Repeat(Repeat::All),
+        "shuffle" => Remote::Shuffle(true),
+        "unshuffle" => Remote::Shuffle(false),
+        "seek" => Remote::Seek(controller.get("position_ms")?.as_u64()?),
+        _ => return None,
+    })
+}
+
 /// What is playing, for the metadata role. Every field is sent, null when unknown.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Metadata {
@@ -411,6 +473,87 @@ mod tests {
         assert_eq!(
             volume,
             json!({"type": "server/command", "payload": {"player": {"command": "volume", "volume": 70}}})
+        );
+    }
+
+    #[test]
+    fn controller_commands() {
+        let command = |text: &str| {
+            let ClientMessage::Command(payload) = parse(text).unwrap() else {
+                panic!("not a command");
+            };
+            controller_command(&payload)
+        };
+        assert_eq!(
+            command(r#"{"type":"client/command","payload":{"controller":{"command":"pause"}}}"#),
+            Some(Remote::Pause)
+        );
+        assert_eq!(
+            command(
+                r#"{"type":"client/command","payload":{"controller":{"command":"volume","volume":42}}}"#
+            ),
+            Some(Remote::Volume(42))
+        );
+        assert_eq!(
+            command(
+                r#"{"type":"client/command","payload":{"controller":{"command":"mute","mute":true}}}"#
+            ),
+            Some(Remote::Mute(true))
+        );
+        assert_eq!(
+            command(
+                r#"{"type":"client/command","payload":{"controller":{"command":"repeat_one"}}}"#
+            ),
+            Some(Remote::Repeat(Repeat::One))
+        );
+        assert_eq!(
+            command(
+                r#"{"type":"client/command","payload":{"controller":{"command":"seek","position_ms":61000}}}"#
+            ),
+            Some(Remote::Seek(61_000))
+        );
+        assert_eq!(
+            command(r#"{"type":"client/command","payload":{"controller":{"command":"switch"}}}"#),
+            None
+        );
+        assert_eq!(
+            command(r#"{"type":"client/command","payload":{"controller":{"command":"volume"}}}"#),
+            None,
+            "a volume command without a volume"
+        );
+        assert_eq!(
+            command(r#"{"type":"client/command","payload":{"player":{"command":"pause"}}}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn controller_state() {
+        let state: Value = serde_json::from_str(&server_state_controller(&Controls {
+            volume: 30,
+            muted: false,
+            repeat: Repeat::All,
+            shuffle: true,
+            seek_max_ms: Some(180_000),
+        }))
+        .unwrap();
+        let controller = &state["payload"]["controller"];
+        assert_eq!(state["type"], "server/state");
+        assert_eq!(controller["volume"], 30);
+        assert_eq!(controller["repeat"], "all");
+        assert_eq!(controller["shuffle"], true);
+        assert!(
+            controller["supported_commands"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("unshuffle"))
+        );
+        assert_eq!(controller["seek_max_ms"], 180_000);
+        assert!(
+            controller["supported_commands"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("seek"))
         );
     }
 

@@ -25,7 +25,7 @@ use bopsie_core::{Error, ErrorCode, Result};
 use bopsie_library::Library;
 use bopsie_players::devices::PROTOCOLS;
 use bopsie_players::planner::{self, Plan, Policy, Strategy};
-use bopsie_players::{Change, Device, Devices, Member, NowPlaying, Remote};
+use bopsie_players::{Change, Controls, Device, Devices, Member, NowPlaying, Remote, Repeat};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde_json::{Value, json};
@@ -265,6 +265,25 @@ impl Playback {
                 };
                 self.volume_set(&device.id, next)
             }
+            Remote::Volume(volume) => self.group_volume(&device.id, volume),
+            Remote::Mute(muted) => {
+                for id in self.group_of(&queue) {
+                    if let Ok((_, member)) = self.active(&id) {
+                        member.endpoint.set_muted(muted);
+                    }
+                }
+                Ok(())
+            }
+            Remote::Repeat(repeat) => self.command(
+                &queue,
+                QueueCommand::Repeat(match repeat {
+                    Repeat::Off => RepeatMode::Off,
+                    Repeat::One => RepeatMode::One,
+                    Repeat::All => RepeatMode::All,
+                }),
+            ),
+            Remote::Shuffle(on) => self.command(&queue, QueueCommand::Shuffle(on)),
+            Remote::Seek(ms) => self.command(&queue, QueueCommand::Seek(ms as f64 / 1_000.0)),
             // A speaker that went to another source leaves its group, which plays on; a
             // speaker playing on its own pauses where it was.
             Remote::Released if queue != device.id => self.ungroup(&device.id),
@@ -598,6 +617,9 @@ impl Playback {
         self.reconcile_native(id);
         self.publish(EventType::PlayerUpdated, id, self.player(id, None));
         self.publish(EventType::QueueUpdated, id, self.queue(id));
+        if let Some(leader) = self.leader_of(id) {
+            self.send_controls(&leader);
+        }
     }
 
     /// A device whose carrier in a playing group was turned off in its settings: its output
@@ -828,6 +850,44 @@ impl Playback {
         self.publish(EventType::QueueItemsUpdated, queue_id, self.queue(queue_id));
         for id in self.group_of(queue_id) {
             self.publish(EventType::PlayerUpdated, &id, self.player(&id, None));
+        }
+        self.send_controls(queue_id);
+    }
+
+    /// Tells every endpoint of the group playing `queue_id` the group's volume, mute, repeat
+    /// and shuffle, for those that control the group.
+    fn send_controls(&self, queue_id: &str) {
+        let Ok(entry) = self.entry(queue_id) else {
+            return;
+        };
+        let queue = entry.session.snapshot();
+        let (devices, active): (Vec<Device>, Vec<Member>) = self
+            .group_of(queue_id)
+            .iter()
+            .filter_map(|id| self.active(id).ok())
+            .unzip();
+        let controls = Controls {
+            volume: active
+                .iter()
+                .filter_map(|m| m.state.volume)
+                .max()
+                .unwrap_or(0),
+            muted: !active.is_empty() && active.iter().all(|m| m.state.muted == Some(true)),
+            repeat: match queue.repeat_mode {
+                RepeatMode::Off => Repeat::Off,
+                RepeatMode::One => Repeat::One,
+                RepeatMode::All => Repeat::All,
+            },
+            shuffle: queue.shuffle_enabled,
+            seek_max_ms: queue
+                .current()
+                .map(|item| u64::from(item.track.duration) * 1_000)
+                .filter(|ms| *ms > 0),
+        };
+        for device in &devices {
+            for member in &device.members {
+                member.endpoint.set_controls(&controls);
+            }
         }
     }
 

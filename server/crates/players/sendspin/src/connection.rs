@@ -13,7 +13,8 @@ use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
 use bopsie_players::health::Event;
 use bopsie_players::{
-    Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing, Players,
+    Capabilities, Controls, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing,
+    Players,
 };
 use futures::{SinkExt, StreamExt};
 use tokio::runtime::Handle;
@@ -31,7 +32,7 @@ const PING_EVERY: Duration = Duration::from_secs(5);
 /// How long a client may say nothing, not even answer a ping, before it is taken as gone.
 pub const SILENCE_LIMIT: Duration = Duration::from_secs(15);
 /// The roles this server takes on with a client, of those it supports.
-const ROLES: &[&str] = &["player@v1", "metadata@v1"];
+const ROLES: &[&str] = &["player@v1", "controller@v1", "metadata@v1"];
 
 /// What goes to a client besides audio, which goes first.
 pub(crate) enum Outgoing {
@@ -58,6 +59,10 @@ pub(crate) struct ClientInfo {
     pub owner_token: Option<String>,
     /// Where the client connected from.
     pub address: Option<IpAddr>,
+    /// Whether it took on the controller role.
+    pub controller: bool,
+    /// The group's state as the client was last told it.
+    pub controls: Option<Controls>,
 }
 
 impl ClientInfo {
@@ -237,6 +242,16 @@ impl Endpoint for SendspinEndpoint {
     fn set_group(&self, playing: bool, group_id: &str) {
         self.shared.send(wire::group_update(playing, group_id));
     }
+
+    fn set_controls(&self, controls: &Controls) {
+        let mut info = self.shared.info.lock().unwrap();
+        if !info.controller || info.controls.as_ref() == Some(controls) {
+            return;
+        }
+        info.controls = Some(*controls);
+        drop(info);
+        self.shared.send(wire::server_state_controller(controls));
+    }
 }
 
 /// The Sendspin server role: answers clients and registers them as players.
@@ -344,6 +359,8 @@ impl SendspinServer {
                 min_buffer_ms: 0,
                 owner_token,
                 address,
+                controller: roles.contains(&"controller@v1"),
+                controls: None,
             }),
             generation: AtomicU64::new(0),
             runtime: Handle::current(),
@@ -412,7 +429,15 @@ impl SendspinServer {
                     said_goodbye = true;
                     break;
                 }
-                ClientMessage::Hello(_) | ClientMessage::Command(_) | ClientMessage::Other(_) => {}
+                ClientMessage::Command(payload) => {
+                    // The controller controls the group its own player plays in.
+                    match wire::controller_command(&payload) {
+                        Some(remote) if registered => self.players.remote(&id, remote),
+                        Some(_) => {}
+                        None => tracing::debug!(client = id, %payload, "ignoring a command"),
+                    }
+                }
+                ClientMessage::Hello(_) | ClientMessage::Other(_) => {}
             }
         }
 

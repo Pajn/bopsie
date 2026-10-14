@@ -13,7 +13,7 @@ use bopsie_audio::timeline::Timeline;
 use bopsie_audio::{OutputFormat, PcmFormat};
 use bopsie_core::clock;
 use bopsie_fixtures::{noise, write_wav};
-use bopsie_players::{Change, Players};
+use bopsie_players::{Change, Controls, Players, Remote, Repeat};
 use bopsie_players_sendspin::{SILENCE_LIMIT, SendspinServer};
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -79,7 +79,7 @@ impl Client {
         let hello = client.message("server/hello").await;
         assert_eq!(
             hello["payload"]["active_roles"],
-            json!(["player@v1", "metadata@v1"])
+            json!(["player@v1", "controller@v1", "metadata@v1"])
         );
         client
             .send(
@@ -248,6 +248,51 @@ async fn a_client_registers_and_gets_time_replies() {
     assert_eq!(
         command["payload"]["player"],
         json!({"command": "volume", "volume": 70})
+    );
+}
+
+async fn heard(
+    remotes: &mut tokio::sync::broadcast::Receiver<(String, Remote)>,
+) -> (String, Remote) {
+    tokio::time::timeout(Duration::from_secs(5), remotes.recv())
+        .await
+        .expect("nothing heard")
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_controller_is_told_its_group_and_controls_it() {
+    let (addr, players) = start().await;
+    let mut remotes = players.remotes();
+    let mut client = Client::connect(addr, "phone", 1_048_576).await;
+    registered(&players, "phone").await;
+
+    let controls = Controls {
+        volume: 40,
+        muted: false,
+        repeat: Repeat::Off,
+        shuffle: false,
+        seek_max_ms: Some(200_000),
+    };
+    players.get("phone").unwrap().set_controls(&controls);
+    let state = client.message("server/state").await;
+    let controller = &state["payload"]["controller"];
+    assert_eq!(controller["volume"], 40);
+    assert_eq!(controller["seek_max_ms"], 200_000);
+
+    client
+        .send(json!({"type": "client/command", "payload": {"controller": {"command": "next"}}}))
+        .await;
+    client
+        .send(json!({"type": "client/command", "payload": {"controller": {"command": "seek", "position_ms": 5000}}}))
+        .await;
+    assert_eq!(
+        heard(&mut remotes).await,
+        ("phone".to_owned(), Remote::Next)
+    );
+    assert_eq!(
+        heard(&mut remotes).await,
+        ("phone".to_owned(), Remote::Seek(5_000))
     );
 }
 

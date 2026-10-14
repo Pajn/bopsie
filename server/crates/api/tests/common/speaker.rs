@@ -8,7 +8,7 @@ use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::Timeline;
 use bopsie_players::{
-    Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Players,
+    Capabilities, Controls, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Players,
 };
 
 pub const CD: OutputFormat = OutputFormat {
@@ -30,6 +30,9 @@ pub struct Speaker {
     pub formats: Vec<OutputFormat>,
     pub mac: Option<String>,
     pub volume: Mutex<u8>,
+    pub muted: Mutex<bool>,
+    /// What it was last told of its group's controls.
+    pub controls: Mutex<Option<Controls>>,
     /// Frames received, by sample rate.
     pub frames: Arc<Mutex<Vec<(u32, u64)>>>,
     /// Outputs made for it.
@@ -61,6 +64,8 @@ impl Speaker {
             formats: formats.to_vec(),
             mac: mac.map(str::to_owned),
             volume: Mutex::new(40),
+            muted: Mutex::new(false),
+            controls: Mutex::new(None),
             frames: Arc::default(),
             outputs: AtomicU64::new(0),
             trouble: Arc::default(),
@@ -136,7 +141,7 @@ impl Endpoint for Speaker {
             provider: self.provider,
             available: self.available.load(Ordering::SeqCst),
             volume: Some(*self.volume.lock().unwrap()),
-            muted: Some(false),
+            muted: Some(*self.muted.lock().unwrap()),
             device: DeviceInfo {
                 model: None,
                 manufacturer: None,
@@ -182,7 +187,13 @@ impl Endpoint for Speaker {
         *self.volume.lock().unwrap() = volume;
         self.players.changed(&self.id);
     }
-    fn set_muted(&self, _: bool) {}
+    fn set_muted(&self, muted: bool) {
+        *self.muted.lock().unwrap() = muted;
+        self.players.changed(&self.id);
+    }
     fn set_now_playing(&self, _: Option<&NowPlaying>) {}
     fn set_group(&self, _: bool, _: &str) {}
+    fn set_controls(&self, controls: &Controls) {
+        *self.controls.lock().unwrap() = Some(*controls);
+    }
 }
