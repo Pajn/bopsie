@@ -1,5 +1,5 @@
 import type { WithImages } from '@bopsie/client/api/schemas/media';
-import type { PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
+import type { Player, PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
 
 export interface NowPlaying {
   title: string;
@@ -9,9 +9,67 @@ export interface NowPlaying {
   duration: number | null;
 }
 
+/** A source playing to the group in place of its queue, such as Spotify Connect. */
+export interface SourcePlaying {
+  id: string;
+  /** Such as `Spotify`. */
+  name: string;
+  subtitle: string;
+}
+
+/** The active group's queue as the listener hears it: its own, or a source's in its place. */
+export type HeardQueue = PlayerQueue & { source: SourcePlaying | null };
+
+/**
+ * The queue as the listener hears it. While the group's player plays a source
+ * rather than its queue, the source's state, position and media stand in for
+ * the queue's, so the player shows and controls what is heard; the server
+ * sends the queue's transport commands on to the source.
+ */
+export function asHeard(queue: PlayerQueue, player: Player | undefined): HeardQueue {
+  const sourceId = player?.active_source;
+  const media = player?.current_media;
+  if (!sourceId || sourceId === queue.queue_id || !media) return { ...queue, source: null };
+  const name =
+    player.source_list.find((source) => source.id === sourceId)?.name ?? 'Another source';
+  const title = media.title ?? name;
+  return {
+    ...queue,
+    state: player.playback_state,
+    elapsed_time: media.elapsed_time ?? 0,
+    elapsed_time_last_updated: media.elapsed_time_last_updated ?? 0,
+    current_item: {
+      queue_id: queue.queue_id,
+      queue_item_id: `source:${sourceId}`,
+      name: title,
+      duration: media.duration ?? null,
+      image: media.image_url
+        ? {
+            type: 'thumb',
+            path: media.image_url,
+            provider: sourceId,
+            remotely_accessible: true,
+            proxy_id: null,
+          }
+        : null,
+      media_item: null,
+      available: true,
+    },
+    next_item: null,
+    source: {
+      id: sourceId,
+      name,
+      subtitle: [media.artist, media.album].filter(Boolean).join(' · '),
+    },
+  };
+}
+
 /** Display fields for the queue's current item, or null when nothing is loaded. */
-export function nowPlaying(queue: PlayerQueue): NowPlaying | null {
-  return queue.current_item ? describeItem(queue.current_item) : null;
+export function nowPlaying(queue: PlayerQueue | HeardQueue): NowPlaying | null {
+  if (!queue.current_item) return null;
+  const described = describeItem(queue.current_item);
+  const source = (queue as Partial<HeardQueue>).source ?? null;
+  return source ? { ...described, subtitle: source.subtitle } : described;
 }
 
 /** Display fields for any item in a queue. */

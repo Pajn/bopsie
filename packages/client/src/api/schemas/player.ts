@@ -15,6 +15,21 @@ export const playerMedia = z.looseObject({
   title: z.nullish(z.string()),
   artist: z.nullish(z.string()),
   album: z.nullish(z.string()),
+  /** A public URL, for what a source such as Spotify Connect plays. */
+  image_url: z.nullish(z.string()),
+  /** Seconds. */
+  duration: z.nullish(z.number()),
+  /** Seconds into the media at `elapsed_time_last_updated`. */
+  elapsed_time: z.nullish(z.number()),
+  /** Unix seconds. */
+  elapsed_time_last_updated: z.nullish(z.number()),
+});
+export type PlayerMedia = z.infer<typeof playerMedia>;
+
+/** `PlayerSource`: something other than the queue that can play to the player, such as Spotify Connect. */
+export const playerSource = z.looseObject({
+  id: z.string(),
+  name: z.string(),
 });
 
 export const player = z.looseObject({
@@ -47,6 +62,12 @@ export const player = z.looseObject({
   /** The group player this player is playing as part of. */
   active_group: z.nullish(z.string()),
   current_media: z.nullish(playerMedia),
+  /**
+   * What the player plays: its queue, by the queue's id, or a source such as
+   * Spotify Connect, by the source's id.
+   */
+  active_source: z.nullish(z.string()),
+  source_list: arrayOr(playerSource),
 });
 export type Player = z.infer<typeof player>;
 

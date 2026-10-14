@@ -25,6 +25,8 @@ export function imageUrl(serverUrl: string, item: WithImages, size: ImageSize): 
   if (!image) return null;
   const base = serverUrl.replace(/\/+$/, '');
   if (image.proxy_id) return `${base}/imageproxy/${image.proxy_id}?size=${size}&fmt=jpeg`;
+  // A public image, such as Spotify's artwork for what a source plays, is used as it is.
+  if (image.remotely_accessible && /^https?:\/\//.test(image.path)) return image.path;
 
   const stream = new URL(base);
   stream.protocol = 'http:';

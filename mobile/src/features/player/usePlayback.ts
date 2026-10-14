@@ -13,18 +13,28 @@ import { Alert } from 'react-native';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { useActiveGroup } from '@/features/outputs/ActiveGroupProvider';
 import { describeError } from '@/lib/errors';
+import { asHeard } from './nowPlaying';
 
-/** The active group's queue: what it is playing and where. */
+/**
+ * The active group's queue, as the listener hears it: what it is playing and
+ * where, or what a source such as Spotify Connect plays to it instead.
+ */
 export function useQueue() {
   const { connection, account } = useConnection();
-  const { activeId } = useActiveGroup();
-  return useQuery({
+  const { activeId, players } = useActiveGroup();
+  const query = useQuery({
     queryKey: queryKeys.queue(account.id, activeId ?? 'none'),
     queryFn: () => (activeId ? getQueue(connection, activeId) : null),
     enabled: activeId !== null,
     // Events keep the cached queue current.
     staleTime: Number.POSITIVE_INFINITY,
   });
+  const player = players?.find((candidate) => candidate.player_id === activeId);
+  const data = useMemo(
+    () => (query.data ? asHeard(query.data, player) : query.data),
+    [query.data, player],
+  );
+  return { ...query, data };
 }
 
 function report(error: unknown) {

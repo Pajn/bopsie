@@ -56,6 +56,11 @@ export function QueueScreen() {
         }}
         ListHeaderComponent={
           <>
+            {queue.source ? (
+              <Text muted style={styles.notice} testID="queue-source">
+                {`Playing from ${queue.source.name}. Play something here to take the group back.`}
+              </Text>
+            ) : null}
             {held.map((item) => (
               <QueueRow
                 key={item.queue_item_id}

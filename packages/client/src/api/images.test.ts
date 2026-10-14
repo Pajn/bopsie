@@ -30,6 +30,11 @@ describe('imageUrl', () => {
     );
   });
 
+  it('uses a public image as it is when there is no proxy id', () => {
+    const remote = image({ path: 'https://i.scdn.co/image/abc', remotely_accessible: true });
+    expect(imageUrl('http://ma:8095', { image: remote }, 256)).toBe('https://i.scdn.co/image/abc');
+  });
+
   it('is null for an item without images', () => {
     expect(imageUrl('http://ma:8095', { metadata: { images: [] } }, 80)).toBeNull();
     expect(imageUrl('http://ma:8095', { image: null }, 80)).toBeNull();

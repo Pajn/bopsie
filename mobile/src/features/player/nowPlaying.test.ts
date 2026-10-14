@@ -1,5 +1,5 @@
-import { playerQueue, queueItem } from '@bopsie/client/api/schemas/player';
-import { itemLinks, nowPlaying } from './nowPlaying';
+import { player, playerQueue, queueItem } from '@bopsie/client/api/schemas/player';
+import { asHeard, itemLinks, nowPlaying } from './nowPlaying';
 
 const queue = (currentItem: object | null) =>
   playerQueue.parse({ queue_id: 'q', current_item: currentItem });
@@ -54,6 +54,53 @@ describe('nowPlaying', () => {
   it('falls back to the queue item name for media that is not a track', () => {
     const result = nowPlaying(queue({ queue_id: 'q', queue_item_id: 'i', name: 'Radio One' }));
     expect(result).toMatchObject({ title: 'Radio One', subtitle: '', duration: null });
+  });
+});
+
+describe('asHeard', () => {
+  const kitchen = (extra: object) =>
+    player.parse({ player_id: 'q', provider: 'airplay', name: 'Kitchen', ...extra });
+  const paused = playerQueue.parse({
+    queue_id: 'q',
+    state: 'paused',
+    elapsed_time: 12,
+    current_item: { queue_id: 'q', queue_item_id: 'i', name: 'Song' },
+  });
+
+  it('is the queue while the player plays its queue', () => {
+    const heard = asHeard(paused, kitchen({ active_source: 'q' }));
+    expect(heard.source).toBeNull();
+    expect(heard.current_item?.name).toBe('Song');
+    expect(asHeard(paused, undefined).source).toBeNull();
+  });
+
+  it('is the source while one plays in place of the queue', () => {
+    const heard = asHeard(
+      paused,
+      kitchen({
+        playback_state: 'playing',
+        active_source: 'spotify_connect--q',
+        source_list: [{ id: 'spotify_connect--q', name: 'Spotify' }],
+        current_media: {
+          title: 'Teardrop',
+          artist: 'Massive Attack',
+          album: 'Mezzanine',
+          image_url: 'https://i.scdn.co/image/abc',
+          duration: 330,
+          elapsed_time: 40,
+          elapsed_time_last_updated: 1_000,
+        },
+      }),
+    );
+    expect(heard.state).toBe('playing');
+    expect(heard.elapsed_time).toBe(40);
+    expect(heard.source?.name).toBe('Spotify');
+    expect(heard.current_item?.image?.path).toBe('https://i.scdn.co/image/abc');
+    expect(nowPlaying(heard)).toMatchObject({
+      title: 'Teardrop',
+      subtitle: 'Massive Attack · Mezzanine',
+      duration: 330,
+    });
   });
 });
 
