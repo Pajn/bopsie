@@ -154,6 +154,7 @@ impl Spec {
                         family: "linkplay",
                         version,
                     }),
+                    withdrawn: Vec::new(),
                 },
                 quirks: resolved,
                 native_leader: None,

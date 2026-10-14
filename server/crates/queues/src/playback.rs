@@ -44,6 +44,10 @@ const CRASH_WINDOW: Duration = Duration::from_secs(60);
 const RESUME_WITHIN: Duration = Duration::from_secs(60);
 /// How often what changed is saved.
 const SAVE_EVERY: Duration = Duration::from_secs(1);
+/// How long a device's own report of its native group is ignored after the server changed it.
+const SETTLING: Duration = Duration::from_secs(15);
+/// How long a device that left its native group has to bring back a protocol it withdrew.
+const WITHDRAWN_RETURN: Duration = Duration::from_secs(30);
 /// How often a playing queue's position is saved.
 const POSITION_EVERY: Duration = Duration::from_secs(10);
 
@@ -96,6 +100,8 @@ struct Inner {
     last_volumes: Mutex<BTreeMap<String, (u8, bool)>>,
     /// Shutting down: nothing more is saved.
     closing: AtomicBool,
+    /// Devices whose native groups the server is changing, and since when.
+    settling: Mutex<BTreeMap<String, Instant>>,
     rng: Mutex<StdRng>,
 }
 
@@ -168,6 +174,7 @@ impl Playback {
                 last_groups: Mutex::default(),
                 last_volumes: Mutex::default(),
                 closing: AtomicBool::new(false),
+                settling: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
             }),
         };
@@ -513,6 +520,7 @@ impl Playback {
                 .unwrap()
                 .insert(id.to_owned(), Instant::now());
         }
+        self.reconcile_native(id);
         self.publish(EventType::PlayerUpdated, id, self.player(id, None));
         self.publish(EventType::QueueUpdated, id, self.queue(id));
     }
@@ -1073,6 +1081,12 @@ impl Playback {
         let current = leading.plan.as_ref().map(|p| p.strategy);
         let plan = self.plan_for(&leader, &members, current)?;
         if let Some(dropped) = plan.dropped.iter().find(|d| d.device == player) {
+            // One that follows another natively may have the protocol it lacks hidden until it
+            // leaves that group: it leaves, and joins once the protocol is back.
+            if let Some(protocol) = self.withdrawn_for(player, &leader) {
+                self.rejoin_over(player, &leader, protocol);
+                return Ok(());
+            }
             let leader_name = self.device(&leader)?.name;
             return Err(Error::new(
                 ErrorCode::UnsupportedFeature,
@@ -1083,22 +1097,13 @@ impl Playback {
         if self.entry(player)?.synced_to.is_some() {
             self.ungroup(player)?;
         }
-        let own = self.entry(player)?;
-        if own.session.snapshot().state != PlaybackState::Idle {
-            own.session.stop();
-        }
+        self.link(player, &leader);
+        let playing = self.entry(&leader)?.session.snapshot().state == PlaybackState::Playing;
+        if let Some(carrier) = plan.carrier(player).filter(|c| c.native)
+            && let Some(head) = plan.carriers.first()
         {
-            let mut entries = self.inner.entries.lock().unwrap();
-            if let Some(entry) = entries.get_mut(player) {
-                entry.synced_to = Some(leader.clone());
-            }
-            if let Some(entry) = entries.get_mut(&leader)
-                && !entry.members.iter().any(|m| m == player)
-            {
-                entry.members.push(player.to_owned());
-            }
+            self.join_natively(player, &carrier.endpoint, &head.endpoint, &leader);
         }
-        let playing = leading.session.snapshot().state == PlaybackState::Playing;
         self.carry(&leader, player)?;
         if playing {
             self.announce(&leader);
@@ -1113,25 +1118,14 @@ impl Playback {
         let entry = self.entry(player)?;
         if let Some(leader) = entry.synced_to {
             let endpoint = self.active(player).ok().map(|(_, member)| member.endpoint);
-            {
-                let mut entries = self.inner.entries.lock().unwrap();
-                if let Some(leading) = entries.get_mut(&leader) {
-                    leading.members.retain(|m| m != player);
-                    if let Some(plan) = &mut leading.plan {
-                        plan.carriers.retain(|c| c.device != player);
-                    }
-                }
-                if let Some(own) = entries.get_mut(player) {
-                    own.synced_to = None;
-                }
+            if let Some(native) = self.native_follower(player) {
+                self.leave_natively(player, native);
             }
-            self.entry(&leader)?.session.remove_sink(player);
+            self.unlink(player, &leader);
             if let Some(endpoint) = endpoint {
                 endpoint.set_group(false, player);
                 endpoint.set_now_playing(None);
             }
-            self.changed(&leader);
-            self.changed(player);
             return Ok(());
         }
         let Some((heir, rest)) = entry.members.split_first() else {
@@ -1146,6 +1140,248 @@ impl Playback {
             self.group(member, &heir)?;
         }
         Ok(())
+    }
+
+    /// Records `player` as following `leader`; it stops what it played itself.
+    fn link(&self, player: &str, leader: &str) {
+        if let Ok(own) = self.entry(player)
+            && own.session.snapshot().state != PlaybackState::Idle
+        {
+            own.session.stop();
+        }
+        let mut entries = self.inner.entries.lock().unwrap();
+        if let Some(entry) = entries.get_mut(player) {
+            entry.synced_to = Some(leader.to_owned());
+        }
+        if let Some(entry) = entries.get_mut(leader)
+            && !entry.members.iter().any(|m| m == player)
+        {
+            entry.members.push(player.to_owned());
+        }
+    }
+
+    /// Records that `player` no longer follows `leader`, and takes its output out of the
+    /// group's engine.
+    fn unlink(&self, player: &str, leader: &str) {
+        {
+            let mut entries = self.inner.entries.lock().unwrap();
+            if let Some(leading) = entries.get_mut(leader) {
+                leading.members.retain(|m| m != player);
+                if let Some(plan) = &mut leading.plan {
+                    plan.carriers.retain(|c| c.device != player);
+                }
+            }
+            if let Some(own) = entries.get_mut(player) {
+                own.synced_to = None;
+            }
+        }
+        if let Ok(leading) = self.entry(leader) {
+            leading.session.remove_sink(player);
+        }
+        self.changed(leader);
+        self.changed(player);
+    }
+
+    /// The endpoint by which `player` follows another device natively, if it does.
+    fn native_follower(&self, player: &str) -> Option<Arc<dyn bopsie_players::Endpoint>> {
+        self.device(player)
+            .ok()?
+            .members
+            .iter()
+            .find(|m| m.state.native_leader.is_some())
+            .map(|m| m.endpoint.clone())
+    }
+
+    /// Notes that the devices of `player` are being changed by the server, so that what they
+    /// report meanwhile is not taken for a change made elsewhere.
+    fn settling(&self, player: &str, busy: bool) {
+        let mut settling = self.inner.settling.lock().unwrap();
+        if busy {
+            settling.insert(player.to_owned(), Instant::now());
+        } else {
+            settling.remove(player);
+        }
+    }
+
+    /// Tells endpoint `follower` of `player` to follow endpoint `leading` of `leader`, in the
+    /// background; if it will not, `player` leaves the group again.
+    fn join_natively(&self, player: &str, follower: &str, leading: &str, leader: &str) {
+        let Some(endpoint) = self
+            .device(player)
+            .ok()
+            .and_then(|d| d.member(follower).map(|m| m.endpoint.clone()))
+        else {
+            return;
+        };
+        self.settling(player, true);
+        let (playback, player, leading, leader) = (
+            self.clone(),
+            player.to_owned(),
+            leading.to_owned(),
+            leader.to_owned(),
+        );
+        tokio::spawn(async move {
+            let joined = tokio::task::spawn_blocking(move || endpoint.join_native(&leading))
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()));
+            playback.settling(&player, false);
+            if let Err(error) = joined {
+                tracing::warn!(
+                    device = player,
+                    leader,
+                    error,
+                    "cannot join the group natively"
+                );
+                if playback.leader_of(&player).as_deref() == Some(leader.as_str()) {
+                    playback.unlink(&player, &leader);
+                }
+            }
+        });
+    }
+
+    /// Tells `player`'s endpoint `endpoint` to leave its native group, in the background.
+    fn leave_natively(&self, player: &str, endpoint: Arc<dyn bopsie_players::Endpoint>) {
+        self.settling(player, true);
+        let (playback, player) = (self.clone(), player.to_owned());
+        tokio::spawn(async move {
+            let left = tokio::task::spawn_blocking(move || endpoint.leave_native())
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()));
+            playback.settling(&player, false);
+            if let Err(error) = left {
+                tracing::warn!(device = player, error, "cannot leave the native group");
+            }
+        });
+    }
+
+    /// The protocol `player` withdrew while following natively that `leader`'s group plays
+    /// over, if any: then it can join once it leaves its native group.
+    fn withdrawn_for(&self, player: &str, leader: &str) -> Option<&'static str> {
+        let device = self.device(player).ok()?;
+        let leading = self.device(leader).ok()?;
+        device
+            .members
+            .iter()
+            .flat_map(|m| m.state.capabilities.withdrawn.iter().copied())
+            .find(|protocol| {
+                leading
+                    .members
+                    .iter()
+                    .any(|m| m.state.provider == *protocol && m.state.available)
+            })
+    }
+
+    /// Takes `player` out of its native group, waits for `protocol` to come back on it, and
+    /// joins it to `leader`'s group: in the background, as the device takes a while.
+    fn rejoin_over(&self, player: &str, leader: &str, protocol: &'static str) {
+        tracing::info!(
+            device = player,
+            leader,
+            protocol,
+            "leaving a native group to join over a protocol it withdrew"
+        );
+        if let Some(own_leader) = self.leader_of(player).filter(|l| l != player) {
+            self.unlink(player, &own_leader);
+        }
+        let Some(native) = self.native_follower(player) else {
+            return;
+        };
+        self.settling(player, true);
+        let (playback, player, leader) = (self.clone(), player.to_owned(), leader.to_owned());
+        tokio::spawn(async move {
+            let left = tokio::task::spawn_blocking(move || native.leave_native())
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()));
+            playback.settling(&player, false);
+            if let Err(error) = left {
+                tracing::warn!(device = player, error, "cannot leave the native group");
+                return;
+            }
+            let deadline = Instant::now() + WITHDRAWN_RETURN;
+            while Instant::now() < deadline {
+                let back = playback.device(&player).is_ok_and(|d| {
+                    d.members
+                        .iter()
+                        .any(|m| m.state.provider == protocol && m.state.available)
+                });
+                if back {
+                    if let Err(error) = playback.group(&player, &leader) {
+                        tracing::warn!(device = player, leader, %error, "cannot join");
+                    }
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            tracing::warn!(device = player, protocol, "the protocol did not come back");
+        });
+    }
+
+    /// Takes a device's own report of its native group as what is so: a group made in its
+    /// vendor's app is shown as it is, and one left there is left here too.
+    fn reconcile_native(&self, id: &str) {
+        let recently = self
+            .inner
+            .settling
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|at| at.elapsed() < SETTLING);
+        if recently {
+            return;
+        }
+        let Ok(device) = self.device(id) else {
+            return;
+        };
+        let Some(native) = device
+            .members
+            .iter()
+            .find(|m| m.state.capabilities.native_group.is_some())
+        else {
+            return;
+        };
+        let reported = native
+            .state
+            .native_leader
+            .as_deref()
+            .and_then(|endpoint| self.inner.devices.device_of(endpoint))
+            .map(|d| d.id);
+        let Ok(entry) = self.entry(id) else {
+            return;
+        };
+        match (reported, entry.synced_to) {
+            (Some(leader), current) if current.as_deref() != Some(leader.as_str()) => {
+                if self.entry(&leader).is_err() {
+                    return;
+                }
+                tracing::info!(
+                    device = id,
+                    leader,
+                    "following a leader it was grouped with elsewhere"
+                );
+                if let Some(current) = current {
+                    self.unlink(id, &current);
+                }
+                self.link(id, &leader);
+                self.changed(&leader);
+            }
+            (None, Some(leader)) => {
+                let leader_native = self.device(&leader).is_ok_and(|d| {
+                    d.members
+                        .iter()
+                        .any(|m| m.state.capabilities.native_group.is_some())
+                });
+                let playing_natively = self
+                    .entry(&leader)
+                    .ok()
+                    .and_then(|e| e.plan)
+                    .is_none_or(|plan| plan.carrier(id).is_none_or(|c| c.native));
+                if leader_native && playing_natively {
+                    tracing::info!(device = id, leader, "no longer following, as it says");
+                    self.unlink(id, &leader);
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn volume_set(&self, player: &str, volume: u8) -> Result<()> {
@@ -1245,6 +1481,7 @@ impl Playback {
                 members.push(other.id.clone());
                 self.plan_among(&leader, &members, current, devices)
                     .is_ok_and(|plan| plan.carrier(&other.id).is_some())
+                    || self.withdrawn_for(&other.id, &leader).is_some()
             })
             .map(|other| other.id.clone())
             .collect()

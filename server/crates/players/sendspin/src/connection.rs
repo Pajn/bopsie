@@ -156,6 +156,7 @@ impl Endpoint for SendspinEndpoint {
                 mute: commands.iter().any(|c| c == "mute"),
                 pairing: Pairing::None,
                 native_group: None,
+                withdrawn: Vec::new(),
             },
             quirks: Default::default(),
             native_leader: None,

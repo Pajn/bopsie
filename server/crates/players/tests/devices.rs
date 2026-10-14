@@ -44,6 +44,7 @@ impl Fake {
                     mute: true,
                     pairing: Default::default(),
                     native_group: None,
+                    withdrawn: Vec::new(),
                 },
                 quirks: Default::default(),
                 native_leader: None,

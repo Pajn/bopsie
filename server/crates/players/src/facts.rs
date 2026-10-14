@@ -38,6 +38,9 @@ pub struct Capabilities {
     pub pairing: Pairing,
     /// The vendor multiroom it can group by, where the devices themselves carry the audio.
     pub native_group: Option<NativeGroup>,
+    /// Protocols the device has but withdraws while it follows another natively, as a LinkPlay
+    /// follower withdraws AirPlay: they come back when it leaves the group.
+    pub withdrawn: Vec<&'static str>,
 }
 
 /// A vendor's own multiroom: devices group with others of the same family and version.
