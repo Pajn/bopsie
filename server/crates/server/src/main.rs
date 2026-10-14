@@ -17,7 +17,8 @@ use bopsie_core::db::Database;
 use bopsie_core::events::EventBus;
 use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
-use bopsie_players::Players;
+use bopsie_players::planner::Policy;
+use bopsie_players::{Devices, Players};
 use bopsie_players_airplay::{AirplayProvider, Config as AirplayConfig};
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
@@ -61,6 +62,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         &[
             bopsie_library::MIGRATIONS,
             bopsie_players_airplay::MIGRATIONS,
+            bopsie_players::devices::MIGRATIONS,
         ],
     ]
     .concat();
@@ -85,12 +87,16 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         None => tracing::info!("ffmpeg not found; MP4 audio plays without gapless trimming"),
     }
     let players = Players::new(config.players.clone());
+    let devices = Devices::new(players.clone(), db.clone()).await?;
     let playback = Playback::start(
-        players.clone(),
+        devices,
         events.clone(),
         PlaybackConfig {
             ffmpeg,
             base_url: config.server.base_url.clone(),
+            policy: Policy {
+                protocols: config.planner.protocols.clone(),
+            },
         },
     );
     let airplay = start_airplay(&config, players.clone(), db.clone()).await;

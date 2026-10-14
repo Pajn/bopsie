@@ -1,29 +1,32 @@
-//! Playback across players: one queue per player, sync groups that a leader's queue plays to,
+//! Playback across devices: one queue per device, sync groups that a leader's queue plays to,
 //! and what the API reports of both.
 //!
-//! A leader's queue session runs one engine, in the leader's format, with a sink for the
-//! leader and for every member; a member that joins while it plays is given what is still to
-//! play. Whatever a session reports is passed on as Music Assistant's events, and to the
-//! players themselves as group state and what is playing.
+//! A leader's queue session runs one engine, as the group planner says: over one protocol, in
+//! one format, with a sink for each device it carries, through the endpoint it chose. A device
+//! that joins while the group plays is given what is still to play; one the plan cannot carry
+//! is refused, with the planner's reason. Whatever a session reports is passed on as Music
+//! Assistant's events, and to the devices themselves as group state and what is playing.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{Realtime, Settings};
-use bopsie_audio::timeline::Timeline;
-use bopsie_audio::{OutputFormat, PcmFormat};
+use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
 use bopsie_core::events::{Event, EventBus, EventType};
 use bopsie_core::media::Track;
 use bopsie_core::{Error, ErrorCode, Result};
-use bopsie_players::{Change, Endpoint, NowPlaying, Players};
+use bopsie_players::devices::PROTOCOLS;
+use bopsie_players::planner::{self, Plan, Policy, Strategy};
+use bopsie_players::{Change, Device, Devices, Member, NowPlaying};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde_json::{Value, json};
 
-use crate::model::{self, Grouping, PlayerPlayback};
+use crate::model::{self, Grouping, PlayerPlayback, PlayerView};
 use crate::session::{Notice, QueueSession};
 use crate::state::{Effect, PlaybackState, Queue, QueueError, QueueOption, RepeatMode};
 
@@ -35,22 +38,28 @@ pub struct Config {
     pub ffmpeg: Option<PathBuf>,
     /// Where clients reach the server, for artwork URLs sent to players.
     pub base_url: Option<String>,
+    /// What the group planner may choose from.
+    pub policy: Policy,
 }
 
 #[derive(Clone)]
 struct Entry {
     session: QueueSession,
-    /// The leader this player follows.
+    /// The leader this device follows.
     synced_to: Option<String>,
-    /// The players following this one, in the order they joined.
+    /// The devices following this one, in the order they joined.
     members: Vec<String>,
+    /// How the leader's engine plays, while it has one.
+    plan: Option<Plan>,
 }
 
 struct Inner {
-    players: Players,
+    devices: Devices,
     events: EventBus,
     config: Config,
     entries: Mutex<BTreeMap<String, Entry>>,
+    /// Whether each device could play when last seen, to tell when one comes back.
+    available: Mutex<BTreeMap<String, bool>>,
     rng: Mutex<StdRng>,
 }
 
@@ -92,21 +101,31 @@ fn queue_error(error: QueueError) -> Error {
     Error::invalid_data(error.to_string())
 }
 
+/// Plays on from `position`, as a group whose plan changed does.
+fn resume_at(position: Duration) -> impl FnOnce(&mut Queue, &mut StdRng) -> ((), Effect) {
+    move |q, _| {
+        q.state = PlaybackState::Idle;
+        q.resume_position = position;
+        ((), q.play())
+    }
+}
+
 impl Playback {
-    /// Follows `players`, giving each a queue. Needs a Tokio runtime.
-    pub fn start(players: Players, events: EventBus, config: Config) -> Self {
+    /// Follows `devices`, giving each a queue. Needs a Tokio runtime.
+    pub fn start(devices: Devices, events: EventBus, config: Config) -> Self {
         let playback = Self {
             inner: Arc::new(Inner {
-                players: players.clone(),
+                devices: devices.clone(),
                 events,
                 config,
                 entries: Mutex::default(),
+                available: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
             }),
         };
-        let mut changes = players.subscribe();
-        for endpoint in players.all() {
-            playback.add_player(endpoint.id());
+        let mut changes = devices.subscribe();
+        for device in devices.all() {
+            playback.add_player(&device.id);
         }
         let watcher = playback.clone();
         tokio::spawn(async move {
@@ -114,8 +133,7 @@ impl Playback {
                 match changes.recv().await {
                     Ok(Change::Added(id)) => watcher.add_player(&id),
                     Ok(Change::Updated(id)) => watcher.player_changed(&id),
-                    // Endpoints stay registered once added.
-                    Ok(Change::Removed(_)) => {}
+                    Ok(Change::Removed(id)) => watcher.remove_player(&id),
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
@@ -142,8 +160,27 @@ impl Playback {
             .ok_or_else(|| not_found(id))
     }
 
-    fn endpoint(&self, id: &str) -> Result<Arc<dyn Endpoint>> {
-        self.inner.players.get(id).ok_or_else(|| not_found(id))
+    fn device(&self, id: &str) -> Result<Device> {
+        self.inner.devices.get(id).ok_or_else(|| not_found(id))
+    }
+
+    /// The device's endpoint in use: the one its group's plan plays through, else the one it
+    /// is shown as.
+    fn active(&self, id: &str) -> Result<(Device, Member)> {
+        self.active_among(id, &self.inner.devices.all())
+    }
+
+    /// As [`Playback::active`], among `devices`.
+    fn active_among(&self, id: &str, devices: &[Device]) -> Result<(Device, Member)> {
+        let device = find(devices, id).ok_or_else(|| not_found(id))?.clone();
+        let carrier = self
+            .leader_of(id)
+            .and_then(|leader| self.entry(&leader).ok()?.plan)
+            .and_then(|plan| plan.carrier(id).map(|c| c.endpoint.clone()));
+        let member = carrier
+            .and_then(|endpoint| device.member(&endpoint).cloned())
+            .unwrap_or_else(|| device.primary().clone());
+        Ok((device, member))
     }
 
     fn add_player(&self, id: &str) {
@@ -161,10 +198,17 @@ impl Playback {
                     session: session.clone(),
                     synced_to: None,
                     members: Vec::new(),
+                    plan: None,
                 },
             );
             session
         };
+        let available = self.device(id).is_ok_and(|d| d.available());
+        self.inner
+            .available
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), available);
         let mut notices = session.notices();
         let follower = self.clone();
         let queue_id = id.to_owned();
@@ -178,19 +222,50 @@ impl Playback {
     }
 
     fn player_changed(&self, id: &str) {
-        // A player that reconnects gets a new sink in the group it plays in.
-        if let (Ok(endpoint), Some(leader)) = (self.endpoint(id), self.leader_of(id))
-            && endpoint.state().available
-            && let Ok(entry) = self.entry(&leader)
-            && let Some((format, Some(timeline))) = entry.session.engine()
-            && let Some(output) = member_format(&endpoint, format)
-        {
-            entry
-                .session
-                .add_sink(id.to_owned(), endpoint.output(output, timeline));
+        let available = self.device(id).is_ok_and(|d| d.available());
+        let was = self
+            .inner
+            .available
+            .lock()
+            .unwrap()
+            .insert(id.to_owned(), available);
+        // A device that comes back gets a new sink in the group it plays in.
+        if available && was == Some(false) {
+            self.reconnect(id);
         }
         self.publish(EventType::PlayerUpdated, id, self.player(id, None));
         self.publish(EventType::QueueUpdated, id, self.queue(id));
+    }
+
+    fn reconnect(&self, id: &str) {
+        let Some(leader) = self.leader_of(id) else {
+            return;
+        };
+        let Ok(entry) = self.entry(&leader) else {
+            return;
+        };
+        if let (Some(plan), Some((_, Some(timeline)))) = (&entry.plan, entry.session.engine())
+            && let Some(carrier) = plan.carrier(id)
+            && let Ok(device) = self.device(id)
+            && let Some(member) = device.member(&carrier.endpoint)
+        {
+            entry.session.add_sink(
+                id.to_owned(),
+                member.endpoint.output(carrier.format, timeline),
+            );
+        }
+    }
+
+    /// A device that turned out to be part of another: its queue and group go.
+    fn remove_player(&self, id: &str) {
+        let _ = self.ungroup(id);
+        let removed = self.inner.entries.lock().unwrap().remove(id);
+        if let Some(entry) = removed {
+            entry.session.stop();
+            entry.session.shutdown();
+        }
+        self.inner.available.lock().unwrap().remove(id);
+        self.publish(EventType::PlayerRemoved, id, Some(json!(id)));
     }
 
     fn publish(&self, event: EventType, id: &str, data: Option<Value>) {
@@ -233,9 +308,9 @@ impl Playback {
             Notice::Started(_) | Notice::Seeked => self.announce(queue_id),
             Notice::Finished | Notice::Stopped => {
                 for id in self.group_of(queue_id) {
-                    if let Ok(endpoint) = self.endpoint(&id) {
-                        endpoint.set_group(false, queue_id);
-                        endpoint.set_now_playing(None);
+                    if let Ok((_, member)) = self.active(&id) {
+                        member.endpoint.set_group(false, queue_id);
+                        member.endpoint.set_now_playing(None);
                     }
                 }
             }
@@ -254,7 +329,7 @@ impl Playback {
         self.changed(queue_id);
     }
 
-    /// Tells the group's players what is playing.
+    /// Tells the group's devices what is playing.
     fn announce(&self, queue_id: &str) {
         let Ok(entry) = self.entry(queue_id) else {
             return;
@@ -270,9 +345,11 @@ impl Playback {
             self.inner.config.base_url.as_deref(),
         );
         for id in self.group_of(queue_id) {
-            if let Ok(endpoint) = self.endpoint(&id) {
-                endpoint.set_group(queue.state == PlaybackState::Playing, queue_id);
-                endpoint.set_now_playing(Some(&now_playing));
+            if let Ok((_, member)) = self.active(&id) {
+                member
+                    .endpoint
+                    .set_group(queue.state == PlaybackState::Playing, queue_id);
+                member.endpoint.set_now_playing(Some(&now_playing));
             }
         }
     }
@@ -298,59 +375,84 @@ impl Playback {
         }
     }
 
-    /// Starts the leader's engine if it has none, in the leader's format, with a sink for
-    /// every member.
+    /// How `leader` and `members` would play together, preferring `current`'s strategy.
+    fn plan_for(
+        &self,
+        leader: &str,
+        members: &[String],
+        current: Option<Strategy>,
+    ) -> Result<Plan> {
+        self.plan_among(leader, members, current, &self.inner.devices.all())
+    }
+
+    /// As [`Playback::plan_for`], among `devices`.
+    fn plan_among(
+        &self,
+        leader: &str,
+        members: &[String],
+        current: Option<Strategy>,
+        devices: &[Device],
+    ) -> Result<Plan> {
+        let leading = find(devices, leader).ok_or_else(|| not_found(leader))?;
+        let members: Vec<Device> = members
+            .iter()
+            .filter_map(|id| find(devices, id).cloned())
+            .collect();
+        planner::plan(leading, &members, &self.inner.config.policy, current).ok_or_else(unavailable)
+    }
+
+    /// Plans the leader's group afresh and starts an engine for it, unless one already plays
+    /// that plan.
     fn ensure_engine(&self, leader: &str) -> Result<()> {
         let entry = self.entry(leader)?;
-        let endpoint = self.endpoint(leader)?;
-        let state = endpoint.state();
-        if !state.available {
-            return Err(unavailable());
-        }
-        let output = *state.capabilities.formats.first().ok_or_else(unavailable)?;
-        let format = PcmFormat {
-            sample_rate: output.sample_rate,
-            channels: output.channels,
-        };
-        if entry
-            .session
-            .engine()
-            .is_some_and(|(running, _)| running == format)
-        {
+        let plan = self.plan_for(leader, &entry.members, None)?;
+        if entry.session.engine().is_some() && entry.plan.as_ref() == Some(&plan) {
             return Ok(());
         }
-        let members: Vec<Arc<dyn Endpoint>> = entry
-            .members
-            .iter()
-            .filter_map(|id| self.endpoint(id).ok())
-            .filter(|member| member.state().available)
-            .collect();
-        let lead = members
-            .iter()
-            .map(|m| m.state().capabilities.lead)
-            .fold(state.capabilities.lead, i64::max);
-        let timeline = Timeline::new(format.sample_rate, clock::now());
-        let mut sinks = vec![(leader.to_owned(), endpoint.output(output, timeline))];
-        for member in &members {
-            if let Some(member_output) = member_format(member, format) {
-                sinks.push((
-                    member.id().to_owned(),
-                    member.output(member_output, timeline),
-                ));
-            }
+        for dropped in &plan.dropped {
+            tracing::info!(
+                queue = leader,
+                device = dropped.device,
+                reason = %dropped.reason,
+                "the group plays without a member"
+            );
         }
+        let format = PcmFormat {
+            sample_rate: plan.sample_rate,
+            channels: plan.channels,
+        };
+        let timeline = Timeline::new(format.sample_rate, clock::now());
+        let sinks = plan
+            .carriers
+            .iter()
+            .filter_map(|carrier| {
+                let device = self.inner.devices.get(&carrier.device)?;
+                let member = device.member(&carrier.endpoint)?;
+                Some((
+                    carrier.device.clone(),
+                    member.endpoint.output(carrier.format, timeline),
+                ))
+            })
+            .collect();
         let settings = Settings {
             format,
             ffmpeg: self.inner.config.ffmpeg.clone(),
             ring_frames: format.sample_rate as usize * RING_SECONDS,
             realtime: Some(Realtime {
                 timeline,
-                lead,
+                lead: plan.lead,
                 clock: clock::now,
             }),
         };
         entry.session.attach(settings, sinks);
+        self.set_plan(leader, Some(plan));
         Ok(())
+    }
+
+    fn set_plan(&self, leader: &str, plan: Option<Plan>) {
+        if let Some(entry) = self.inner.entries.lock().unwrap().get_mut(leader) {
+            entry.plan = plan;
+        }
     }
 
     /// Runs `f` on the queue `queue_id` plays from, then announces the change.
@@ -369,7 +471,7 @@ impl Playback {
     }
 
     /// Runs `f`, which may start playback, on the queue `queue_id` plays from. The queue
-    /// changes at once; the group's players get ready and playback starts in the background,
+    /// changes at once; the group's devices get ready and playback starts in the background,
     /// as with Music Assistant, where a play request returns before the music does. Anything
     /// done to the queue in the meantime, such as a stop, supersedes the start.
     fn begin(
@@ -380,7 +482,7 @@ impl Playback {
         let leader = self
             .leader_of(queue_id)
             .ok_or_else(|| not_found(queue_id))?;
-        if !self.endpoint(&leader)?.state().available {
+        if !self.device(&leader)?.available() {
             return Err(unavailable());
         }
         let session = self.entry(&leader)?.session;
@@ -393,7 +495,10 @@ impl Playback {
         tokio::spawn(async move {
             let not_before = playback.prepare(&leader).await;
             match playback.ensure_engine(&leader) {
-                Ok(()) => session.release(epoch, not_before),
+                Ok(()) => {
+                    session.release(epoch, not_before);
+                    playback.changed(&leader);
+                }
                 Err(error) => {
                     tracing::warn!(queue = leader, %error, "cannot start playback");
                     session.abandon(epoch);
@@ -404,17 +509,18 @@ impl Playback {
         Ok(())
     }
 
-    /// Gets every player in the group ready, together, and returns when the slowest can
-    /// start, if any needs longer than its lead.
-    async fn prepare(&self, leader: &str) -> Option<bopsie_audio::timeline::Micros> {
-        let endpoints: Vec<Arc<dyn Endpoint>> = self
-            .group_of(leader)
+    /// Gets every endpoint the group would play through ready, together, and returns when the
+    /// slowest can start, if any needs longer than its lead.
+    async fn prepare(&self, leader: &str) -> Option<Micros> {
+        let members = self.entry(leader).ok()?.members;
+        let plan = self.plan_for(leader, &members, None).ok()?;
+        let preparing: Vec<_> = plan
+            .carriers
             .iter()
-            .filter_map(|id| self.endpoint(id).ok())
-            .filter(|endpoint| endpoint.state().available)
-            .collect();
-        let preparing: Vec<_> = endpoints
-            .into_iter()
+            .filter_map(|carrier| {
+                let device = self.inner.devices.get(&carrier.device)?;
+                Some(device.member(&carrier.endpoint)?.endpoint.clone())
+            })
             .map(|endpoint| tokio::task::spawn_blocking(move || endpoint.prepare()))
             .collect();
         let mut latest = None;
@@ -523,7 +629,7 @@ impl Playback {
         .map_err(queue_error)
     }
 
-    /// Moves a queue, its position and its settings to another player, which plays on if the
+    /// Moves a queue, its position and its settings to another device, which plays on if the
     /// source was playing. The source is left empty.
     pub fn transfer(&self, source: &str, target: &str) -> Result<()> {
         if self.entry(target)?.synced_to.is_some() {
@@ -549,13 +655,30 @@ impl Playback {
         }
     }
 
-    /// Adds `player` to the group `target` plays in. The player stops what it was playing.
+    /// Adds `player` to the group `target` plays in, if the group's plan can carry it; else
+    /// fails with the planner's reason. The player stops what it was playing. A join the
+    /// group's protocol or format cannot take on changes them, and the group plays on from
+    /// where it was.
     pub fn group(&self, player: &str, target: &str) -> Result<()> {
         let leader = self.leader_of(target).ok_or_else(|| not_found(target))?;
         if leader == player {
             return Ok(());
         }
-        let endpoint = self.endpoint(player)?;
+        self.device(player)?;
+        let leading = self.entry(&leader)?;
+        let mut members = leading.members.clone();
+        members.retain(|m| m != player);
+        members.push(player.to_owned());
+        let running = leading.plan.clone();
+        let plan = self.plan_for(&leader, &members, running.as_ref().map(|p| p.strategy))?;
+        if let Some(dropped) = plan.dropped.iter().find(|d| d.device == player) {
+            let leader_name = self.device(&leader)?.name;
+            return Err(Error::new(
+                ErrorCode::UnsupportedFeature,
+                dropped.message(&leader_name),
+            ));
+        }
+
         if self.entry(player)?.synced_to.is_some() {
             self.ungroup(player)?;
         }
@@ -574,15 +697,33 @@ impl Playback {
                 entry.members.push(player.to_owned());
             }
         }
-        let leading = self.entry(&leader)?;
-        if let Some((format, Some(timeline))) = leading.session.engine()
-            && let Some(output) = member_format(&endpoint, format)
-        {
-            leading
-                .session
-                .add_sink(player.to_owned(), endpoint.output(output, timeline));
+        let playing = leading.session.snapshot().state == PlaybackState::Playing;
+        if let (Some(running), Some((_, Some(timeline)))) = (&running, leading.session.engine()) {
+            let same_stream = running.strategy == plan.strategy
+                && running.sample_rate == plan.sample_rate
+                && running.channels == plan.channels;
+            if same_stream {
+                if let Some(carrier) = plan.carrier(player)
+                    && let Some(member) = self.device(player)?.member(&carrier.endpoint)
+                {
+                    leading.session.add_sink(
+                        player.to_owned(),
+                        member.endpoint.output(carrier.format, timeline),
+                    );
+                }
+                self.set_plan(&leader, Some(plan));
+            } else if playing {
+                tracing::info!(
+                    queue = leader,
+                    from = ?running.strategy,
+                    to = ?plan.strategy,
+                    "the group changes how it plays for a member that joins"
+                );
+                let position = leading.session.position(clock::now());
+                self.begin(&leader, resume_at(position))?;
+            }
         }
-        if leading.session.snapshot().state == PlaybackState::Playing {
+        if playing {
             self.announce(&leader);
         }
         self.changed(&leader);
@@ -590,21 +731,25 @@ impl Playback {
     }
 
     /// Takes `player` out of its group. A leader hands its queue, and its followers, to the
-    /// first of them.
+    /// first of them. The group keeps how it plays until it next starts.
     pub fn ungroup(&self, player: &str) -> Result<()> {
         let entry = self.entry(player)?;
         if let Some(leader) = entry.synced_to {
+            let endpoint = self.active(player).ok().map(|(_, member)| member.endpoint);
             {
                 let mut entries = self.inner.entries.lock().unwrap();
                 if let Some(leading) = entries.get_mut(&leader) {
                     leading.members.retain(|m| m != player);
+                    if let Some(plan) = &mut leading.plan {
+                        plan.carriers.retain(|c| c.device != player);
+                    }
                 }
                 if let Some(own) = entries.get_mut(player) {
                     own.synced_to = None;
                 }
             }
             self.entry(&leader)?.session.remove_sink(player);
-            if let Ok(endpoint) = self.endpoint(player) {
+            if let Some(endpoint) = endpoint {
                 endpoint.set_group(false, player);
                 endpoint.set_now_playing(None);
             }
@@ -627,12 +772,12 @@ impl Playback {
     }
 
     pub fn volume_set(&self, player: &str, volume: u8) -> Result<()> {
-        self.endpoint(player)?.set_volume(volume.min(100));
+        self.active(player)?.1.endpoint.set_volume(volume.min(100));
         Ok(())
     }
 
     pub fn volume_mute(&self, player: &str, muted: bool) -> Result<()> {
-        self.endpoint(player)?.set_muted(muted);
+        self.active(player)?.1.endpoint.set_muted(muted);
         Ok(())
     }
 
@@ -640,25 +785,25 @@ impl Playback {
     /// `volume`.
     pub fn group_volume(&self, player: &str, volume: u8) -> Result<()> {
         let leader = self.leader_of(player).ok_or_else(|| not_found(player))?;
-        let members: Vec<Arc<dyn Endpoint>> = self
+        let members: Vec<Member> = self
             .group_of(&leader)
             .iter()
-            .filter_map(|id| self.endpoint(id).ok())
+            .filter_map(|id| Some(self.active(id).ok()?.1))
             .collect();
         let loudest = members
             .iter()
-            .filter_map(|m| m.state().volume)
+            .filter_map(|m| m.state.volume)
             .max()
             .unwrap_or(0);
         for member in members {
-            let current = member.state().volume.unwrap_or(loudest);
+            let current = member.state.volume.unwrap_or(loudest);
             let scaled = if loudest == 0 {
                 volume
             } else {
                 ((f64::from(current) * f64::from(volume) / f64::from(loudest)).round() as u8)
                     .min(100)
             };
-            member.set_volume(scaled);
+            member.endpoint.set_volume(scaled);
         }
         Ok(())
     }
@@ -670,12 +815,12 @@ impl Playback {
 
     pub fn queue(&self, queue_id: &str) -> Option<Value> {
         let entry = self.entry(queue_id).ok()?;
-        let state = self.endpoint(queue_id).ok()?.state();
+        let device = self.device(queue_id).ok()?;
         let queue = entry.session.snapshot();
         Some(model::queue(
             queue_id,
-            &state.name,
-            state.available,
+            &device.name,
+            device.available(),
             &queue,
             entry.session.position(clock::now()),
         ))
@@ -697,17 +842,50 @@ impl Playback {
 
     /// Whether `token_id` connected the app player `player`.
     pub fn owned_by(&self, player: &str, token_id: &str) -> bool {
-        self.inner
-            .players
-            .get(player)
-            .and_then(|endpoint| endpoint.state().owner_token)
-            .is_some_and(|owner| owner == token_id)
+        self.inner.devices.get(player).is_some_and(|device| {
+            device
+                .members
+                .iter()
+                .any(|m| m.state.owner_token.as_deref() == Some(token_id))
+        })
+    }
+
+    /// The devices that could join `id`'s group as it is: those its plan would carry.
+    fn can_group_with(&self, id: &str, devices: &[Device]) -> Vec<String> {
+        let Some(leader) = self.leader_of(id) else {
+            return Vec::new();
+        };
+        let Ok(entry) = self.entry(&leader) else {
+            return Vec::new();
+        };
+        let current = entry.plan.as_ref().map(|p| p.strategy);
+        devices
+            .iter()
+            .filter(|other| other.id != id && other.id != leader && other.available())
+            .filter(|other| {
+                let mut members = entry.members.clone();
+                members.retain(|m| *m != other.id);
+                members.push(other.id.clone());
+                self.plan_among(&leader, &members, current, devices)
+                    .is_ok_and(|plan| plan.carrier(&other.id).is_some())
+            })
+            .map(|other| other.id.clone())
+            .collect()
     }
 
     /// The player as the holder of `viewer_token` sees it.
     pub fn player(&self, id: &str, viewer_token: Option<&str>) -> Option<Value> {
-        let endpoint = self.endpoint(id).ok()?;
-        let state = endpoint.state();
+        let devices = self.inner.devices.all();
+        self.player_among(id, viewer_token, &devices)
+    }
+
+    fn player_among(
+        &self,
+        id: &str,
+        viewer_token: Option<&str>,
+        devices: &[Device],
+    ) -> Option<Value> {
+        let (device, member) = self.active_among(id, devices).ok()?;
         let entry = self.entry(id).ok()?;
         let leader = entry.synced_to.clone().unwrap_or_else(|| id.to_owned());
         let leading = self.entry(&leader).ok()?;
@@ -717,28 +895,36 @@ impl Playback {
             .then(|| {
                 self.group_of(id)
                     .iter()
-                    .filter_map(|m| self.endpoint(m).ok()?.state().volume)
+                    .filter_map(|m| self.active_among(m, devices).ok()?.1.state.volume)
                     .max()
             })
             .flatten();
-        let can_group_with = self
-            .inner
-            .players
-            .all()
-            .iter()
-            .filter(|other| other.id() != id && other.state().available)
-            .map(|other| other.id().to_owned())
-            .collect();
         let viewer_owns =
-            viewer_token.is_some_and(|token| state.owner_token.as_deref() == Some(token));
-        Some(model::player(
+            viewer_token.is_some_and(|token| member.state.owner_token.as_deref() == Some(token));
+        let health = self.inner.devices.players().health(&member.id);
+        let playing_through = leading
+            .plan
+            .as_ref()
+            .and_then(|plan| plan.carrier(id))
+            .map(|c| c.endpoint.as_str());
+        let view = PlayerView {
             id,
-            &state,
-            &self.inner.players.health(id),
+            name: &device.name,
+            kind: "player",
+            enabled: device.enabled,
+            available: device.available(),
+            endpoint: &member.state,
+            health: &health,
+            features: features(&device, &member),
+            output_protocols: output_protocols(&device),
+            active_output_protocol: playing_through,
+        };
+        Some(model::player(
+            &view,
             &Grouping {
                 synced_to: entry.synced_to.as_deref(),
                 members: &entry.members,
-                can_group_with,
+                can_group_with: self.can_group_with(id, devices),
                 group_volume,
             },
             &PlayerPlayback {
@@ -752,25 +938,102 @@ impl Playback {
         ))
     }
 
-    pub fn players(&self, viewer_token: Option<&str>) -> Vec<Value> {
-        self.inner
-            .players
-            .all()
+    /// One endpoint of a device that has several, on its own.
+    fn protocol_player(&self, device: &Device, member: &Member) -> Value {
+        let health = self.inner.devices.players().health(&member.id);
+        let view = PlayerView {
+            id: &member.id,
+            name: &member.state.name,
+            kind: "protocol",
+            enabled: device.enabled,
+            available: member.state.available,
+            endpoint: &member.state,
+            health: &health,
+            features: features(device, member),
+            output_protocols: Vec::new(),
+            active_output_protocol: None,
+        };
+        model::player(
+            &view,
+            &Grouping {
+                synced_to: None,
+                members: &[],
+                can_group_with: Vec::new(),
+                group_volume: None,
+            },
+            &PlayerPlayback {
+                state: PlaybackState::Idle,
+                queue_id: &device.id,
+                current: None,
+                elapsed: Duration::ZERO,
+            },
+            false,
+            self.inner.config.base_url.as_deref(),
+        )
+    }
+
+    /// Every device as a player. With `protocols`, also the endpoints of devices reached over
+    /// more than one, each on its own, as Music Assistant's `return_protocol_players` gives.
+    pub fn players(&self, viewer_token: Option<&str>, protocols: bool) -> Vec<Value> {
+        let devices = self.inner.devices.all();
+        let mut players: Vec<Value> = devices
             .iter()
-            .filter_map(|endpoint| self.player(endpoint.id(), viewer_token))
-            .collect()
+            .filter_map(|device| self.player_among(&device.id, viewer_token, &devices))
+            .collect();
+        if protocols {
+            for device in devices.iter().filter(|d| d.members.len() > 1) {
+                for member in device.members.iter().filter(|m| m.id != device.id) {
+                    players.push(self.protocol_player(device, member));
+                }
+            }
+        }
+        players
     }
 }
 
-/// The member's format for a session in `format`: the same rate and channels, at the bit
-/// depth it prefers.
-fn member_format(member: &Arc<dyn Endpoint>, format: PcmFormat) -> Option<OutputFormat> {
-    member
-        .state()
-        .capabilities
-        .formats
-        .into_iter()
-        .find(|f| f.sample_rate == format.sample_rate && f.channels == format.channels)
+fn find<'a>(devices: &'a [Device], id: &str) -> Option<&'a Device> {
+    devices.iter().find(|device| device.id == id)
+}
+
+/// What a device supports, through the endpoint in use.
+fn features(device: &Device, member: &Member) -> Vec<&'static str> {
+    let capabilities = &member.state.capabilities;
+    let mut features = vec!["play_media"];
+    if capabilities.mute {
+        features.push("volume_mute");
+    }
+    if device
+        .members
+        .iter()
+        .any(|m| m.state.capabilities.sync_group)
+    {
+        features.push("set_members");
+    }
+    if capabilities.volume {
+        features.push("volume_set");
+    }
+    features
+}
+
+/// A device's endpoints, when it has more than one.
+fn output_protocols(device: &Device) -> Vec<Value> {
+    if device.members.len() < 2 {
+        return Vec::new();
+    }
+    device
+        .members
+        .iter()
+        .map(|member| {
+            let protocol = member.state.provider;
+            json!({
+                "output_protocol_id": member.id,
+                "name": member.state.name,
+                "protocol_domain": protocol,
+                "priority": PROTOCOLS.iter().position(|p| *p == protocol),
+                "available": member.state.available,
+            })
+        })
+        .collect()
 }
 
 fn now_playing(

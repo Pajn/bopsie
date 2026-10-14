@@ -11,6 +11,15 @@ use serde_json::{Value, json};
 
 use crate::state::{PlaybackState, Queue, QueueItem, RepeatMode};
 
+/// `aabbcc001122` as `AA:BB:CC:00:11:22`.
+fn mac_address(hex: &str) -> String {
+    hex.as_bytes()
+        .chunks(2)
+        .map(|pair| String::from_utf8_lossy(pair).to_uppercase())
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
 /// Unix seconds now, as Music Assistant stamps elapsed times.
 pub fn unix_now() -> f64 {
     SystemTime::now()
@@ -144,17 +153,35 @@ pub struct Grouping<'a> {
     pub group_volume: Option<u8>,
 }
 
+/// What a player is: a device, as its endpoint in use describes it, or with
+/// `return_protocol_players` one of a device's endpoints on its own.
+pub struct PlayerView<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    /// `player`, or `protocol` for one endpoint of a device.
+    pub kind: &'static str,
+    pub enabled: bool,
+    pub available: bool,
+    pub endpoint: &'a EndpointState,
+    pub health: &'a Health,
+    pub features: Vec<&'static str>,
+    /// The device's endpoints, when it has more than one.
+    pub output_protocols: Vec<Value>,
+    /// The endpoint playing for the device, when it is.
+    pub active_output_protocol: Option<&'a str>,
+}
+
 pub fn player(
-    id: &str,
-    endpoint: &EndpointState,
-    health: &Health,
+    view: &PlayerView<'_>,
     grouping: &Grouping<'_>,
     playback: &PlayerPlayback<'_>,
     viewer_owns: bool,
     base_url: Option<&str>,
 ) -> Value {
+    let (id, endpoint) = (view.id, view.endpoint);
     // An app's player belongs to the user who connected it; to everyone else it is hidden.
-    let hidden = endpoint.app && !viewer_owns;
+    // A device's endpoints on their own are shown only to those who ask for them.
+    let hidden = (endpoint.app && !viewer_owns) || view.kind == "protocol";
     let group_members: Vec<&str> = if grouping.members.is_empty() {
         Vec::new()
     } else {
@@ -185,9 +212,9 @@ pub fn player(
     json!({
         "player_id": id,
         "provider": endpoint.provider,
-        "type": "player",
-        "name": endpoint.name,
-        "available": endpoint.available,
+        "type": view.kind,
+        "name": view.name,
+        "available": view.available,
         "device_info": {
             "model": endpoint.device.model,
             "manufacturer": endpoint.device.manufacturer,
@@ -195,10 +222,10 @@ pub fn player(
             "model_id": null,
             "manufacturer_id": null,
             "identifiers": {},
-            "mac_address": null,
-            "ip_address": null,
+            "mac_address": endpoint.facts.mac.as_deref().map(mac_address),
+            "ip_address": endpoint.facts.address.map(|a| a.to_string()),
         },
-        "supported_features": ["play_media", "volume_mute", "set_members", "volume_set"],
+        "supported_features": view.features,
         "playback_state": state,
         "elapsed_time": playback.elapsed.as_secs_f64(),
         "elapsed_time_last_updated": unix_now(),
@@ -216,25 +243,25 @@ pub fn player(
         "source_list": [],
         "active_group": null,
         "current_media": current_media,
-        "enabled": true,
+        "enabled": view.enabled,
         "hide_in_ui": hidden,
         "private": hidden,
         "expose_to_ha": false,
         "icon": if endpoint.app { "smartphone" } else { "speaker" },
         "group_volume": grouping.group_volume.or(endpoint.volume),
         "group_volume_muted": false,
-        "extra_attributes": {"health": health},
+        "extra_attributes": {"health": view.health},
         "power_control": "none",
         "volume_control": "native",
         "mute_control": "native",
-        "output_protocols": [],
-        "active_output_protocol": null,
+        "output_protocols": view.output_protocols,
+        "active_output_protocol": view.active_output_protocol,
         "needs_setup": false,
         "setup_reason": null,
         "has_setup_flow": false,
         "sleep_timer_expires_at": null,
         "active_source_audio": null,
-        "display_name": endpoint.name,
+        "display_name": view.name,
         "state": state,
         "group_childs": group_members,
         "extra_data": {},

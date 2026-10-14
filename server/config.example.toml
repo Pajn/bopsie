@@ -41,6 +41,9 @@ ptp = true
 protocols = ["airplay", "sendspin"]
 
 # Settings for one player, by its player id (players/all lists them). Every key is optional.
+# A speaker reached over more than one protocol is one player whose endpoints have ids of their
+# own (players/all with return_protocol_players lists them): name and enabled apply to the
+# player's id, password and quirks to an endpoint's.
 # [players.apaabbcc001122]
 # name = "Kitchen"          # instead of the name the speaker gives itself
 # enabled = false           # hide it and never play to it

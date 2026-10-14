@@ -12,7 +12,7 @@ use bopsie_core::config::ServerConfig;
 use bopsie_core::db::Database;
 use bopsie_core::events::EventBus;
 use bopsie_library::Library;
-use bopsie_players::Players;
+use bopsie_players::{Devices, Players};
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use futures::{SinkExt, StreamExt};
@@ -28,6 +28,8 @@ pub const PASSWORD: &str = "bopsie-test";
 pub struct Server {
     pub api: Arc<Api>,
     pub addr: SocketAddr,
+    /// Where endpoints register, for tests that add their own.
+    pub players: Players,
     _dir: tempfile::TempDir,
 }
 
@@ -52,11 +54,17 @@ pub async fn start_with(seconds: u32) -> Server {
         dir.path().join("artwork"),
     );
     let players = Players::default();
-    let playback = Playback::start(players.clone(), events.clone(), PlaybackConfig::default());
+    let devices = Devices::new(
+        players.clone(),
+        Database::open_in_memory(&[bopsie_players::devices::MIGRATIONS]).unwrap(),
+    )
+    .await
+    .unwrap();
+    let playback = Playback::start(devices, events.clone(), PlaybackConfig::default());
     let services = Services {
         library,
         events,
-        players,
+        players: players.clone(),
         playback,
         airplay: None,
     };
@@ -69,6 +77,7 @@ pub async fn start_with(seconds: u32) -> Server {
     Server {
         api,
         addr,
+        players,
         _dir: dir,
     }
 }

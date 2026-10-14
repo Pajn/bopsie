@@ -17,9 +17,13 @@ pub struct AllArgs {
     /// Include players that are not reachable.
     #[serde(default)]
     pub return_unavailable: Option<bool>,
-    /// Include players the user disabled. No player here can be disabled.
+    /// Include players the config file disables.
     #[serde(default)]
     pub return_disabled: Option<bool>,
+    /// Also list, each on its own, the endpoints of players reached over more than one
+    /// protocol.
+    #[serde(default)]
+    pub return_protocol_players: Option<bool>,
 }
 
 pub struct All;
@@ -32,12 +36,15 @@ impl Command for All {
 
     async fn handle(ctx: Context, args: AllArgs) -> Result<Vec<Value>> {
         let unavailable = args.return_unavailable.unwrap_or(true);
+        let disabled = args.return_disabled.unwrap_or(false);
+        let protocols = args.return_protocol_players.unwrap_or(false);
         Ok(ctx
             .api
             .playback
-            .players(viewer(&ctx))
+            .players(viewer(&ctx), protocols)
             .into_iter()
             .filter(|player| unavailable || player["available"] == Value::Bool(true))
+            .filter(|player| disabled || player["enabled"] != Value::Bool(false))
             .collect())
     }
 }

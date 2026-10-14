@@ -99,10 +99,16 @@ pub(crate) mod tests {
             .unwrap();
         let events = EventBus::default();
         let players = Players::default();
+        let devices = bopsie_players::Devices::new(
+            players.clone(),
+            Database::open_in_memory(&[bopsie_players::devices::MIGRATIONS]).unwrap(),
+        )
+        .await
+        .unwrap();
         let services = Services {
             library: Library::new(db.clone(), events.clone(), Vec::new(), "artwork".into()),
             playback: bopsie_queues::Playback::start(
-                players.clone(),
+                devices,
                 events.clone(),
                 bopsie_queues::Config::default(),
             ),
