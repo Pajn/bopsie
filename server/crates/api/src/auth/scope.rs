@@ -9,6 +9,8 @@ pub enum Scope {
     QueuesRead,
     QueuesControl,
     UsersManage,
+    /// What the server knows of itself and its players, for the web UI's admin pages.
+    Admin,
 }
 
 impl Scope {
@@ -20,6 +22,7 @@ impl Scope {
             Scope::QueuesRead => "queues.read",
             Scope::QueuesControl => "queues.control",
             Scope::UsersManage => "users.manage",
+            Scope::Admin => "admin",
         }
     }
 }
@@ -32,7 +35,7 @@ pub const USER: &str = "user";
 pub fn allows(role: &str, scope: Scope) -> bool {
     match role {
         ADMIN => true,
-        USER => !matches!(scope, Scope::UsersManage),
+        USER => !matches!(scope, Scope::UsersManage | Scope::Admin),
         _ => false,
     }
 }
@@ -46,6 +49,8 @@ mod tests {
         assert!(allows(ADMIN, Scope::UsersManage));
         assert!(allows(USER, Scope::QueuesControl));
         assert!(!allows(USER, Scope::UsersManage));
+        assert!(allows(ADMIN, Scope::Admin));
+        assert!(!allows(USER, Scope::Admin));
         assert!(!allows("guest", Scope::LibraryRead));
     }
 }

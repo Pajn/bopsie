@@ -17,7 +17,7 @@ pub use web::Web;
 use std::sync::Arc;
 
 use bopsie_core::Result;
-use bopsie_core::config::ServerConfig;
+use bopsie_core::config::Config;
 use bopsie_core::db::{self, Database, Migrations};
 use bopsie_core::events::EventBus;
 use bopsie_library::Library;
@@ -45,6 +45,8 @@ pub struct Services {
     pub linkplay: Option<LinkplayProvider>,
     /// Where the web UI's files come from.
     pub web: Web,
+    /// Whether ffmpeg was found, for the formats only it decodes.
+    pub ffmpeg: bool,
 }
 
 /// Everything a request handler can reach.
@@ -59,8 +61,11 @@ pub struct Api {
     pub sendspin: SendspinServer,
     /// Generated on first start and stable after, so clients can tell servers apart.
     pub server_id: String,
-    pub config: ServerConfig,
+    pub config: Config,
     pub commands: Registry,
+    pub ffmpeg: bool,
+    /// When the server started, in Unix seconds.
+    pub started: u64,
     web: Web,
     thumbnails: imageproxy::Thumbnails,
 }
@@ -68,7 +73,7 @@ pub struct Api {
 impl Api {
     pub async fn new(
         db: Database,
-        config: ServerConfig,
+        config: Config,
         services: Services,
         commands: Registry,
     ) -> Result<Arc<Self>> {
@@ -82,7 +87,7 @@ impl Api {
         let sendspin = SendspinServer {
             players: services.players,
             server_id: server_id.clone(),
-            name: config.name.clone(),
+            name: config.server.name.clone(),
             silence_limit: bopsie_players_sendspin::SILENCE_LIMIT,
         };
         Ok(Arc::new(Self {
@@ -96,6 +101,11 @@ impl Api {
             server_id,
             config,
             commands,
+            ffmpeg: services.ffmpeg,
+            started: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
             web: services.web,
             thumbnails: imageproxy::Thumbnails::default(),
         }))
@@ -129,8 +139,9 @@ pub(crate) mod tests {
             airplay: None,
             linkplay: None,
             web: Web::default(),
+            ffmpeg: false,
         };
-        Api::new(db, ServerConfig::default(), services, Registry::default())
+        Api::new(db, Config::default(), services, Registry::default())
             .await
             .unwrap()
     }

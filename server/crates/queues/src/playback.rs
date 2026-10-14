@@ -60,6 +60,16 @@ pub struct Config {
     pub policy: Policy,
 }
 
+/// A device leading a group, or playing on its own.
+#[derive(Debug, Clone)]
+pub struct Group {
+    pub leader: String,
+    /// The devices following it, in the order they joined.
+    pub members: Vec<String>,
+    /// How it plays, while it has an engine.
+    pub plan: Option<Plan>,
+}
+
 #[derive(Clone)]
 struct Entry {
     session: QueueSession,
@@ -1419,6 +1429,27 @@ impl Playback {
             member.endpoint.set_volume(scaled);
         }
         Ok(())
+    }
+
+    /// Every device, with its endpoints, as playback sees them.
+    pub fn devices(&self) -> Devices {
+        self.inner.devices.clone()
+    }
+
+    /// Each device that leads a group or plays, with its members and how it plays.
+    pub fn groups(&self) -> Vec<Group> {
+        self.inner
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, entry)| !entry.members.is_empty() || entry.plan.is_some())
+            .map(|(leader, entry)| Group {
+                leader: leader.clone(),
+                members: entry.members.clone(),
+                plan: entry.plan.clone(),
+            })
+            .collect()
     }
 
     /// The queue `player` plays from: its leader's.

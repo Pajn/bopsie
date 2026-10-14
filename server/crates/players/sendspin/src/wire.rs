@@ -13,7 +13,7 @@ pub const AUDIO_HEADER_BYTES: usize = 9;
 /// The `product_name`s Music Assistant registers as standalone players with their own queue.
 pub const APP_PRODUCTS: &[&str] = &["Web Browser", "Web Player", "Mobile Application", "PWA"];
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceInfo {
     #[serde(default)]
     pub product_name: Option<String>,
@@ -41,7 +41,7 @@ pub enum Codec {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerSupport {
     /// In order of preference.
     pub supported_formats: Vec<StreamFormat>,
@@ -51,7 +51,7 @@ pub struct PlayerSupport {
     pub supported_commands: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientHello {
     #[serde(default)]
     pub client_id: Option<String>,

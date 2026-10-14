@@ -106,6 +106,23 @@ impl Endpoint for SendspinEndpoint {
         &self.shared.id
     }
 
+    fn diagnostics(&self) -> serde_json::Value {
+        let info = self.shared.info.lock().unwrap();
+        serde_json::json!({
+            "connected": info.connected,
+            "available": info.available,
+            "address": info.address.map(|address| address.to_string()),
+            "static_delay_ms": info.static_delay_ms,
+            "required_lead_time_ms": info.required_lead_time_ms,
+            "min_buffer_ms": info.min_buffer_ms,
+            "lead_ms": info.lead() / 1_000,
+            "buffer_capacity": info.buffer_capacity(),
+            "queued_bytes": self.shared.queued.load(Ordering::SeqCst),
+            "streams": self.shared.generation.load(Ordering::SeqCst),
+            "hello": info.hello,
+        })
+    }
+
     fn state(&self) -> EndpointState {
         let info = self.shared.info.lock().unwrap();
         let formats = info

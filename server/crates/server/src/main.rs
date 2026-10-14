@@ -86,6 +86,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         config.storage.data_dir.join("artwork"),
     );
     let ffmpeg = find_ffmpeg(config.audio.ffmpeg.as_deref());
+    let ffmpeg_found = ffmpeg.is_some();
     match &ffmpeg {
         Some(path) => tracing::info!(path = %path.display(), "using ffmpeg"),
         None => tracing::info!("ffmpeg not found; MP4 audio plays without gapless trimming"),
@@ -114,8 +115,9 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         airplay: airplay.clone(),
         linkplay: linkplay.clone(),
         web: config.web.dir.clone().map_or(Web::Embedded, Web::Dir),
+        ffmpeg: ffmpeg_found,
     };
-    let api = Api::new(db, config.server.clone(), services, commands::registry()).await?;
+    let api = Api::new(db, config.clone(), services, commands::registry()).await?;
 
     // Sendspin clients that connect directly, without a token.
     let sendspin = api.sendspin.clone();

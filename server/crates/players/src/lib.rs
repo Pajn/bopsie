@@ -100,6 +100,11 @@ pub trait Endpoint: Send + Sync {
     fn leave_native(&self) -> Result<(), String> {
         Ok(())
     }
+    /// What the protocol knows of the endpoint beyond its state, for an admin to read when it
+    /// misbehaves. Its shape is the protocol's own.
+    fn diagnostics(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,6 +164,16 @@ impl Players {
             .unwrap()
             .get(id)
             .map(|log| log.health(std::time::Instant::now()))
+            .unwrap_or_default()
+    }
+
+    /// What outputs saw of `id` lately, newest first, each with how long ago.
+    pub fn history(&self, id: &str) -> Vec<(std::time::Duration, health::Event)> {
+        self.logs
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|log| log.history(std::time::Instant::now()))
             .unwrap_or_default()
     }
 

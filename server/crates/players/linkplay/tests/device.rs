@@ -64,6 +64,20 @@ async fn a_device_says_what_it_is() {
     let state = players.get(&follower.id()).unwrap().state();
     assert_eq!(state.native_leader, Some(leader.id()));
     assert_eq!(state.volume, Some(30));
+
+    // What an admin reads of each.
+    let leader_diagnostics = players.get(&leader.id()).unwrap().diagnostics();
+    assert_eq!(leader_diagnostics["address"], "10.0.0.2");
+    assert!(
+        leader_diagnostics["api"].as_str().is_some(),
+        "{leader_diagnostics}"
+    );
+    assert_eq!(leader_diagnostics["player_status"], "getPlayerStatus");
+    assert_eq!(leader_diagnostics["status"]["wmrm_version"], "4.2");
+    assert_eq!(leader_diagnostics["status"]["follower"], false);
+    let follower_diagnostics = players.get(&follower.id()).unwrap().diagnostics();
+    assert_eq!(follower_diagnostics["player_status"], "upnp");
+    assert_eq!(follower_diagnostics["status"]["follower"], true);
     provider.shutdown();
 }
 

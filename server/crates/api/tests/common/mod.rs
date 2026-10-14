@@ -10,7 +10,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use bopsie_api::{Api, MIGRATIONS, Services, Web, commands, router};
-use bopsie_core::config::ServerConfig;
+use bopsie_core::config::Config;
 use bopsie_core::db::Database;
 use bopsie_core::events::EventBus;
 use bopsie_library::Library;
@@ -80,8 +80,9 @@ async fn start_full(seconds: u32, web: Web) -> Server {
         airplay: None,
         linkplay: None,
         web,
+        ffmpeg: false,
     };
-    let api = Api::new(db, ServerConfig::default(), services, commands::registry())
+    let api = Api::new(db, Config::default(), services, commands::registry())
         .await
         .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

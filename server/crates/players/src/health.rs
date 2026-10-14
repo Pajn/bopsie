@@ -125,6 +125,15 @@ impl Log {
         assess(&self.recent, now)
     }
 
+    /// Newest first, each with how long before `now` it happened.
+    pub fn history(&self, now: Instant) -> Vec<(Duration, Event)> {
+        self.recent
+            .iter()
+            .rev()
+            .map(|(at, event)| (now.saturating_duration_since(*at), *event))
+            .collect()
+    }
+
     pub fn health(&self, now: Instant) -> Health {
         Health {
             level: self.level(now),

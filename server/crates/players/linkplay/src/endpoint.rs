@@ -395,6 +395,37 @@ impl Endpoint for LinkplayEndpoint {
         &self.shared.id
     }
 
+    fn diagnostics(&self) -> serde_json::Value {
+        let state = self.shared.state.lock().unwrap();
+        let status = state.status.as_ref().map(|status| {
+            serde_json::json!({
+                "name": status.name,
+                "model": status.project,
+                "firmware": status.firmware,
+                "wmrm_version": status.wmrm_version,
+                "follower": status.follower,
+                "leader_address": status.master_ip,
+                "leader_uuid": status.master_uuid,
+                "streams": status.streams,
+                "airplay": status.airplay(),
+            })
+        });
+        serde_json::json!({
+            "address": state.address.map(|address| address.to_string()),
+            "api": self.shared.api.base(),
+            "discovered": state.discovered,
+            "reachable": state.reachable,
+            "playing": state.playing,
+            "player_status": match state.player_status {
+                Some(true) => "getPlayerStatus",
+                Some(false) => "upnp",
+                None => "unknown",
+            },
+            "start_delay_ms": self.start_delay_ms(),
+            "status": status,
+        })
+    }
+
     fn state(&self) -> EndpointState {
         let state = self.shared.state.lock().unwrap();
         self.shared.snapshot(&state)

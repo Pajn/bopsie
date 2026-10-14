@@ -464,6 +464,9 @@ async fn info_and_the_command_list_need_no_auth() {
     assert_eq!(
         names,
         [
+            "admin/devices",
+            "admin/groups",
+            "admin/server",
             "airplay/pair_finish",
             "airplay/pair_start",
             "auth/login",

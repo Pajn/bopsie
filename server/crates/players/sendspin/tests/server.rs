@@ -223,6 +223,11 @@ async fn a_client_registers_and_gets_time_replies() {
     assert!(state.capabilities.volume && state.capabilities.mute);
     assert_eq!(state.capabilities.max_group_size, None);
     assert_eq!(state.volume, Some(50));
+    let diagnostics = players.get("phone").unwrap().diagnostics();
+    assert_eq!(diagnostics["connected"], true);
+    assert_eq!(diagnostics["lead_ms"], 300);
+    assert_eq!(diagnostics["buffer_capacity"], 1_048_576);
+    assert_eq!(diagnostics["hello"]["name"], "phone");
 
     let before = clock::now();
     client

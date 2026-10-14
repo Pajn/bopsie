@@ -245,6 +245,15 @@ fn a_session_streams_to_the_process_and_starts_on_the_timeline() {
     assert!(args.windows(2).any(|w| w == ["--samplerate", "44100"]));
     assert_eq!(args.last(), Some(&"127.0.0.1"));
     assert!(fake.endpoint.supervisor().signals().connected);
+
+    // What an admin reads: the process as it reported itself.
+    let diagnostics = fake.endpoint.diagnostics();
+    assert_eq!(diagnostics["address"], "127.0.0.1");
+    assert_eq!(diagnostics["process"]["connected"], true);
+    assert_eq!(
+        diagnostics["process"]["started"]["requested_unix_ms"],
+        start_ms
+    );
 }
 
 #[test]

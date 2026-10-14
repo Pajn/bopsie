@@ -37,6 +37,20 @@ pub struct Library {
     artwork_dir: PathBuf,
     /// One sync at a time.
     syncing: Arc<tokio::sync::Mutex<()>>,
+    last_sync: Arc<std::sync::Mutex<Option<LastSync>>>,
+}
+
+/// How the last sync went.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastSync {
+    /// Unix seconds.
+    pub started: i64,
+    pub finished: i64,
+    pub added: usize,
+    pub updated: usize,
+    pub deleted: usize,
+    /// Providers whose scan failed, and why.
+    pub failed: Vec<(String, String)>,
 }
 
 fn now() -> i64 {
@@ -62,6 +76,7 @@ impl Library {
             providers: Arc::new(providers),
             artwork_dir,
             syncing: Arc::default(),
+            last_sync: Arc::default(),
         }
     }
 
@@ -212,15 +227,16 @@ impl Library {
     /// and its tracks are kept, unless `force` says it really is empty now.
     pub async fn sync_with(&self, force: bool) -> Result<Changes> {
         let _syncing = self.syncing.lock().await;
+        let started = now();
         let mut changes = Changes::default();
+        let mut failed = Vec::new();
         for provider in self.providers.iter() {
             match self.scan(provider.clone(), force).await {
                 Ok(provider_changes) => changes.merge(provider_changes),
-                Err(error) => tracing::warn!(
-                    provider = provider.instance_id(),
-                    %error,
-                    "scan failed"
-                ),
+                Err(error) => {
+                    tracing::warn!(provider = provider.instance_id(), %error, "scan failed");
+                    failed.push((provider.instance_id().to_owned(), error.to_string()));
+                }
             }
         }
         let pruned = self
@@ -241,7 +257,33 @@ impl Library {
             deleted = changes.deleted.len(),
             "library synced"
         );
+        *self.last_sync.lock().unwrap() = Some(LastSync {
+            started,
+            finished: now(),
+            added: changes.added.len(),
+            updated: changes.updated.len(),
+            deleted: changes.deleted.len(),
+            failed,
+        });
         Ok(changes)
+    }
+
+    /// Whether a sync is running now.
+    pub fn syncing(&self) -> bool {
+        self.syncing.try_lock().is_err()
+    }
+
+    /// How the last sync since the server started went, if one finished.
+    pub fn last_sync(&self) -> Option<LastSync> {
+        self.last_sync.lock().unwrap().clone()
+    }
+
+    /// Each provider's instance id.
+    pub fn providers(&self) -> Vec<String> {
+        self.providers
+            .iter()
+            .map(|provider| provider.instance_id().to_owned())
+            .collect()
     }
 
     async fn scan(&self, provider: Arc<dyn MusicProvider>, force: bool) -> Result<Changes> {

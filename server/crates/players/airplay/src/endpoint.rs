@@ -346,6 +346,47 @@ impl Endpoint for AirplayEndpoint {
         &self.shared.id
     }
 
+    fn diagnostics(&self) -> serde_json::Value {
+        let state = self.shared.state.lock().unwrap();
+        let speaker = &state.speaker;
+        let signals = self.supervisor.signals();
+        serde_json::json!({
+            "address": speaker.address.to_string(),
+            "airplay": speaker.airplay.as_ref().map(|(port, host)| {
+                serde_json::json!({"port": port, "host": host})
+            }),
+            "raop": speaker.raop.as_ref().map(|(port, name)| {
+                serde_json::json!({"port": port, "name": name})
+            }),
+            "records": {"airplay": speaker.records.airplay, "raop": speaker.records.raop},
+            "discovered": state.discovered,
+            "sightings": self.sightings(),
+            "paired": state.credentials.is_some(),
+            "password": state.password.is_some(),
+            "failure": state.failure,
+            "process": {
+                "running": self.supervisor.is_running(),
+                "streaming": self.supervisor.is_streaming(),
+                "connected": signals.connected,
+                "audio_buffered": signals.audio,
+                "started": signals.started.map(|(requested, at)| {
+                    serde_json::json!({"requested_unix_ms": requested, "at_unix_ms": at})
+                }),
+                "flushes": signals.flushes,
+                "corrections": signals.corrections,
+                "clock": signals.clock.map(|clock| serde_json::json!({
+                    "mode": clock.mode,
+                    "state": clock.state,
+                    "ready_at_unix_ms": clock.ready_at_unix_ms,
+                })),
+                "error": signals.error.map(|(code, detail)| {
+                    serde_json::json!({"code": code, "detail": detail})
+                }),
+                "exited": signals.exited,
+            },
+        })
+    }
+
     fn state(&self) -> EndpointState {
         let state = self.shared.state.lock().unwrap();
         self.shared.snapshot(&state)

@@ -36,13 +36,13 @@ pub async fn server_info(api: &Api) -> Result<ServerInfo> {
         server_version: env!("CARGO_PKG_VERSION"),
         schema_version: SCHEMA_VERSION,
         min_supported_schema_version: MIN_SUPPORTED_SCHEMA_VERSION,
-        base_url: api.config.base_url.clone(),
+        base_url: api.config.server.base_url.clone(),
         homeassistant_addon: false,
         // There is no onboarding beyond creating the first user.
         onboard_done: api.auth.has_users().await?,
-        name: api.config.name.clone(),
+        name: api.config.server.name.clone(),
         status: "running",
-        internal_url: api.config.base_url.clone(),
+        internal_url: api.config.server.base_url.clone(),
         external_url: None,
         has_remote_access: false,
     })

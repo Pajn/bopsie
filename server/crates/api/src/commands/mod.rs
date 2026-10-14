@@ -1,5 +1,6 @@
 //! The commands this server implements.
 
+pub mod admin;
 pub mod airplay;
 pub mod auth;
 pub mod music;
@@ -61,6 +62,9 @@ pub fn registry() -> Registry {
         .add::<queues::DeleteItem>()
         .add::<queues::Transfer>()
         .add::<airplay::PairStart>()
-        .add::<airplay::PairFinish>();
+        .add::<airplay::PairFinish>()
+        .add::<admin::Devices>()
+        .add::<admin::Groups>()
+        .add::<admin::Server>();
     registry
 }
