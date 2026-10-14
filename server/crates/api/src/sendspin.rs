@@ -2,11 +2,13 @@
 //! API token, as Music Assistant's proxy requires, so that it works wherever the API does.
 //! The player it registers belongs to that token's user.
 
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Extension;
 use axum::extract::ws::{CloseFrame, Message, WebSocket};
-use axum::extract::{State, WebSocketUpgrade};
+use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
 use axum::response::Response;
 use serde::Deserialize;
 use serde_json::json;
@@ -26,8 +28,13 @@ struct AuthFrame {
     token: Option<String>,
 }
 
-pub async fn upgrade(State(api): State<Arc<Api>>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade.on_upgrade(move |socket| session(api, socket))
+pub async fn upgrade(
+    State(api): State<Arc<Api>>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    let address = peer.map(|Extension(ConnectInfo(peer))| peer.ip());
+    upgrade.on_upgrade(move |socket| session(api, socket, address))
 }
 
 async fn reject(mut socket: WebSocket, reason: &'static str) {
@@ -39,7 +46,7 @@ async fn reject(mut socket: WebSocket, reason: &'static str) {
         .await;
 }
 
-async fn session(api: Arc<Api>, mut socket: WebSocket) {
+async fn session(api: Arc<Api>, mut socket: WebSocket, address: Option<IpAddr>) {
     let first = match tokio::time::timeout(AUTH_TIMEOUT, socket.recv()).await {
         Ok(Some(Ok(message))) => message,
         Ok(_) => return,
@@ -64,5 +71,7 @@ async fn session(api: Arc<Api>, mut socket: WebSocket) {
     if socket.send(Message::Text(ok.into())).await.is_err() {
         return;
     }
-    api.sendspin.serve(socket, Some(session.token_id)).await;
+    api.sendspin
+        .serve(socket, Some(session.token_id), address)
+        .await;
 }

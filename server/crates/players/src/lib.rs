@@ -3,6 +3,10 @@
 //!
 //! Protocol crates implement the traits defined here and depend on this crate, never the reverse.
 
+mod facts;
+
+pub use facts::{Capabilities, Facts, Pairing};
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
@@ -33,10 +37,8 @@ pub struct EndpointState {
     pub app: bool,
     /// The token the app connected with, whose user owns this player.
     pub owner_token: Option<String>,
-    /// The PCM formats it takes, in order of preference.
-    pub formats: Vec<OutputFormat>,
-    /// How far ahead of now playback must start for this endpoint.
-    pub lead: Micros,
+    pub facts: Facts,
+    pub capabilities: Capabilities,
 }
 
 /// What is playing, for endpoints that show it.

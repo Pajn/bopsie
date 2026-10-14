@@ -53,6 +53,8 @@ fn sighting(flags: &str) -> Sighting {
         ("features", "0x4A7FDFD5,0x3C155FDE"),
         ("flags", flags),
         ("model", "HomePod"),
+        ("pi", "2e388006-13ba-4041-9a67-25dd4a43d536"),
+        ("fv", "p20.1"),
     ]
     .iter()
     .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
@@ -80,6 +82,22 @@ async fn a_speaker_found_becomes_a_player_and_goes_when_it_leaves() {
     assert_eq!(state.provider, "airplay");
     assert!(state.available);
     assert_eq!(state.device.model.as_deref(), Some("HomePod"));
+    assert_eq!(state.device.software_version.as_deref(), Some("p20.1"));
+    assert_eq!(state.facts.mac.as_deref(), Some("aabbcc001122"));
+    assert_eq!(
+        state.facts.uuid.as_deref(),
+        Some("2e388006-13ba-4041-9a67-25dd4a43d536")
+    );
+    assert_eq!(state.facts.address, Some("127.0.0.1".parse().unwrap()));
+    assert_eq!(state.facts.status_flags, Some(0x4));
+    let capabilities = &state.capabilities;
+    assert_eq!(
+        capabilities.formats,
+        [bopsie_players_airplay::endpoint::FORMAT]
+    );
+    assert!(capabilities.sync_group && capabilities.volume);
+    assert_eq!(capabilities.max_group_size, Some(8));
+    assert_eq!(capabilities.pairing, bopsie_players::Pairing::Transient);
 
     provider.lose("Living Room._airplay._tcp.local.");
     assert!(!s.players.get(ID).unwrap().state().available);

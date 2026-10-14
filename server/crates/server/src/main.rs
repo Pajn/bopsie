@@ -1,13 +1,14 @@
 //! The server binary: the only crate that knows the concrete list of providers. It wires them
 //! together, starts the runtime and shuts it down.
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::WebSocketUpgrade;
+use axum::extract::{ConnectInfo, WebSocketUpgrade};
 use axum::routing::get;
 use bopsie_api::{Api, Services, commands, router};
 use bopsie_audio::decode::find_ffmpeg;
@@ -106,13 +107,23 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let sendspin = api.sendspin.clone();
     let direct = Router::new().route(
         "/sendspin",
-        get(|upgrade: WebSocketUpgrade| async move {
-            upgrade.on_upgrade(move |socket| async move { sendspin.serve(socket, None).await })
-        }),
+        get(
+            |ConnectInfo(peer): ConnectInfo<SocketAddr>, upgrade: WebSocketUpgrade| async move {
+                upgrade.on_upgrade(move |socket| async move {
+                    sendspin.serve(socket, None, Some(peer.ip())).await
+                })
+            },
+        ),
     );
     let sendspin_listener = TcpListener::bind(config.sendspin.bind).await?;
     tracing::info!(address = %sendspin_listener.local_addr()?, "Sendspin listening");
-    tokio::spawn(axum::serve(sendspin_listener, direct).into_future());
+    tokio::spawn(
+        axum::serve(
+            sendspin_listener,
+            direct.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .into_future(),
+    );
 
     // The API serves the library as it was while the scan catches up.
     tokio::spawn(async move {
@@ -126,11 +137,14 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(
-        axum::serve(listener, router(api))
-            .with_graceful_shutdown(async {
-                let _ = stopped.await;
-            })
-            .into_future(),
+        axum::serve(
+            listener,
+            router(api).into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async {
+            let _ = stopped.await;
+        })
+        .into_future(),
     );
     shutdown_signal().await;
     tracing::info!("shutting down");

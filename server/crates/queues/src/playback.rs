@@ -305,7 +305,7 @@ impl Playback {
         if !state.available {
             return Err(unavailable());
         }
-        let output = *state.formats.first().ok_or_else(unavailable)?;
+        let output = *state.capabilities.formats.first().ok_or_else(unavailable)?;
         let format = PcmFormat {
             sample_rate: output.sample_rate,
             channels: output.channels,
@@ -325,8 +325,8 @@ impl Playback {
             .collect();
         let lead = members
             .iter()
-            .map(|m| m.state().lead)
-            .fold(state.lead, i64::max);
+            .map(|m| m.state().capabilities.lead)
+            .fold(state.capabilities.lead, i64::max);
         let timeline = Timeline::new(format.sample_rate, clock::now());
         let mut sinks = vec![(leader.to_owned(), endpoint.output(output, timeline))];
         for member in &members {
@@ -764,6 +764,7 @@ impl Playback {
 fn member_format(member: &Arc<dyn Endpoint>, format: PcmFormat) -> Option<OutputFormat> {
     member
         .state()
+        .capabilities
         .formats
         .into_iter()
         .find(|f| f.sample_rate == format.sample_rate && f.channels == format.channels)

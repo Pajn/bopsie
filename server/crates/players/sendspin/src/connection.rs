@@ -1,6 +1,7 @@
 //! One Sendspin client: the handshake, its state, time replies, and the endpoint that streams
 //! to it.
 
+use std::net::IpAddr;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -10,7 +11,9 @@ use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
-use bopsie_players::{DeviceInfo, Endpoint, EndpointState, NowPlaying, Players};
+use bopsie_players::{
+    Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing, Players,
+};
 use futures::{SinkExt, StreamExt};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
@@ -48,6 +51,8 @@ pub(crate) struct ClientInfo {
     pub required_lead_time_ms: u32,
     pub min_buffer_ms: u32,
     pub owner_token: Option<String>,
+    /// Where the client connected from.
+    pub address: Option<IpAddr>,
 }
 
 impl ClientInfo {
@@ -111,6 +116,11 @@ impl Endpoint for SendspinEndpoint {
             })
             .unwrap_or_default();
         let device = info.hello.device_info.as_ref();
+        let commands = info
+            .hello
+            .player_support()
+            .map(|support| support.supported_commands.as_slice())
+            .unwrap_or_default();
         EndpointState {
             name: info.name.clone(),
             provider: "sendspin",
@@ -124,8 +134,19 @@ impl Endpoint for SendspinEndpoint {
             },
             app: info.hello.is_app(),
             owner_token: info.owner_token.clone(),
-            formats,
-            lead: info.lead(),
+            facts: Facts {
+                address: info.address,
+                ..Facts::default()
+            },
+            capabilities: Capabilities {
+                formats,
+                lead: info.lead(),
+                sync_group: true,
+                max_group_size: None,
+                volume: commands.iter().any(|c| c == "volume"),
+                mute: commands.iter().any(|c| c == "mute"),
+                pairing: Pairing::None,
+            },
         }
     }
 
@@ -187,8 +208,14 @@ pub struct SendspinServer {
 
 impl SendspinServer {
     /// Speaks Sendspin on `socket` until the client leaves. `owner_token` is the token the
-    /// client authenticated with on the API's `/sendspin`, if it did.
-    pub async fn serve(&self, socket: WebSocket, owner_token: Option<String>) {
+    /// client authenticated with on the API's `/sendspin`, if it did; `address` is where it
+    /// connected from, if known.
+    pub async fn serve(
+        &self,
+        socket: WebSocket,
+        owner_token: Option<String>,
+        address: Option<IpAddr>,
+    ) {
         let (mut sink, mut stream) = socket.split();
         let (out, mut outbox) = mpsc::unbounded_channel::<Outgoing>();
         let writer = tokio::spawn(async move {
@@ -248,6 +275,7 @@ impl SendspinServer {
                 required_lead_time_ms: 0,
                 min_buffer_ms: 0,
                 owner_token,
+                address,
             }),
             generation: AtomicU64::new(0),
             runtime: Handle::current(),

@@ -76,7 +76,7 @@ impl Records {
     }
 
     /// Status flags from both services: the legacy pairing bit is often only on `_raop`.
-    fn status_flags(&self) -> u64 {
+    pub fn status_flags(&self) -> u64 {
         [&self.raop, &self.airplay]
             .into_iter()
             .flatten()
@@ -108,6 +108,34 @@ impl Records {
             .and_then(|t| t.get("model"))
             .or_else(|| self.raop.as_ref().and_then(|t| t.get("am")))
             .map(String::as_str)
+    }
+
+    /// The `_airplay` service's value for `key`.
+    fn airplay_value(&self, key: &str) -> Option<&str> {
+        self.airplay
+            .as_ref()
+            .and_then(|t| t.get(key))
+            .map(String::as_str)
+    }
+
+    pub fn serial(&self) -> Option<&str> {
+        self.airplay_value("serialNumber")
+    }
+
+    /// The speaker's public identifier, a UUID.
+    pub fn uuid(&self) -> Option<&str> {
+        self.airplay_value("pi")
+    }
+
+    pub fn firmware(&self) -> Option<&str> {
+        self.airplay_value("fv")
+            .or_else(|| self.airplay_value("srcvers"))
+            .or_else(|| {
+                self.raop
+                    .as_ref()
+                    .and_then(|t| t.get("vs"))
+                    .map(String::as_str)
+            })
     }
 
     pub fn manufacturer(&self) -> Option<&str> {

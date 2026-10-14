@@ -22,7 +22,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 async fn serve(State(server): State<SendspinServer>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade.on_upgrade(move |socket| async move { server.serve(socket, None).await })
+    upgrade.on_upgrade(move |socket| async move { server.serve(socket, None, None).await })
 }
 
 async fn start() -> (SocketAddr, Players) {
@@ -152,7 +152,7 @@ fn play(
     write_wav(&path, 48_000, 2, &noise(1, frames * 2)).unwrap();
     let lead = ids
         .iter()
-        .map(|id| players.get(id).unwrap().state().lead)
+        .map(|id| players.get(id).unwrap().state().capabilities.lead)
         .max()
         .unwrap();
     let timeline = Timeline::new(48_000, clock::now());
@@ -209,8 +209,10 @@ async fn a_client_registers_and_gets_time_replies() {
     registered(&players, "phone").await;
     let state = players.get("phone").unwrap().state();
     assert!(state.available && state.app);
-    assert_eq!(state.lead, 300_000);
-    assert_eq!(state.formats, [OUTPUT]);
+    assert_eq!(state.capabilities.lead, 300_000);
+    assert_eq!(state.capabilities.formats, [OUTPUT]);
+    assert!(state.capabilities.volume && state.capabilities.mute);
+    assert_eq!(state.capabilities.max_group_size, None);
     assert_eq!(state.volume, Some(50));
 
     let before = clock::now();

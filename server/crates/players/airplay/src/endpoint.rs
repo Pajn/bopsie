@@ -7,7 +7,9 @@ use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
-use bopsie_players::{DeviceInfo, Endpoint, EndpointState, NowPlaying, Players};
+use bopsie_players::{
+    Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing, Players,
+};
 
 use crate::sink::AirplaySink;
 use crate::sink::CLOCK_PATIENCE;
@@ -27,6 +29,9 @@ pub const FORMAT: OutputFormat = OutputFormat {
 pub const LEAD: Micros = 2_500_000;
 
 const DEFAULT_VOLUME: u8 = 30;
+
+/// The most speakers one PTP clock serves.
+const MAX_GROUP_SIZE: usize = 8;
 
 /// What every speaker's process shares.
 #[derive(Debug, Clone)]
@@ -224,6 +229,15 @@ impl Endpoint for AirplayEndpoint {
         let state = self.shared.state.lock().unwrap();
         let records = &state.speaker.records;
         let needs_pairing = records.requires_pin() && state.credentials.is_none();
+        let pairing = if records.requires_pin() {
+            Pairing::Pin
+        } else if records.requires_password() {
+            Pairing::Password
+        } else if records.airplay2() {
+            Pairing::Transient
+        } else {
+            Pairing::None
+        };
         EndpointState {
             name: state.speaker.name.clone(),
             provider: "airplay",
@@ -233,12 +247,27 @@ impl Endpoint for AirplayEndpoint {
             device: DeviceInfo {
                 model: records.model().map(str::to_owned),
                 manufacturer: records.manufacturer().map(str::to_owned),
-                software_version: None,
+                software_version: records.firmware().map(str::to_owned),
             },
             app: false,
             owner_token: None,
-            formats: vec![FORMAT],
-            lead: LEAD,
+            facts: Facts {
+                mac: self.shared.id.strip_prefix("ap").map(str::to_owned),
+                serial: records.serial().map(str::to_owned),
+                uuid: records.uuid().map(str::to_owned),
+                address: Some(state.speaker.address),
+                features: Some(records.features()),
+                status_flags: Some(records.status_flags()),
+            },
+            capabilities: Capabilities {
+                formats: vec![FORMAT],
+                lead: LEAD,
+                sync_group: true,
+                max_group_size: Some(MAX_GROUP_SIZE),
+                volume: true,
+                mute: true,
+                pairing,
+            },
         }
     }
 
