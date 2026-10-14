@@ -10,6 +10,7 @@ const PAGES = [
   { href: '/queues', title: 'Queues' },
   { href: '/library', title: 'Library' },
   { href: '/logs', title: 'Logs' },
+  { href: '/users', title: 'Users' },
   { href: '/server', title: 'Server' },
 ] as const;
 

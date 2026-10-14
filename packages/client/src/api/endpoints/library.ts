@@ -61,6 +61,9 @@ export const albumTracks = (connection: MaConnection, ref: ItemRef) =>
     { schema: z.array(track) },
   );
 
+export const getTrack = (connection: MaConnection, ref: ItemRef) =>
+  connection.command('music/tracks/get', refArgs(ref), { schema: track });
+
 export const getArtist = (connection: MaConnection, ref: ItemRef) =>
   connection.command('music/artists/get', refArgs(ref), { schema: artist });
 

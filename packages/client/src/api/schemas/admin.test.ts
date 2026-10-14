@@ -6,6 +6,12 @@ test('an admin device reads as the server writes it', () => {
     name: 'Kitchen',
     enabled: true,
     available: true,
+    max_volume: 40,
+    settings: {
+      name: { value: 'Kitchen', layer: 'saved' },
+      enabled: { value: true, layer: 'default' },
+      max_volume: { value: 40, layer: 'config' },
+    },
     members: [
       {
         id: 'kitchen',
@@ -49,11 +55,17 @@ test('an admin device reads as the server writes it', () => {
           recent: [{ event: 'started', ago_s: 1.5 }],
         },
         diagnostics: { process: { running: true } },
+        disabled: false,
+        settings: {
+          enabled: { value: true, layer: 'default' },
+          password: { value: false, layer: 'default' },
+        },
       },
     ],
   });
   expect(parsed.members[0]?.quirk_sources.timing).toEqual({ layer: 'rule', name: 'sonos' });
   expect(parsed.members[0]?.health.recent[0]?.event).toBe('started');
+  expect(parsed.settings.max_volume).toEqual({ value: 40, layer: 'config' });
 });
 
 test('a group without a plan reads', () => {

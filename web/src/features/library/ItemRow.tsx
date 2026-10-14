@@ -22,26 +22,14 @@ function subtitle(item: Item): string {
   return '';
 }
 
-/** Where an item opens, for the kinds that hold others. */
-export function itemHref(item: Item): string | null {
-  if (item.media_type === 'track') return null;
+/** Where an item opens. */
+export function itemHref(item: Item): string {
   return `/library/${item.media_type}/${encodeURIComponent(item.provider)}/${encodeURIComponent(item.item_id)}`;
 }
 
 export function ItemRow({ item, actions }: { item: Item; actions?: ReactNode }) {
   const { account } = useConnection();
   const artwork = imageUrl(account.serverUrl, item, 80);
-  const href = itemHref(item);
-  const title = (
-    <View style={styles.text}>
-      <Text numberOfLines={1} style={href ? styles.link : undefined}>
-        {item.name}
-      </Text>
-      <Text variant="caption" muted numberOfLines={1}>
-        {subtitle(item) || item.uri}
-      </Text>
-    </View>
-  );
   return (
     <View style={styles.row}>
       {artwork ? (
@@ -49,13 +37,16 @@ export function ItemRow({ item, actions }: { item: Item; actions?: ReactNode }) 
       ) : (
         <View style={styles.art} />
       )}
-      {href ? (
-        <Link href={href} asChild>
-          <Pressable style={styles.text}>{title}</Pressable>
-        </Link>
-      ) : (
-        title
-      )}
+      <Link href={itemHref(item)} asChild>
+        <Pressable style={styles.text}>
+          <Text numberOfLines={1} style={styles.link}>
+            {item.name}
+          </Text>
+          <Text variant="caption" muted numberOfLines={1}>
+            {subtitle(item) || item.uri}
+          </Text>
+        </Pressable>
+      </Link>
       {actions}
     </View>
   );

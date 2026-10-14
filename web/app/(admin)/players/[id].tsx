@@ -7,6 +7,7 @@ import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
 import { healthTone, playerRows } from '@/features/players/model';
 import { PlayerControls } from '@/features/players/PlayerControls';
+import { PlayerSettings } from '@/features/players/PlayerSettings';
 import { describeError } from '@/lib/errors';
 import { Badge, Card, Facts, InlineError, Stack, Text } from '@/ui/primitives';
 
@@ -188,6 +189,7 @@ export default function PlayerScreen() {
           </Card>
         ) : null}
         {group ? <Plan group={group} names={names} /> : null}
+        {device ? <PlayerSettings device={device} /> : null}
         {device?.members.map((endpoint) => (
           <Endpoint key={endpoint.id} endpoint={endpoint} />
         ))}

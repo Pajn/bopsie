@@ -9,6 +9,8 @@ import { useAccountActions, useActiveAccount, useAuthContext } from '@/auth/Auth
 interface ConnectionContextValue {
   account: Account;
   connection: MaConnection;
+  /** For the requests that are not commands, such as uploading artwork. */
+  token: string;
   status: ConnectionStatus;
 }
 
@@ -24,13 +26,13 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const { repository } = useAuthContext();
   const { markExpired } = useAccountActions();
   const queryClient = useQueryClient();
-  const [connection, setConnection] = useState<MaConnection | null>(null);
+  const [opened, setOpened] = useState<{ connection: MaConnection; token: string } | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
 
   useEffect(() => {
     if (!account) return;
     let cancelled = false;
-    let opened: MaConnection | null = null;
+    let socket: MaConnection | null = null;
     const unsubscribes: Array<() => void> = [];
 
     void repository.loadToken(account.id).then((token) => {
@@ -39,10 +41,11 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         markExpired(account.id);
         return;
       }
-      opened = new MaConnection({ serverUrl: account.serverUrl, token });
+      const connection = new MaConnection({ serverUrl: account.serverUrl, token });
+      socket = connection;
       unsubscribes.push(
-        opened.onEvent((event) => applyEvent(queryClient, account.id, event)),
-        opened.onStatus((next) => {
+        connection.onEvent((event) => applyEvent(queryClient, account.id, event)),
+        connection.onStatus((next) => {
           setStatus(next);
           if (next === 'unauthorized') markExpired(account.id);
           // Events were missed while disconnected.
@@ -52,21 +55,21 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
           }
         }),
       );
-      opened.connect();
-      setConnection(opened);
+      connection.connect();
+      setOpened({ connection, token });
     });
 
     return () => {
       cancelled = true;
       for (const unsubscribe of unsubscribes) unsubscribe();
-      opened?.close();
-      setConnection(null);
+      socket?.close();
+      setOpened(null);
     };
   }, [account, repository, markExpired, queryClient]);
 
   const value = useMemo(
-    () => (account && connection ? { account, connection, status } : null),
-    [account, connection, status],
+    () => (account && opened ? { account, ...opened, status } : null),
+    [account, opened, status],
   );
   if (!value) return null;
   return <ConnectionContext.Provider value={value}>{children}</ConnectionContext.Provider>;

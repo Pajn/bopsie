@@ -14,6 +14,9 @@ export type Format = z.infer<typeof format>;
 
 export const healthEvent = z.object({ event: z.string(), ago_s: z.number() });
 
+/** A setting's value and the layer it comes from: `default`, `config` or `saved`. */
+const sourced = <T extends z.ZodMiniType>(value: T) => z.object({ value, layer: z.string() });
+
 export const adminEndpoint = z.looseObject({
   id: z.string(),
   provider: z.string(),
@@ -57,6 +60,13 @@ export const adminEndpoint = z.looseObject({
     recent: z.array(healthEvent),
   }),
   diagnostics: z.unknown(),
+  /** Turned off in the player's settings. */
+  disabled: z.boolean(),
+  settings: z.object({
+    enabled: sourced(z.boolean()),
+    /** Whether a password is set; it is never shown. */
+    password: sourced(z.boolean()),
+  }),
 });
 export type AdminEndpoint = z.infer<typeof adminEndpoint>;
 
@@ -65,6 +75,12 @@ export const adminDevice = z.looseObject({
   name: z.string(),
   enabled: z.boolean(),
   available: z.boolean(),
+  max_volume: z.nullable(z.number()),
+  settings: z.object({
+    name: sourced(z.nullable(z.string())),
+    enabled: sourced(z.boolean()),
+    max_volume: sourced(z.nullable(z.number())),
+  }),
   members: z.array(adminEndpoint),
 });
 export type AdminDevice = z.infer<typeof adminDevice>;
