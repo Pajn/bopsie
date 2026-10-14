@@ -14,7 +14,7 @@ use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_players::quirks::Quirks;
 use bopsie_players::{
     Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NativeGroup, NowPlaying, Pairing,
-    Players,
+    Players, Remote,
 };
 use tokio::runtime::Handle;
 
@@ -44,6 +44,12 @@ const IDLE_POLL: Duration = Duration::from_secs(10);
 const PLAYING_POLL: Duration = Duration::from_secs(1);
 /// How long a change of group is given to show on the devices.
 const SETTLE: Duration = Duration::from_secs(5);
+/// The input a device plays a URL it is told to play from.
+const NETWORK_MODE: &str = "10";
+/// The input a device reports when it plays nothing.
+const IDLE_MODE: &str = "0";
+/// How long after a device paused itself its play still resumes the group.
+const RESUMABLE: Duration = Duration::from_secs(30 * 60);
 
 /// Where devices reach the server for streams.
 #[derive(Debug, Clone)]
@@ -80,6 +86,69 @@ struct State {
     playing: bool,
     /// Whether `getPlayerStatus` answers, once known.
     player_status: Option<bool>,
+    /// The transport and input at the last reading.
+    transport: Option<Transport>,
+    mode: Option<String>,
+    /// What the device plays is the server's stream: from telling it to play until stopping
+    /// it.
+    streaming: bool,
+    /// When the device paused the server's stream itself, and what it showed as playing, so
+    /// that its own play resumes the group.
+    paused_itself: Option<(Instant, Option<String>)>,
+    /// The device went to another input; stopping it would stop that.
+    released: bool,
+}
+
+impl State {
+    /// What the device's own controls did between the last reading and `now`: the devices
+    /// push nothing, so a button shows only as a change the server did not ask for.
+    fn pressed(&mut self, now: &PlayerStatus) -> Option<Remote> {
+        let before = self.transport;
+        let mode_before = self.mode.clone();
+        self.transport = now.transport;
+        if now.mode.is_some() {
+            self.mode = now.mode.clone();
+        }
+        let left_network = mode_before.as_deref() == Some(NETWORK_MODE)
+            && now
+                .mode
+                .as_deref()
+                .is_some_and(|m| m != NETWORK_MODE && m != IDLE_MODE);
+        if self
+            .paused_itself
+            .as_ref()
+            .is_some_and(|(at, _)| at.elapsed() > RESUMABLE)
+        {
+            self.paused_itself = None;
+        }
+        if left_network {
+            self.paused_itself = None;
+            if self.streaming {
+                self.released = true;
+                return Some(Remote::Released);
+            }
+            return None;
+        }
+        match (before, now.transport) {
+            (Some(Transport::Playing), Some(Transport::Paused)) if self.streaming => {
+                self.paused_itself = Some((Instant::now(), now.title.clone()));
+                Some(Remote::Pause)
+            }
+            // Played again, and still what it paused rather than something started in the
+            // vendor's app.
+            (Some(Transport::Paused), Some(Transport::Playing | Transport::Loading))
+                if !self.streaming
+                    && self
+                        .paused_itself
+                        .as_ref()
+                        .is_some_and(|(_, title)| *title == now.title) =>
+            {
+                self.paused_itself = None;
+                Some(Remote::Play)
+            }
+            _ => None,
+        }
+    }
 }
 
 pub(crate) struct Shared {
@@ -94,6 +163,8 @@ pub(crate) struct Shared {
     players: Players,
     directory: Weak<Directory>,
     stopping: AtomicBool,
+    /// Wakes the poller early, to watch a stream that just started.
+    poke: Arc<tokio::sync::Notify>,
 }
 
 impl Shared {
@@ -215,6 +286,29 @@ impl Shared {
         self.players.changed(&self.id);
     }
 
+    /// The device was told to play the server's stream.
+    pub fn stream_started(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.streaming = true;
+        state.paused_itself = None;
+        state.released = false;
+        drop(state);
+        self.poke.notify_one();
+    }
+
+    /// The server's stream ended, and the device plays what it was given of it.
+    pub fn stream_ended(&self) {
+        self.state.lock().unwrap().streaming = false;
+    }
+
+    /// The server stopped its stream. Returns whether the device should be stopped too: not
+    /// when it paused itself, so that its own play resumes, nor when it went to another input.
+    pub fn stream_stopped(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        state.streaming = false;
+        !(state.paused_itself.is_some() || state.released)
+    }
+
     /// Reads the device afresh. Returns whether anything changed.
     async fn refresh(&self) -> bool {
         let before = self.snapshot(&self.state.lock().unwrap());
@@ -237,10 +331,16 @@ impl Shared {
         if self.state.lock().unwrap().reachable
             && let Ok(player) = self.player_status().await
         {
-            let mut state = self.state.lock().unwrap();
-            state.volume = player.volume.or(state.volume);
-            state.muted = player.muted.or(state.muted);
-            state.playing = player.transport == Some(Transport::Playing);
+            let pressed = {
+                let mut state = self.state.lock().unwrap();
+                state.volume = player.volume.or(state.volume);
+                state.muted = player.muted.or(state.muted);
+                state.playing = player.transport == Some(Transport::Playing);
+                state.pressed(&player)
+            };
+            if let Some(remote) = pressed {
+                self.players.remote(&self.id, remote);
+            }
         }
         let after = self.snapshot(&self.state.lock().unwrap());
         after != before
@@ -317,6 +417,7 @@ impl LinkplayEndpoint {
             players,
             directory,
             stopping: AtomicBool::new(false),
+            poke: Arc::default(),
         });
         let polled = Arc::downgrade(&shared);
         tokio::spawn(async move {
@@ -330,13 +431,17 @@ impl LinkplayEndpoint {
                 if shared.refresh().await {
                     shared.changed();
                 }
-                let wait = if shared.state.lock().unwrap().playing {
-                    PLAYING_POLL
-                } else {
-                    IDLE_POLL
+                let watched = {
+                    let state = shared.state.lock().unwrap();
+                    state.playing || state.streaming || state.paused_itself.is_some()
                 };
+                let wait = if watched { PLAYING_POLL } else { IDLE_POLL };
+                let poke = shared.poke.clone();
                 drop(shared);
-                tokio::time::sleep(wait).await;
+                tokio::select! {
+                    () = tokio::time::sleep(wait) => {}
+                    () = poke.notified() => {}
+                }
             }
         });
         Arc::new(Self { shared })
@@ -416,6 +521,9 @@ impl Endpoint for LinkplayEndpoint {
             "discovered": state.discovered,
             "reachable": state.reachable,
             "playing": state.playing,
+            "mode": state.mode,
+            "streaming": state.streaming,
+            "paused_itself": state.paused_itself.is_some(),
             "player_status": match state.player_status {
                 Some(true) => "getPlayerStatus",
                 Some(false) => "upnp",
@@ -528,5 +636,83 @@ impl Endpoint for LinkplayEndpoint {
             leader.shared.changed();
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn reading(transport: Transport, mode: &str) -> PlayerStatus {
+        PlayerStatus {
+            transport: Some(transport),
+            mode: Some(mode.to_owned()),
+            ..PlayerStatus::default()
+        }
+    }
+
+    #[test]
+    fn a_pause_on_the_device_and_its_play_again() {
+        let mut state = State::default();
+        assert_eq!(state.pressed(&reading(Transport::Playing, "10")), None);
+        // Paused while not the server's stream: none of the server's business.
+        assert_eq!(state.pressed(&reading(Transport::Paused, "10")), None);
+        assert_eq!(state.pressed(&reading(Transport::Playing, "10")), None);
+
+        state.streaming = true;
+        assert_eq!(
+            state.pressed(&reading(Transport::Paused, "10")),
+            Some(Remote::Pause)
+        );
+        // The group paused, which stops the stream without stopping the device.
+        state.streaming = false;
+        assert_eq!(state.pressed(&reading(Transport::Paused, "10")), None);
+        assert_eq!(
+            state.pressed(&reading(Transport::Playing, "10")),
+            Some(Remote::Play)
+        );
+        // Only once.
+        assert_eq!(state.pressed(&reading(Transport::Paused, "10")), None);
+        assert_eq!(state.pressed(&reading(Transport::Playing, "10")), None);
+    }
+
+    #[test]
+    fn something_else_started_on_a_paused_device_is_not_a_resume() {
+        let mut state = State {
+            streaming: true,
+            ..State::default()
+        };
+        state.pressed(&reading(Transport::Playing, "10"));
+        assert_eq!(
+            state.pressed(&reading(Transport::Paused, "10")),
+            Some(Remote::Pause)
+        );
+        state.streaming = false;
+        let radio = PlayerStatus {
+            title: Some("Morning Radio".to_owned()),
+            ..reading(Transport::Playing, "10")
+        };
+        assert_eq!(state.pressed(&radio), None);
+    }
+
+    #[test]
+    fn another_input_releases_the_device() {
+        let mut state = State {
+            streaming: true,
+            ..State::default()
+        };
+        assert_eq!(state.pressed(&reading(Transport::Loading, "0")), None);
+        assert_eq!(state.pressed(&reading(Transport::Playing, "10")), None);
+        assert_eq!(
+            state.pressed(&reading(Transport::Playing, "49")),
+            Some(Remote::Released)
+        );
+        assert!(state.released);
+        // Before the server's stream plays, an input of its own is no release.
+        let mut starting = State {
+            streaming: true,
+            ..State::default()
+        };
+        assert_eq!(starting.pressed(&reading(Transport::Playing, "49")), None);
     }
 }

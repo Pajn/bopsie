@@ -182,12 +182,14 @@ impl LinkplaySink {
     fn end(&mut self) {
         if let Some(live) = self.live.take() {
             self.last_token = Some(live.token);
+            self.shared.stream_ended();
         }
     }
 
-    /// Ends the stream, cancels a `play` not yet sent, and stops the device.
+    /// Ends the stream, cancels a `play` not yet sent, and stops the device, unless the
+    /// device paused itself or went to another input.
     fn halt(&mut self) {
-        let was_live = self.live.is_some();
+        let was_live = self.live.is_some() && self.shared.stream_stopped();
         self.end();
         if let Some(token) = self.last_token.take() {
             self.shared.hub.forget(&token);
@@ -223,6 +225,9 @@ async fn start(shared: Arc<Shared>, url: String, audible: Micros, generation: u6
     {
         tracing::warn!(device = shared.id, %error, "cannot tell the device to play");
         return;
+    }
+    if shared.timing.generation.load(Ordering::SeqCst) == generation {
+        shared.stream_started();
     }
     let heard = if shared.has_player_status() {
         countdown(&shared, generation).await

@@ -40,6 +40,10 @@ pub struct Device {
     pub commands: Vec<String>,
     /// What it was told to play, when, and what it pulled of it.
     pub playing: Option<(String, Instant)>,
+    /// Paused by its own button.
+    pub paused: bool,
+    /// Its input, `10` for the network.
+    pub mode: String,
     pub pulled: Vec<u8>,
     pub streams: usize,
     fetch: Option<tokio::task::JoinHandle<()>>,
@@ -71,6 +75,7 @@ impl Network {
             has_player_status: player_status,
             delay: Duration::from_millis(600),
             volume: 30,
+            mode: "10".to_owned(),
             ..Device::default()
         }));
         self.devices
@@ -183,6 +188,7 @@ fn status_ex(device: &Device, network: &Network) -> String {
 fn transport(device: &Device) -> (&'static str, i64) {
     match &device.playing {
         None => ("stop", 0),
+        Some(_) if device.paused => ("pause", 0),
         Some((_, at)) => {
             let audible = *at + device.delay;
             let position = Instant::now()
@@ -227,7 +233,7 @@ async fn httpapi(
             }
             let (status, position) = transport(&d);
             json!({"status": status, "curpos": position.to_string(), "vol": d.volume.to_string(),
-                "mute": if d.muted { "1" } else { "0" }, "mode": "10", "Title": ""})
+                "mute": if d.muted { "1" } else { "0" }, "mode": d.mode, "Title": ""})
             .to_string()
         }
         "setPlayerCmd" => {
@@ -247,6 +253,8 @@ async fn httpapi(
                         fetch.abort();
                     }
                     d.playing = Some((value.to_owned(), Instant::now()));
+                    d.paused = false;
+                    d.mode = "10".to_owned();
                     d.pulled.clear();
                     d.streams += 1;
                     let (url, puller) = (value.to_owned(), device.clone());

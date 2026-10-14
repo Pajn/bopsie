@@ -11,7 +11,7 @@ use bopsie_audio::engine::{self, Command, Event, Realtime, Settings, TrackReques
 use bopsie_audio::timeline::Timeline;
 use bopsie_core::clock;
 use bopsie_fixtures::{noise, write_wav};
-use bopsie_players::Endpoint;
+use bopsie_players::{Endpoint, Remote};
 use bopsie_players_linkplay::endpoint::FORMATS;
 use common::*;
 
@@ -222,6 +222,79 @@ async fn a_seek_stops_the_device_and_starts_a_new_stream() {
     assert_eq!(actions[1], "setPlayerCmd:stop");
     assert!(actions[2].starts_with("setPlayerCmd:play:"));
     assert_ne!(actions[0], actions[2], "a new stream");
+    tokio::task::block_in_place(|| handle.shutdown());
+    provider.shutdown();
+}
+
+async fn heard(remotes: &mut tokio::sync::broadcast::Receiver<(String, Remote)>) -> Option<Remote> {
+    tokio::time::timeout(Duration::from_secs(5), remotes.recv())
+        .await
+        .ok()
+        .map(|heard| heard.unwrap().1)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_devices_own_pause_and_play_are_heard() {
+    let network = Network::default();
+    let (provider, players) = provider().await;
+    let mut remotes = players.remotes();
+    let fake = network
+        .device("Living Room", "10.0.0.2", "0123456789ABCDEF01234567", true)
+        .await;
+    fake.add_to(&provider);
+    let endpoint = players.get(&fake.id()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let samples = noise(5, 44_100 * 2 * 20);
+    let (handle, _) =
+        tokio::task::block_in_place(|| session(endpoint.as_ref(), dir.path(), &samples, LEAD));
+    assert!(eventually(|| fake.device.lock().unwrap().streams == 1).await);
+    let linkplay = provider.endpoint(&fake.id()).unwrap();
+    assert!(eventually(|| linkplay.diagnostics()["playing"] == true).await);
+
+    // Its pause button.
+    fake.device.lock().unwrap().paused = true;
+    assert_eq!(heard(&mut remotes).await, Some(Remote::Pause));
+    // The group pauses, which does not stop the device: it stays paused.
+    handle.send(Command::Stop { epoch: 1 });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !fake.commands().iter().any(|c| c == "setPlayerCmd:stop"),
+        "{:?}",
+        fake.commands()
+    );
+    // Its play button resumes the group.
+    fake.device.lock().unwrap().paused = false;
+    assert_eq!(heard(&mut remotes).await, Some(Remote::Play));
+    tokio::task::block_in_place(|| handle.shutdown());
+    provider.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_switched_to_another_input_is_released_and_left_on_it() {
+    let network = Network::default();
+    let (provider, players) = provider().await;
+    let mut remotes = players.remotes();
+    let fake = network
+        .device("Living Room", "10.0.0.2", "0123456789ABCDEF01234567", true)
+        .await;
+    fake.add_to(&provider);
+    let endpoint = players.get(&fake.id()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let samples = noise(6, 44_100 * 2 * 20);
+    let (handle, _) =
+        tokio::task::block_in_place(|| session(endpoint.as_ref(), dir.path(), &samples, LEAD));
+    assert!(eventually(|| fake.device.lock().unwrap().streams == 1).await);
+    let linkplay = provider.endpoint(&fake.id()).unwrap();
+    assert!(eventually(|| linkplay.diagnostics()["mode"] == "10").await);
+
+    fake.device.lock().unwrap().mode = "49".to_owned();
+    assert_eq!(heard(&mut remotes).await, Some(Remote::Released));
+    handle.send(Command::Stop { epoch: 1 });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !fake.commands().iter().any(|c| c == "setPlayerCmd:stop"),
+        "stopping it would stop the input it went to"
+    );
     tokio::task::block_in_place(|| handle.shutdown());
     provider.shutdown();
 }
