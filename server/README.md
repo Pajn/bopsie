@@ -112,6 +112,9 @@ In `/etc/bopsie/config.toml`, set `data_dir = "/var/lib/bopsie"`, the music fold
 `binary = "/usr/local/bin/cliairplay"`. The service may read anywhere but writes only its data
 directory.
 
+Before a release, [`docs/hardware-checklist.md`](docs/hardware-checklist.md) is run by hand
+against real speakers.
+
 ## Development
 
 Requires a stable Rust toolchain with clippy and rustfmt, and ffmpeg for the tests that decode
