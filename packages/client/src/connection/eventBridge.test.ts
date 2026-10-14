@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { Player, PlayerQueue } from '@/api/schemas/player';
+import type { Player, PlayerQueue } from '../api/schemas/player';
 import { applyEvent } from './eventBridge';
 import { queryKeys } from './queryKeys';
 

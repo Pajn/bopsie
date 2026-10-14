@@ -1,4 +1,9 @@
-import { type PlayerQueue, playerQueue, type QueueItem, queueItem } from '@/api/schemas/player';
+import {
+  type PlayerQueue,
+  playerQueue,
+  type QueueItem,
+  queueItem,
+} from '@bopsie/client/api/schemas/player';
 import { describeQueue, moveItem } from './queue';
 
 const ITEMS: QueueItem[] = ['a', 'b', 'c', 'd', 'e'].map((id) =>

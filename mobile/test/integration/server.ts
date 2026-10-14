@@ -1,6 +1,6 @@
-import { MaConnection, type SocketLike } from '@/api/client';
-import { libraryItems } from '@/api/endpoints/library';
-import { signIn } from '@/auth/signIn';
+import { MaConnection, type SocketLike } from '@bopsie/client/api/client';
+import { libraryItems } from '@bopsie/client/api/endpoints/library';
+import { signIn } from '@bopsie/client/auth/signIn';
 
 export const MA_URL = process.env.MA_URL;
 export const MA_USERNAME = process.env.MA_USERNAME ?? 'bopsie';

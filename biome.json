@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!ios", "!android", "!.expo"]
+    "includes": ["**", "!mobile/ios", "!mobile/android", "!**/.expo", "!**/dist", "!server"]
   },
   "formatter": {
     "enabled": true,

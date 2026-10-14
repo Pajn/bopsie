@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { MaConnection } from '@/api/client';
+import type { MaConnection } from '@bopsie/client/api/client';
 import {
   getPlayer,
   getQueue,
@@ -9,7 +9,7 @@ import {
   playMedia,
   queueCommand,
   transferQueue,
-} from '@/api/endpoints/players';
+} from '@bopsie/client/api/endpoints/players';
 import { activeLeaderId, describeOutputs } from '@/features/outputs/outputs';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
 import { albumUri, connect, describeServer } from './server';

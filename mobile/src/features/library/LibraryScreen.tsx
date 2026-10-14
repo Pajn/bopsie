@@ -1,12 +1,12 @@
+import { type LibraryKind, libraryItems } from '@bopsie/client/api/endpoints/library';
+import type { Album, Artist, Playlist } from '@bopsie/client/api/schemas/media';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { LegendList } from '@legendapp/list/react-native';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { type LibraryKind, libraryItems } from '@/api/endpoints/library';
-import type { Album, Artist, Playlist } from '@/api/schemas/media';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { queryKeys } from '@/connection/queryKeys';
 import { describeError } from '@/lib/errors';
 import { InlineError, Screen, Text } from '@/ui/primitives';
 import { AlbumRow, ArtistRow, PlaylistRow } from './rows';

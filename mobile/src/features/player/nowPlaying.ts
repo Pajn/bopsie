@@ -1,5 +1,5 @@
-import type { WithImages } from '@/api/schemas/media';
-import type { PlayerQueue, QueueItem } from '@/api/schemas/player';
+import type { WithImages } from '@bopsie/client/api/schemas/media';
+import type { PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
 
 export interface NowPlaying {
   title: string;

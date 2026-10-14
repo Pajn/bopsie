@@ -1,4 +1,4 @@
-import type { Player } from '@/api/schemas/player';
+import type { Player } from '@bopsie/client/api/schemas/player';
 
 /** How long a change may go unconfirmed before the server's state wins. */
 export const PENDING_MS = 5000;

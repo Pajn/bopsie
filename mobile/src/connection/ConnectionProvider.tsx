@@ -1,15 +1,15 @@
+import { type ConnectionStatus, MaConnection } from '@bopsie/client/api/client';
+import { socketUrl } from '@bopsie/client/api/url';
+import type { Account } from '@bopsie/client/auth/types';
+import { applyEvent } from '@bopsie/client/connection/eventBridge';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
-import { type ConnectionStatus, MaConnection } from '@/api/client';
-import { socketUrl } from '@/api/url';
 import { useAccountActions, useActiveAccount, useAuthContext } from '@/auth/AuthProvider';
-import type { Account } from '@/auth/types';
 import { createPlayer } from '@/player/createPlayer';
 import type { LocalPlayer, PlayerStatus } from '@/player/Player';
-import { applyEvent } from './eventBridge';
-import { queryKeys } from './queryKeys';
 
 interface ConnectionContextValue {
   account: Account;

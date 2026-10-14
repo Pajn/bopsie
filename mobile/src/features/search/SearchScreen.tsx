@@ -1,10 +1,10 @@
+import { search } from '@bopsie/client/api/endpoints/library';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { search } from '@/api/endpoints/library';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { queryKeys } from '@/connection/queryKeys';
 import { AlbumRow, ArtistRow, PlaylistRow, TrackRow } from '@/features/library/rows';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';

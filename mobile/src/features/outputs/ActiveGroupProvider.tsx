@@ -1,3 +1,6 @@
+import { listPlayers } from '@bopsie/client/api/endpoints/players';
+import type { Player } from '@bopsie/client/api/schemas/player';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import {
   createContext,
@@ -9,11 +12,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import { listPlayers } from '@/api/endpoints/players';
-import type { Player } from '@/api/schemas/player';
 import { sqliteKeyValueStore } from '@/auth/platformStores';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { queryKeys } from '@/connection/queryKeys';
 import { activeLeaderId } from './outputs';
 import {
   addPending,

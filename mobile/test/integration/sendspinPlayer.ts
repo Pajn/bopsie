@@ -1,6 +1,6 @@
-import type { MaConnection } from '@/api/client';
-import { getPlayer } from '@/api/endpoints/players';
-import { socketUrl } from '@/api/url';
+import type { MaConnection } from '@bopsie/client/api/client';
+import { getPlayer } from '@bopsie/client/api/endpoints/players';
+import { socketUrl } from '@bopsie/client/api/url';
 
 /**
  * The server's side of what the Android player relies on, spoken from Node

@@ -1,4 +1,4 @@
-import type { PlayerQueue, QueueItem } from '@/api/schemas/player';
+import type { PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
 
 /** A queue as the queue sheet shows it. Items that have already played are left out. */
 export interface QueueView {

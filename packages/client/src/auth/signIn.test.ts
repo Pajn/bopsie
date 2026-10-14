@@ -1,4 +1,4 @@
-import type { SocketLike } from '@/api/client';
+import type { SocketLike } from '../api/client';
 import { SignInError, signIn } from './signIn';
 
 type Handler = (command: string, args: Record<string, unknown>, token: string | null) => unknown;

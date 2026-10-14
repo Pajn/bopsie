@@ -1,8 +1,8 @@
+import { type ImageSize, imageUrl } from '@bopsie/client/api/images';
+import type { WithImages } from '@bopsie/client/api/schemas/media';
 import { View } from 'react-native';
 import { Image } from 'react-native-true-image';
 import { StyleSheet } from 'react-native-unistyles';
-import { type ImageSize, imageUrl } from '@/api/images';
-import type { WithImages } from '@/api/schemas/media';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Icon, type IconName } from '@/ui/Icon';
 

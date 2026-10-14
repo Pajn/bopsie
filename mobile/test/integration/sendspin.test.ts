@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { MaConnection } from '@/api/client';
-import { getPlayer, getQueue, playMedia, queueCommand } from '@/api/endpoints/players';
+import type { MaConnection } from '@bopsie/client/api/client';
+import { getPlayer, getQueue, playMedia, queueCommand } from '@bopsie/client/api/endpoints/players';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
 import { albumUri, connect, describeServer } from './server';
 

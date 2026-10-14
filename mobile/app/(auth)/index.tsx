@@ -1,8 +1,8 @@
+import { signIn } from '@bopsie/client/auth/signIn';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useAccountActions, useAccounts, useActiveAccount } from '@/auth/AuthProvider';
-import { signIn } from '@/auth/signIn';
 import { describeError } from '@/lib/errors';
 import { Button, InlineError, Screen, Stack, Text, TextField } from '@/ui/primitives';
 

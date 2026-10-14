@@ -1,5 +1,10 @@
-import { CommandError, NetworkError, SchemaError, SetupRequiredError } from '@/api/errors';
-import { SignInError } from '@/auth/signIn';
+import {
+  CommandError,
+  NetworkError,
+  SchemaError,
+  SetupRequiredError,
+} from '@bopsie/client/api/errors';
+import { SignInError } from '@bopsie/client/auth/signIn';
 
 /** A short message suitable for showing to the user. */
 export function describeError(error: unknown): string {

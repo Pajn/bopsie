@@ -1,14 +1,14 @@
-import { createContext, type ReactNode, useContext, useMemo, useRef } from 'react';
-import { useStore } from 'zustand';
-import { AccountRepository } from './accountRepository';
+import { AccountRepository } from '@bopsie/client/auth/accountRepository';
 import {
   type AccountState,
   type AccountStore,
   createAccountStore,
   selectActiveAccount,
-} from './accountStore';
+} from '@bopsie/client/auth/accountStore';
+import type { Account } from '@bopsie/client/auth/types';
+import { createContext, type ReactNode, useContext, useMemo, useRef } from 'react';
+import { useStore } from 'zustand';
 import { secureSecretStore, sqliteKeyValueStore } from './platformStores';
-import type { Account } from './types';
 
 interface AuthContextValue {
   store: AccountStore;

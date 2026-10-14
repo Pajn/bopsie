@@ -1,6 +1,6 @@
+import type { WithImages } from '@bopsie/client/api/schemas/media';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
-import type { WithImages } from '@/api/schemas/media';
 import type { IconName } from '@/ui/Icon';
 import { Button, Text } from '@/ui/primitives';
 import { Artwork } from './Artwork';

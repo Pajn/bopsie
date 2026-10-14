@@ -1,7 +1,7 @@
+import type { Album, Artist, Playlist, Track } from '@bopsie/client/api/schemas/media';
 import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
-import type { Album, Artist, Playlist, Track } from '@/api/schemas/media';
 import { formatDuration } from '@/player/progress';
 import { Text } from '@/ui/primitives';
 import { Artwork } from './Artwork';

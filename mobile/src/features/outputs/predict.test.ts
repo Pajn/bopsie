@@ -1,4 +1,4 @@
-import { type Player, player } from '@/api/schemas/player';
+import { type Player, player } from '@bopsie/client/api/schemas/player';
 import { predictGroupVolume, predictJoin, predictLeave, predictVolume } from './predict';
 
 const make = (id: string, fields: Record<string, unknown> = {}): Player =>

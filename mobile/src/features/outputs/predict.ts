@@ -1,4 +1,4 @@
-import type { Player } from '@/api/schemas/player';
+import type { Player } from '@bopsie/client/api/schemas/player';
 import { memberIds } from './outputs';
 import type { PlayerChanges } from './pending';
 

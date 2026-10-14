@@ -1,5 +1,5 @@
-import { MaConnection } from '@/api/client';
-import { SignInError, signIn } from '@/auth/signIn';
+import { MaConnection } from '@bopsie/client/api/client';
+import { SignInError, signIn } from '@bopsie/client/auth/signIn';
 import { connect, createSocket, describeServer, MA_USERNAME, serverUrl } from './server';
 
 describeServer('sign-in', () => {

@@ -1,16 +1,16 @@
-import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
-import { useCallback, useMemo } from 'react';
-import { Alert } from 'react-native';
 import {
   getQueue,
   playMedia,
   type QueueCommand,
   queueCommand,
   seek,
-} from '@/api/endpoints/players';
+} from '@bopsie/client/api/endpoints/players';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
+import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
+import { useCallback, useMemo } from 'react';
+import { Alert } from 'react-native';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { queryKeys } from '@/connection/queryKeys';
 import { useActiveGroup } from '@/features/outputs/ActiveGroupProvider';
 import { describeError } from '@/lib/errors';
 

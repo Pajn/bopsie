@@ -1,8 +1,8 @@
+import type { WithImages } from '@bopsie/client/api/schemas/media';
 import Slider from '@react-native-community/slider';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { WithImages } from '@/api/schemas/media';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Artwork } from '@/features/library/Artwork';
 import { nowPlaying } from '@/features/player/nowPlaying';

@@ -1,16 +1,16 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
-import { Alert } from 'react-native';
 import {
   joinGroup,
   leaveGroup,
   setGroupVolume,
   setVolume,
   transferQueue,
-} from '@/api/endpoints/players';
-import type { PlayerQueue } from '@/api/schemas/player';
+} from '@bopsie/client/api/endpoints/players';
+import type { PlayerQueue } from '@bopsie/client/api/schemas/player';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
+import { useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { Alert } from 'react-native';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { queryKeys } from '@/connection/queryKeys';
 import { describeError } from '@/lib/errors';
 import { useActiveGroup } from './ActiveGroupProvider';
 import { describeOutputs, type Member, type Outputs } from './outputs';

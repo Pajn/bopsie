@@ -1,7 +1,7 @@
-import { MaConnection, type SocketFactory } from '@/api/client';
-import { createdToken, loginResult } from '@/api/schemas/auth';
-import { MIN_SCHEMA_VERSION } from '@/api/schemas/server';
-import { normalizeServerUrl } from '@/api/url';
+import { MaConnection, type SocketFactory } from '../api/client';
+import { createdToken, loginResult } from '../api/schemas/auth';
+import { MIN_SCHEMA_VERSION } from '../api/schemas/server';
+import { normalizeServerUrl } from '../api/url';
 import { type Account, accountId } from './types';
 
 export class SignInError extends Error {

@@ -1,6 +1,6 @@
+import type { KeyValueStore, SecretStore } from '@bopsie/client/auth/storage';
 import * as SecureStore from 'expo-secure-store';
 import { Storage } from 'expo-sqlite/kv-store';
-import type { KeyValueStore, SecretStore } from './storage';
 
 /** App-wide key-value store on SQLite. Survives reinstall on neither platform. */
 export const sqliteKeyValueStore: KeyValueStore = {

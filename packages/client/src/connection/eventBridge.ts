@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { MaEvent } from '@/api/client';
-import { type Player, type PlayerQueue, player, playerQueue } from '@/api/schemas/player';
+import type { MaEvent } from '../api/client';
+import { type Player, type PlayerQueue, player, playerQueue } from '../api/schemas/player';
 import { queryKeys } from './queryKeys';
 
 /** Library changes that make cached listings stale. */

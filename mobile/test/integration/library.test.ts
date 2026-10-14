@@ -1,6 +1,12 @@
-import type { MaConnection } from '@/api/client';
-import { albumTracks, artistAlbums, getAlbum, libraryItems, search } from '@/api/endpoints/library';
-import { imageUrl } from '@/api/images';
+import type { MaConnection } from '@bopsie/client/api/client';
+import {
+  albumTracks,
+  artistAlbums,
+  getAlbum,
+  libraryItems,
+  search,
+} from '@bopsie/client/api/endpoints/library';
+import { imageUrl } from '@bopsie/client/api/images';
 import { connect, describeServer, serverUrl } from './server';
 
 describeServer('library', () => {

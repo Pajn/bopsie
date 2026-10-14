@@ -25,6 +25,7 @@
     "check:icons": "node scripts/build-icons.mjs --check"
   },
   "dependencies": {
+    "@bopsie/client": "workspace:*",
     "@expo/vector-icons": "^15.1.1",
     "@legendapp/list": "^3.6.0",
     "@react-native-community/slider": "5.2.0",

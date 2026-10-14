@@ -1,4 +1,4 @@
-import { playerQueue, queueItem } from '@/api/schemas/player';
+import { playerQueue, queueItem } from '@bopsie/client/api/schemas/player';
 import { itemLinks, nowPlaying } from './nowPlaying';
 
 const queue = (currentItem: object | null) =>

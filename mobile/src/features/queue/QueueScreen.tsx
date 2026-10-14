@@ -1,8 +1,8 @@
+import type { QueueItem } from '@bopsie/client/api/schemas/player';
 import type { ReactNode } from 'react';
 import { Alert, Pressable, View } from 'react-native';
 import ReorderableList, { useReorderableDrag } from 'react-native-reorderable-list';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { QueueItem } from '@/api/schemas/player';
 import { Artwork } from '@/features/library/Artwork';
 import { describeItem } from '@/features/player/nowPlaying';
 import { useQueue } from '@/features/player/usePlayback';

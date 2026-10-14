@@ -1,4 +1,4 @@
-import type { PlayerQueue } from '@/api/schemas/player';
+import type { PlayerQueue } from '@bopsie/client/api/schemas/player';
 
 /**
  * Seconds into the current item at `nowMs`. The server reports the elapsed

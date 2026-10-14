@@ -1,4 +1,4 @@
-import { type Player, player } from '@/api/schemas/player';
+import { type Player, player } from '@bopsie/client/api/schemas/player';
 import {
   addPending,
   applyPending,

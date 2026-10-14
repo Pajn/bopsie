@@ -1,15 +1,15 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
-import { Alert } from 'react-native';
 import {
   getQueueItems,
   moveQueueItem,
   playQueueItem,
   removeQueueItem,
-} from '@/api/endpoints/players';
-import type { QueueItem } from '@/api/schemas/player';
+} from '@bopsie/client/api/endpoints/players';
+import type { QueueItem } from '@bopsie/client/api/schemas/player';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { Alert } from 'react-native';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { queryKeys } from '@/connection/queryKeys';
 import { useActiveGroup } from '@/features/outputs/ActiveGroupProvider';
 import { describeError } from '@/lib/errors';
 import { moveItem } from './queue';

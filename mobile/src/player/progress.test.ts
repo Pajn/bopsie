@@ -1,4 +1,4 @@
-import { playerQueue } from '@/api/schemas/player';
+import { playerQueue } from '@bopsie/client/api/schemas/player';
 import { formatDuration, queuePosition } from './progress';
 
 const queue = (fields: object) =>

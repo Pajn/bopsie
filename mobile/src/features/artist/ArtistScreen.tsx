@@ -1,11 +1,11 @@
+import { artistAlbums, getArtist } from '@bopsie/client/api/endpoints/library';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { LegendList } from '@legendapp/list/react-native';
 import { useQuery } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
-import { artistAlbums, getArtist } from '@/api/endpoints/library';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { queryKeys } from '@/connection/queryKeys';
 import { ItemHeader } from '@/features/library/ItemHeader';
 import { AlbumRow } from '@/features/library/rows';
 import { usePlaybackActions } from '@/features/player/usePlayback';
