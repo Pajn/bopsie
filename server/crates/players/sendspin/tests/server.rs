@@ -355,10 +355,15 @@ async fn never_more_is_outstanding_than_the_client_can_hold() {
     let audio: usize = chunks.iter().map(|(_, _, audio)| audio.len()).sum();
     assert_eq!(audio, 48_000 * 4);
     for (i, (arrived, _, _)) in chunks.iter().enumerate() {
-        // Chunks received by now that have not finished playing.
+        // Chunks received by now that have not finished playing. The first may be short: a
+        // stream that starts between the timeline's 25 ms grid lines starts with what is left
+        // to the next one.
         let outstanding: u64 = chunks[..=i]
             .iter()
-            .filter(|(_, timestamp, _)| timestamp + 25_000 > *arrived)
+            .filter(|(_, timestamp, audio)| {
+                let duration = (audio.len() / 4) as i64 * 1_000_000 / 48_000;
+                timestamp + duration > *arrived
+            })
             .map(|(_, _, audio)| (audio.len() + 9) as u64)
             .sum();
         assert!(
