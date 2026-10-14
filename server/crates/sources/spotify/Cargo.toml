@@ -1,0 +1,22 @@
+[package]
+name = "bopsie-sources-spotify"
+description = "Spotify Connect: each speaker as a device in the Spotify app, playing through the server."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+futures.workspace = true
+librespot-connect.workspace = true
+librespot-core.workspace = true
+librespot-discovery.workspace = true
+librespot-metadata.workspace = true
+librespot-playback.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

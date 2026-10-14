@@ -10,6 +10,7 @@ members = [
     "crates/players/sendspin",
     "crates/players/linkplay",
     "crates/queues",
+    "crates/sources/spotify",
     "crates/api",
     "crates/server",
     "crates/fixtures",
@@ -30,6 +31,7 @@ bopsie-players-airplay = { path = "crates/players/airplay" }
 bopsie-players-sendspin = { path = "crates/players/sendspin" }
 bopsie-players-linkplay = { path = "crates/players/linkplay" }
 bopsie-queues = { path = "crates/queues" }
+bopsie-sources-spotify = { path = "crates/sources/spotify" }
 bopsie-api = { path = "crates/api" }
 bopsie-fixtures = { path = "crates/fixtures" }
 
@@ -41,6 +43,11 @@ futures = "0.3"
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
+librespot-connect = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
+librespot-core = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
+librespot-discovery = { version = "0.8", default-features = false, features = ["with-libmdns", "rustls-tls-webpki-roots"] }
+librespot-metadata = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
+librespot-playback = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
 lofty = "0.25"
 mime_guess = "2.0"
 mdns-sd = "0.21"
