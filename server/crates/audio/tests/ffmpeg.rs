@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as Process;
 use std::time::Duration;
 
-use bopsie_audio::decode::{Decoder, FfmpegDecoder, find_ffmpeg};
+use bopsie_audio::decode::{Decoder, FfmpegDecoder, Read, find_ffmpeg};
 use bopsie_audio::engine::{self, Command, Event, Settings, TrackRequest, TrackSource};
 use bopsie_audio::sink::{Sink, WavSink};
 use bopsie_audio::{OutputFormat, PcmFormat};
@@ -42,7 +42,7 @@ fn encode_alac(ffmpeg: &Path, wav: &Path, m4a: &Path) {
 
 fn decode_all(decoder: &mut dyn Decoder) -> Vec<f32> {
     let mut samples = Vec::new();
-    while decoder.read(&mut samples).unwrap() {}
+    while decoder.read(&mut samples).unwrap() != Read::End {}
     samples
 }
 
@@ -99,13 +99,14 @@ fn mp4_tracks_play_gaplessly_through_ffmpeg() {
     )];
     let tracks = ["a", "b"].map(|name| TrackRequest {
         id: name.to_owned(),
-        path: dir.path().join(format!("{name}.m4a")),
+        input: dir.path().join(format!("{name}.m4a")).into(),
         start: Duration::ZERO,
     });
     let settings = Settings {
         format: SESSION,
         ffmpeg: Some(ffmpeg),
         ring_frames: 0,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: None,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);

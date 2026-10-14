@@ -74,7 +74,7 @@ impl TrackSource for Source {
         let (item, start) = queue.hand_over_next()?;
         Some(TrackRequest {
             id: item.queue_item_id.clone(),
-            path: item.path.clone(),
+            input: item.path.clone().into(),
             start,
         })
     }

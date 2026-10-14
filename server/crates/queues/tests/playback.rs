@@ -94,6 +94,7 @@ impl Fixture {
             format: SESSION,
             ffmpeg: None,
             ring_frames: 0,
+            max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
             realtime: None,
         };
         QueueSession::start(Queue::default(), settings, sinks)

@@ -5,7 +5,7 @@
 //! asked for the session's format directly, so its output needs no further conversion.
 
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
 
@@ -40,12 +40,23 @@ impl From<SymphoniaError> for DecodeError {
     }
 }
 
+/// What a [`Decoder::read`] gave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Read {
+    /// Samples were appended.
+    Data,
+    /// Nothing yet, from a source that produces as it goes; ask again.
+    Pending,
+    /// The end of the stream; nothing was appended.
+    End,
+}
+
 pub trait Decoder: Send {
     /// The format of what [`Decoder::read`] produces.
     fn format(&self) -> PcmFormat;
-    /// Appends the next decoded interleaved samples to `out`. Returns `false` at the end of
-    /// the stream, when nothing was appended.
-    fn read(&mut self, out: &mut Vec<f32>) -> Result<bool, DecodeError>;
+    /// Appends the next decoded interleaved samples to `out`. A live source waits a little for
+    /// them, and answers [`Read::Pending`] rather than hold up the session for longer.
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<Read, DecodeError>;
     /// Moves to `frame` frames from the start, exactly. Returns the frame it moved to, which
     /// is earlier only when the stream is shorter.
     fn seek(&mut self, frame: u64) -> Result<u64, DecodeError>;
@@ -128,15 +139,15 @@ impl Decoder for SymphoniaDecoder {
         self.format
     }
 
-    fn read(&mut self, out: &mut Vec<f32>) -> Result<bool, DecodeError> {
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<Read, DecodeError> {
         loop {
             let packet = match self.reader.next_packet() {
                 Ok(Some(packet)) => packet,
-                Ok(None) => return Ok(false),
+                Ok(None) => return Ok(Read::End),
                 Err(SymphoniaError::IoError(error))
                     if error.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
-                    return Ok(false);
+                    return Ok(Read::End);
                 }
                 Err(error) => return Err(error.into()),
             };
@@ -163,7 +174,7 @@ impl Decoder for SymphoniaDecoder {
             let start = (self.skip as usize) * channels;
             self.skip = 0;
             out.extend_from_slice(&samples[start..]);
-            return Ok(true);
+            return Ok(Read::Data);
         }
     }
 
@@ -267,7 +278,7 @@ impl Decoder for FfmpegDecoder {
         self.format
     }
 
-    fn read(&mut self, out: &mut Vec<f32>) -> Result<bool, DecodeError> {
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<Read, DecodeError> {
         let mut bytes = vec![0u8; FFMPEG_CHUNK];
         let mut filled = 0;
         // Fill whole samples; a read can end mid-sample.
@@ -286,7 +297,7 @@ impl Decoder for FfmpegDecoder {
             if !status.success() {
                 return Err(DecodeError::Corrupt(format!("ffmpeg exited with {status}")));
             }
-            return Ok(false);
+            return Ok(Read::End);
         }
         out.extend(
             bytes[..filled - filled % 4]
@@ -295,7 +306,7 @@ impl Decoder for FfmpegDecoder {
                 .iter()
                 .map(|&b| f32::from_le_bytes(b)),
         );
-        Ok(true)
+        Ok(Read::Data)
     }
 
     fn seek(&mut self, frame: u64) -> Result<u64, DecodeError> {

@@ -20,7 +20,7 @@ impl TrackSource for Tracks {
 fn request(id: &str, path: &Path) -> TrackRequest {
     TrackRequest {
         id: id.to_owned(),
-        path: path.to_owned(),
+        input: path.to_owned().into(),
         start: Duration::ZERO,
     }
 }
@@ -58,6 +58,7 @@ fn play(dir: &Path, tracks: Vec<TrackRequest>, bits: &[u16]) -> (Vec<Event>, Vec
         format: SESSION,
         ffmpeg: None,
         ring_frames: 44_100,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: None,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(tracks.into())), sinks);
@@ -220,6 +221,7 @@ fn stopping_and_restarting() {
         format: SESSION,
         ffmpeg: None,
         ring_frames: 0,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: None,
     };
     let source = Tracks(vec![request("a", &dir.path().join("a.wav")); 1].into());
@@ -295,6 +297,7 @@ fn an_output_that_fails_is_dropped_and_reported() {
         format: SESSION,
         ffmpeg: None,
         ring_frames: 0,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: None,
     };
     let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
@@ -334,6 +337,7 @@ fn an_output_of_the_wrong_rate_is_refused() {
         format: SESSION,
         ffmpeg: None,
         ring_frames: 0,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: None,
     };
     let mut handle = engine::spawn(settings, Box::new(Tracks(VecDeque::new())), sinks);
@@ -360,6 +364,7 @@ fn a_panic_ends_the_session_with_a_report() {
         format: SESSION,
         ffmpeg: None,
         ring_frames: 0,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: None,
     };
     let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
@@ -399,6 +404,7 @@ mod realtime {
             format: SESSION,
             ffmpeg: None,
             ring_frames: 44_100 * 10,
+            max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
             realtime: Some(Realtime {
                 timeline: Timeline::new(44_100, 0),
                 lead: LEAD,
@@ -564,6 +570,7 @@ fn a_seek_plays_one_lead_from_now_however_far_ahead_was_written() {
         format: SESSION,
         ffmpeg: None,
         ring_frames: 0,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: Some(Realtime {
             timeline,
             lead,
@@ -596,4 +603,153 @@ fn a_seek_plays_one_lead_from_now_however_far_ahead_was_written() {
         audible / 1_000
     );
     handle.shutdown();
+}
+
+/// Audio that arrives as it is produced, such as Spotify Connect's.
+mod live {
+    use std::sync::{Arc, Mutex};
+    use std::time::Instant;
+
+    use bopsie_audio::engine::{Input, LIVE_AHEAD, Realtime};
+    use bopsie_audio::live::{LiveWriter, live};
+    use bopsie_audio::timeline::{Micros, Timeline};
+    use bopsie_core::clock;
+
+    use super::*;
+
+    const LEAD: Micros = 300_000;
+
+    #[derive(Default)]
+    struct Seen {
+        /// Where each write landed, and how many frames it held.
+        writes: Vec<(u64, usize)>,
+        clears: usize,
+    }
+
+    struct Recorder(Arc<Mutex<Seen>>);
+
+    impl Sink for Recorder {
+        fn format(&self) -> OutputFormat {
+            output(16)
+        }
+        fn write(&mut self, at: u64, data: &[u8]) -> std::io::Result<()> {
+            self.0.lock().unwrap().writes.push((at, data.len() / 4));
+            Ok(())
+        }
+        fn clear(&mut self) -> std::io::Result<()> {
+            self.0.lock().unwrap().clears += 1;
+            Ok(())
+        }
+        fn finish(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A session playing one live input, and the producer's end of it.
+    fn start() -> (engine::EngineHandle, LiveWriter, Timeline, Arc<Mutex<Seen>>) {
+        let (writer, input) = live(SESSION, Duration::from_secs(2));
+        let timeline = Timeline::new(44_100, clock::now());
+        let settings = Settings {
+            format: SESSION,
+            ffmpeg: None,
+            ring_frames: 44_100,
+            max_ahead: LIVE_AHEAD,
+            realtime: Some(Realtime {
+                timeline,
+                lead: LEAD,
+                clock: clock::now,
+            }),
+        };
+        let seen = Arc::new(Mutex::new(Seen::default()));
+        let source = Tracks(
+            vec![TrackRequest {
+                id: "live".to_owned(),
+                input: Input::decoder(Box::new(input)),
+                start: Duration::ZERO,
+            }]
+            .into(),
+        );
+        let handle = engine::spawn(
+            settings,
+            Box::new(source),
+            vec![("rec".to_owned(), Box::new(Recorder(seen.clone())))],
+        );
+        handle.send(Command::Restart {
+            epoch: 1,
+            not_before: None,
+        });
+        (handle, writer, timeline, seen)
+    }
+
+    /// Writes `ms` of silence-free audio as it would arrive, a 20 ms block at a time.
+    fn produce(writer: &LiveWriter, ms: u64) {
+        let block = vec![0.25f32; 44_100 / 50 * 2];
+        let started = Instant::now();
+        for n in 0..ms / 20 {
+            writer.write(&block);
+            let due = Duration::from_millis((n + 1) * 20);
+            std::thread::sleep(due.saturating_sub(started.elapsed()));
+        }
+    }
+
+    #[test]
+    fn a_live_input_plays_as_it_arrives_without_running_ahead() {
+        let (mut handle, writer, timeline, seen) = start();
+        produce(&writer, 1_000);
+        // What arrived went out contiguously, and never much more than a lead ahead of now.
+        let ahead = timeline.instant_of(handle.head()) - clock::now();
+        assert!(ahead <= LEAD + LIVE_AHEAD + 50_000, "{ahead} µs ahead");
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.clears, 1, "only the restart's");
+            for pair in seen.writes.windows(2) {
+                assert_eq!(pair[0].0 + pair[0].1 as u64, pair[1].0);
+            }
+            let frames: usize = seen.writes.iter().map(|(_, n)| n).sum();
+            assert!(frames >= 44_100 * 9 / 10, "{frames} frames");
+        }
+        // Starved, it still takes a stop at once.
+        let asked = Instant::now();
+        handle.send(Command::Stop { epoch: 2 });
+        loop {
+            let tagged = handle.events.blocking_recv().unwrap();
+            if tagged.epoch == 2 && matches!(tagged.event, Event::Idle { .. }) {
+                break;
+            }
+        }
+        assert!(asked.elapsed() < Duration::from_millis(200));
+        // The producer's end closing ends the track.
+        handle.send(Command::Restart {
+            epoch: 3,
+            not_before: None,
+        });
+        drop(writer);
+        handle.shutdown();
+    }
+
+    #[test]
+    fn a_live_input_that_falls_behind_starts_afresh_one_lead_from_now() {
+        let (handle, writer, timeline, seen) = start();
+        produce(&writer, 200);
+        // Longer than the lead: what was written has played out.
+        std::thread::sleep(Duration::from_millis(700));
+        let resumed = clock::now();
+        produce(&writer, 200);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.clears, 2, "the restart's, then afresh");
+        let gap = seen
+            .writes
+            .windows(2)
+            .find(|pair| pair[0].0 + pair[0].1 as u64 != pair[1].0)
+            .expect("a gap where it fell behind")[1]
+            .0;
+        let audible = timeline.instant_of(gap) - resumed;
+        assert!(
+            (LEAD - 50_000..=LEAD + 100_000).contains(&audible),
+            "resumed {audible} µs later"
+        );
+        drop(seen);
+        drop(writer);
+        handle.shutdown();
+    }
 }

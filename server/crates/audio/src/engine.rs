@@ -13,30 +13,99 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
 use tokio::sync::mpsc as async_mpsc;
 
 use crate::convert::Converter;
-use crate::decode::{self, Decoder, DecoderKind, FfmpegDecoder, SymphoniaDecoder};
+use crate::decode::{
+    self, DecodeError, Decoder, DecoderKind, FfmpegDecoder, Read, SymphoniaDecoder,
+};
 use crate::format::{OutputFormat, PcmFormat};
 use crate::pack::pack;
 use crate::ring::Ring;
 use crate::sink::Sink;
 use crate::timeline::{Micros, Timeline};
 
-/// How far beyond its lead a real-time session may run ahead of real time.
-const MAX_AHEAD: Micros = 10_000_000;
+/// How far beyond its lead a queue's session may run ahead of real time.
+pub const QUEUE_AHEAD: Micros = 10_000_000;
+/// How far beyond its lead a live input is read: little, so that what a pause throws away is
+/// little more than the lead.
+pub const LIVE_AHEAD: Micros = 300_000;
 
 /// A track to play, and where in it to start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackRequest {
     /// Identifies the track in events, such as a queue item id.
     pub id: String,
-    pub path: PathBuf,
+    pub input: Input,
     pub start: Duration,
+}
+
+/// Where a track's audio comes from.
+#[derive(Clone)]
+pub enum Input {
+    /// A local file, decoded by the decoder its extension calls for.
+    File(PathBuf),
+    /// Anything else that opens as a [`Decoder`]: a stream, or live audio.
+    Open(Arc<dyn Media>),
+}
+
+impl Input {
+    /// A decoder that is already open, such as a [`crate::live::LiveInput`]. It plays once.
+    pub fn decoder(decoder: Box<dyn Decoder>) -> Self {
+        Self::Open(Arc::new(Once(Mutex::new(Some(decoder)))))
+    }
+}
+
+impl From<PathBuf> for Input {
+    fn from(path: PathBuf) -> Self {
+        Self::File(path)
+    }
+}
+
+impl std::fmt::Debug for Input {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File(path) => f.debug_tuple("File").field(path).finish(),
+            Self::Open(_) => f.write_str("Open(..)"),
+        }
+    }
+}
+
+impl PartialEq for Input {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::File(a), Self::File(b)) => a == b,
+            (Self::Open(a), Self::Open(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Input {}
+
+/// Audio that is not a local file. Opened on the engine's thread, so it must not block for
+/// long.
+pub trait Media: Send + Sync {
+    /// A decoder from the start. Its format need not be the session's, which it is converted
+    /// to.
+    fn open(&self, format: PcmFormat) -> Result<Box<dyn Decoder>, DecodeError>;
+}
+
+struct Once(Mutex<Option<Box<dyn Decoder>>>);
+
+impl Media for Once {
+    fn open(&self, _format: PcmFormat) -> Result<Box<dyn Decoder>, DecodeError> {
+        self.0
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| DecodeError::Unsupported("a live input plays once".to_owned()))
+    }
 }
 
 /// Supplies tracks in order. Called on the engine's thread, so it must not block for long.
@@ -121,15 +190,25 @@ pub struct Settings {
     pub ring_frames: usize,
     /// `None` runs as fast as the sinks take audio, starting at frame 0, as for files.
     pub realtime: Option<Realtime>,
+    /// How far beyond its lead a real-time session may run ahead of real time:
+    /// [`QUEUE_AHEAD`], or [`LIVE_AHEAD`] for live input.
+    pub max_ahead: Micros,
 }
 
 pub struct EngineHandle {
     commands: mpsc::Sender<Command>,
     pub events: async_mpsc::UnboundedReceiver<Tagged>,
     thread: Option<JoinHandle<()>>,
+    head: Arc<AtomicU64>,
 }
 
 impl EngineHandle {
+    /// The timeline frame the next audio will be written at: how far ahead of what is heard
+    /// the session has written.
+    pub fn head(&self) -> u64 {
+        self.head.load(Ordering::SeqCst)
+    }
+
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(command);
     }
@@ -163,12 +242,14 @@ pub fn spawn(
 ) -> EngineHandle {
     let (commands, inbox) = mpsc::channel();
     let (events, outbox) = async_mpsc::unbounded_channel();
+    let head = Arc::new(AtomicU64::new(0));
+    let written = head.clone();
     let thread = std::thread::Builder::new()
         .name("stream-engine".to_owned())
         .spawn(move || {
             let crashed = events.clone();
             let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                Engine::new(settings, source, sinks, events).run(inbox)
+                Engine::new(settings, source, sinks, events, written).run(inbox)
             }));
             if let Err(panic) = ran {
                 let error = panic_message(panic.as_ref());
@@ -184,6 +265,7 @@ pub fn spawn(
         commands,
         events: outbox,
         thread: Some(thread),
+        head,
     }
 }
 
@@ -196,12 +278,16 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "a panic".to_owned())
 }
 
-/// Opens a decoder for `path` that produces audio the session can take.
+/// Opens a decoder for `input` that produces audio the session can take.
 pub fn open(
-    path: &Path,
+    input: &Input,
     format: PcmFormat,
     ffmpeg: Option<&Path>,
 ) -> Result<Box<dyn Decoder>, decode::DecodeError> {
+    let path = match input {
+        Input::File(path) => path,
+        Input::Open(media) => return media.open(format),
+    };
     match decode::choose(path, ffmpeg.is_some()) {
         Some(DecoderKind::Ffmpeg) => Ok(Box::new(FfmpegDecoder::open(
             ffmpeg.expect("chosen only when available"),
@@ -244,6 +330,10 @@ struct Engine {
     continuous: bool,
     /// The earliest playback may start after a restart.
     not_before: Option<Micros>,
+    /// Shared with the handle: `head`, as last written.
+    written: Arc<AtomicU64>,
+    /// The current track had nothing to give at the last read.
+    starved: bool,
 }
 
 impl Engine {
@@ -252,6 +342,7 @@ impl Engine {
         source: Box<dyn TrackSource>,
         sinks: Vec<(String, Box<dyn Sink>)>,
         events: async_mpsc::UnboundedSender<Tagged>,
+        written: Arc<AtomicU64>,
     ) -> Self {
         let ring = Ring::new(settings.format.channels, settings.ring_frames);
         let mut engine = Self {
@@ -267,6 +358,8 @@ impl Engine {
             idle: true,
             continuous: false,
             not_before: None,
+            written,
+            starved: false,
         };
         for (key, sink) in sinks {
             engine.add_sink(key, sink);
@@ -420,6 +513,7 @@ impl Engine {
                 ((realtime.clock)() + realtime.lead).max(self.not_before.take().unwrap_or(0));
             let due = realtime.timeline.frame_at(earliest);
             self.head = self.head.max(due);
+            self.written.store(self.head, Ordering::SeqCst);
         }
     }
 
@@ -431,7 +525,30 @@ impl Engine {
                 .timeline
                 .frame_at((realtime.clock)() + realtime.lead);
             self.head = self.head.min(due);
+            self.written.store(self.head, Ordering::SeqCst);
         }
+    }
+
+    /// After a live input kept the session waiting, the next audio may come too late for the
+    /// outputs to play it when due. Within half the lead it is still in time; beyond that the
+    /// outputs start afresh one lead from now, leaving a gap rather than playing late.
+    fn catch_up(&mut self) {
+        let Some(realtime) = self.settings.realtime else {
+            return;
+        };
+        let now = (realtime.clock)();
+        let late = realtime.timeline.frame_at(now + realtime.lead / 2);
+        if self.head >= late {
+            return;
+        }
+        let due = realtime.timeline.frame_at(now + realtime.lead);
+        tracing::debug!(
+            behind = due - self.head,
+            "the input fell behind; starting afresh"
+        );
+        self.each_sink("clear", |sink| sink.clear());
+        self.ring.clear();
+        self.anchor();
     }
 
     fn seek(&mut self, position: Duration) {
@@ -463,7 +580,7 @@ impl Engine {
         loop {
             let request = self.source.next()?;
             match open(
-                &request.path,
+                &request.input,
                 self.settings.format,
                 self.settings.ffmpeg.as_deref(),
             ) {
@@ -528,13 +645,20 @@ impl Engine {
         };
         let mut decoded = Vec::new();
         let (samples, ended) = match playing.decoder.read(&mut decoded) {
-            Ok(true) => (playing.converter.push(&decoded), false),
-            Ok(false) => (playing.converter.finish(), true),
+            Ok(Read::Data) => (playing.converter.push(&decoded), false),
+            Ok(Read::Pending) => {
+                self.starved = true;
+                return;
+            }
+            Ok(Read::End) => (playing.converter.finish(), true),
             Err(error) => {
                 tracing::warn!(id = playing.id, %error, "decoding stopped early");
                 (playing.converter.finish(), true)
             }
         };
+        if std::mem::take(&mut self.starved) {
+            self.catch_up();
+        }
         self.write(&samples);
         if ended {
             let id = self.current.take().map(|p| p.id).unwrap_or_default();
@@ -567,6 +691,7 @@ impl Engine {
             self.output_failed(&key, error);
         }
         self.head += (samples.len() / usize::from(self.settings.format.channels)) as u64;
+        self.written.store(self.head, Ordering::SeqCst);
     }
 
     /// Sinks pace a real-time session by taking audio no faster than they can hold it. Without
@@ -578,7 +703,7 @@ impl Engine {
         loop {
             let limit = realtime
                 .timeline
-                .frame_at((realtime.clock)() + realtime.lead + MAX_AHEAD);
+                .frame_at((realtime.clock)() + realtime.lead + self.settings.max_ahead);
             if self.head <= limit {
                 return;
             }

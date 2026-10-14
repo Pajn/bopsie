@@ -1031,6 +1031,7 @@ impl Playback {
             format,
             ffmpeg: self.inner.config.ffmpeg.clone(),
             ring_frames: format.sample_rate as usize * RING_SECONDS,
+            max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
             realtime: Some(Realtime {
                 timeline,
                 lead: plan.lead,

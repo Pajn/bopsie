@@ -178,6 +178,7 @@ fn play(
         format: SESSION,
         ffmpeg: None,
         ring_frames: 48_000,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: Some(Realtime {
             timeline,
             lead,
@@ -186,7 +187,7 @@ fn play(
     };
     let source = One(Some(TrackRequest {
         id: "a".to_owned(),
-        path,
+        input: path.into(),
         start: Duration::ZERO,
     }));
     let handle = engine::spawn(settings, Box::new(source), sinks);

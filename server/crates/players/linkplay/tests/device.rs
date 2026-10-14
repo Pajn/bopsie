@@ -120,6 +120,7 @@ fn session(
         },
         ffmpeg: None,
         ring_frames: 0,
+        max_ahead: bopsie_audio::engine::QUEUE_AHEAD,
         realtime: Some(Realtime {
             timeline,
             lead,
@@ -129,7 +130,7 @@ fn session(
     let source = Tracks(
         vec![TrackRequest {
             id: "a".into(),
-            path,
+            input: path.into(),
             start: Duration::ZERO,
         }]
         .into(),
