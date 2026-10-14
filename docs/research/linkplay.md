@@ -414,6 +414,33 @@ itself: UPnP for audio, the HTTP API for control and grouping.
   Audio Pro's app is WiiM-based (`com.wifiaudio.audioprobywiim`), which suggests but does not show
   that the two can group.
 
+## Part 7 — Observed on the two devices
+
+Measured against a WiiM Amp Pro (firmware Linkplay.5.2.830031, `wmrm_version` 4.3) leading an
+Audio Pro A28 (firmware 1.56.634247, `wmrm_version` 4.2) in a native group the owner had set up.
+
+- **The A28's API works over mutual TLS.** With the LinkPlay client certificate (§2.2) it
+  answers on `https:4443`; `getStatusEx` reports `MAC` equal to its `_linkplay` TXT `MAC`, and
+  `uuid` equal to its UDN without dashes or the trailing repeat. `getPlayerStatus` answers
+  `unknown command` on it, as pywiim's MkII profile says.
+- **A 4.3 leader carries a 4.2 follower.** The follower's `getStatusEx` shows `group: 1`,
+  `master_uuid` and `master_ip`; the leader's `multiroom:getSlaveList` lists it with its volume.
+- **A follower does not announce AirPlay.** The A28's `streams` has bit 0 (AirPlay) set, yet it
+  announced neither `_airplay._tcp` nor `_raop._tcp` while following. Whether it does when solo
+  was not checked.
+- **Start, by `setPlayerCmd:play:<url>`** of a WAV over plain HTTP to the leader of the group:
+  `status` turned `play` after 1.3 s; `curpos` then counted up from about −600 ms, crossing 0
+  about 2.55 s after the command, and advanced at real time from there. A negative `curpos` is
+  the device's countdown to audible playback: the signal §3.3 found no source for. One
+  measurement, of a group of two; solo and over AVTransport not measured.
+- **Grouping is quick.** `multiroom:SlaveKickout:<follower_ip>` on the leader took effect within
+  0.9 s, seen from both sides; `ConnectMasterAp:JoinGroupMaster:eth<leader_ip>:wifi0.0.0.0` on
+  the follower within 0.6 s. The follower's volume in the group was kept by the leader and had
+  to be set again with `multiroom:SlaveVolume` after rejoining.
+- **Playing a URL switches the leader's input** (`mode` from 49, HDMI, to 10, network);
+  `setPlayerCmd:switchmode:HDMI` switches it back. A server that plays to a LinkPlay device
+  takes it away from whatever input it was on.
+
 ## Implications for the design
 
 - **Endpoint shape.** A LinkPlay endpoint is a UPnP MediaRenderer plus an HTTP API whose transport
@@ -435,16 +462,15 @@ itself: UPnP for audio, the HTTP API for control and grouping.
 ## Open questions
 
 1. How long from `SetAVTransportURI` + `Play` (or `setPlayerCmd:play`) to the first audible sample
-   on each device, and how much does it buffer? Needs measurement on hardware.
+   on each device, and how much does it buffer? Part 7 has one figure (2.55 s, `setPlayerCmd`, a
+   group of two); solo, AVTransport and repeatability remain.
 2. Does a server-paced, never-ending FLAC or WAV stream play indefinitely without underrun or
    drift on the Amp Pro and the A28?
 3. For a LinkPlay speaker that does have AirPlay, leading an AirPlay group with AirPlay-less
    LinkPlay followers: how far are the followers from the other AirPlay members? Does "Group Audio
    Delay" need setting? (Neither observed device has AirPlay, so this needs other hardware.)
-4. Does the A28's HTTP API answer on 4443 with the LinkPlay client certificate, and what do its
-   `getStatusEx` `wmrm_version`, `firmware` and `MAC` report?
-5. Can the Amp Pro (wmrm 4.3) and the A28 form a native group, from the WiiM Home app and from
-   `ConnectMasterAp:JoinGroupMaster`?
+4. Settled (Part 7): yes; `wmrm_version` 4.2, and `MAC` matches the `_linkplay` TXT.
+5. Settled (Part 7): yes, from `ConnectMasterAp:JoinGroupMaster`, with the Amp Pro leading.
 6. On a LinkPlay speaker that also has AirPlay, does the AirPlay `deviceid` equal the `_linkplay`
    TXT `MAC`? (The IP fallback links them either way.)
 7. Settled: the Amp Pro on firmware 5.2.830031 does not advertise AirPlay, and neither does the
