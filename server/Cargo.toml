@@ -42,6 +42,7 @@ hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
 lofty = "0.25"
+mime_guess = "2.0"
 mdns-sd = "0.21"
 nix = { version = "0.31", features = ["fs", "signal"] }
 rand = "0.10"
@@ -50,6 +51,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
 rustls-pki-types = { version = "1.15", features = ["std"] }
 rubato = "5.0"
+rust-embed = { version = "8.13", features = ["interpolate-folder-path", "mime-guess"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 schemars = "1.2"
 serde = { version = "1.0", features = ["derive"] }

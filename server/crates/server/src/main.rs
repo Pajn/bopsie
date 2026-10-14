@@ -10,7 +10,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::extract::{ConnectInfo, WebSocketUpgrade};
 use axum::routing::get;
-use bopsie_api::{Api, Services, commands, router};
+use bopsie_api::{Api, Services, Web, commands, router};
 use bopsie_audio::decode::find_ffmpeg;
 use bopsie_core::config::Config;
 use bopsie_core::db::Database;
@@ -113,6 +113,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         playback: playback.clone(),
         airplay: airplay.clone(),
         linkplay: linkplay.clone(),
+        web: config.web.dir.clone().map_or(Web::Embedded, Web::Dir),
     };
     let api = Api::new(db, config.server.clone(), services, commands::registry()).await?;
 

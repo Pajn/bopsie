@@ -44,6 +44,11 @@ enabled = true
 # the certificate and its key.
 # certificate = "/etc/bopsie/linkplay-client.pem"
 
+[web]
+# The web UI at /, for managing the server, is built into the server. To serve another build of
+# it instead, such as web/dist while working on it, name its directory.
+# dir = "/srv/bopsie-web"
+
 [planner]
 # The protocols a group may play over, in order of preference. A group plays over one of them;
 # a speaker that cannot play over the one chosen cannot join.

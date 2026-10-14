@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use bopsie_api::{Api, MIGRATIONS, Services, commands, router};
+use bopsie_api::{Api, MIGRATIONS, Services, Web, commands, router};
 use bopsie_core::config::ServerConfig;
 use bopsie_core::db::Database;
 use bopsie_core::events::EventBus;
@@ -42,6 +42,15 @@ pub async fn start() -> Server {
 
 /// A server over the fixture library with tracks `seconds` long, not yet scanned.
 pub async fn start_with(seconds: u32) -> Server {
+    start_full(seconds, Web::default()).await
+}
+
+/// A server whose web UI comes from `web`.
+pub async fn start_serving(web: Web) -> Server {
+    start_full(1, web).await
+}
+
+async fn start_full(seconds: u32, web: Web) -> Server {
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     bopsie_fixtures::write_library(&music, seconds).unwrap();
@@ -70,6 +79,7 @@ pub async fn start_with(seconds: u32) -> Server {
         playback,
         airplay: None,
         linkplay: None,
+        web,
     };
     let api = Api::new(db, ServerConfig::default(), services, commands::registry())
         .await

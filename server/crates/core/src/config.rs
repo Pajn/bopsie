@@ -19,6 +19,7 @@ pub struct Config {
     pub audio: AudioConfig,
     pub airplay: AirplayConfig,
     pub linkplay: LinkplayConfig,
+    pub web: WebConfig,
     /// Settings for one player, by player id.
     pub players: BTreeMap<String, PlayerConfig>,
     pub planner: PlannerConfig,
@@ -124,6 +125,13 @@ impl Default for LinkplayConfig {
             certificate: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct WebConfig {
+    /// Serve the web UI from this directory instead of the one built into the server.
+    pub dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

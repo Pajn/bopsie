@@ -8,9 +8,11 @@ mod http;
 mod imageproxy;
 pub mod info;
 mod sendspin;
+mod web;
 mod ws;
 
 pub use http::router;
+pub use web::Web;
 
 use std::sync::Arc;
 
@@ -41,6 +43,8 @@ pub struct Services {
     pub airplay: Option<AirplayProvider>,
     /// LinkPlay, unless the config file turns it off.
     pub linkplay: Option<LinkplayProvider>,
+    /// Where the web UI's files come from.
+    pub web: Web,
 }
 
 /// Everything a request handler can reach.
@@ -57,6 +61,7 @@ pub struct Api {
     pub server_id: String,
     pub config: ServerConfig,
     pub commands: Registry,
+    web: Web,
     thumbnails: imageproxy::Thumbnails,
 }
 
@@ -91,6 +96,7 @@ impl Api {
             server_id,
             config,
             commands,
+            web: services.web,
             thumbnails: imageproxy::Thumbnails::default(),
         }))
     }
@@ -122,6 +128,7 @@ pub(crate) mod tests {
             players,
             airplay: None,
             linkplay: None,
+            web: Web::default(),
         };
         Api::new(db, ServerConfig::default(), services, Registry::default())
             .await

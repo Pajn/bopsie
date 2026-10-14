@@ -73,6 +73,12 @@ curl -X POST http://localhost:8095/setup -H 'Content-Type: application/json' \
   -d '{"username": "admin", "password": "at-least-8-characters"}'
 ```
 
+The server's web UI, for managing it, is at `/` (`http://localhost:8095/`); sign in there as an
+admin. It is the app in [`../web`](../web), built into the server binary from `web/dist`, so
+build it first: `pnpm install` at the repository's root, then `pnpm --filter bopsie-web export`.
+A server built without it serves a page saying so. Debug builds read `web/dist` from disk, so a
+new export shows on reload; `dir` under `[web]` in the config file serves another directory.
+
 To run Bopsie's integration suites against this server, give it the library they expect:
 
 ```sh

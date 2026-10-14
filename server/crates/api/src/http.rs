@@ -17,7 +17,7 @@ use crate::auth::lifetime::TokenKind;
 use crate::auth::{SetupError, User};
 use crate::command::{Access, Context};
 use crate::commands::auth::{LOGIN_FAILED, UNNAMED_DEVICE};
-use crate::{Api, imageproxy, info, sendspin, ws};
+use crate::{Api, imageproxy, info, sendspin, web, ws};
 
 pub fn router(api: Arc<Api>) -> Router {
     // The streams LinkPlay devices pull, on the API's port so that they reach the server
@@ -35,6 +35,7 @@ pub fn router(api: Arc<Api>) -> Router {
         .route("/ws", get(websocket))
         .route("/imageproxy/{proxy_id}", get(imageproxy::serve))
         .route("/sendspin", get(sendspin::upgrade))
+        .fallback(web::fallback)
         .with_state(api);
     match streams {
         Some(streams) => router.merge(streams),
