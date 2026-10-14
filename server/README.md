@@ -79,6 +79,27 @@ build it first: `pnpm install` at the repository's root, then `pnpm --filter bop
 A server built without it serves a page saying so. Debug builds read `web/dist` from disk, so a
 new export shows on reload; `dir` under `[web]` in the config file serves another directory.
 
+### Settings, users and metadata
+
+The web UI changes what the config file sets for a player, and more:
+
+- **A player:** its name, whether it is enabled, and a maximum volume. The server holds the
+  player at that maximum whatever turns it up: an app, the speaker's own remote, or a
+  protocol's volume at connecting.
+- **Each of its endpoints:** whether the player may play over that protocol, the speaker's
+  password, PIN pairing, and quirks such as sync adjust. Quirks apply from the next play.
+
+What is saved there is kept in the database and wins over the config file; Reset clears it,
+and the config file's value, or the default, applies again. Each setting says which of those
+it comes from. The config file is still read at startup, so it can keep settings for a server
+set up by hand.
+
+Admins also manage users (create, change, disable, delete, and see and revoke their sign-ins)
+and edit library metadata: names, sort names, track and disc numbers, a track's album and
+artists, an album's year and artists, and artwork. An edit is kept apart from what a scan finds
+and applied again after every sync, so it outlasts a change to its file. Resetting a field
+brings back what the scan found.
+
 To run Bopsie's integration suites against this server, give it the library they expect:
 
 ```sh

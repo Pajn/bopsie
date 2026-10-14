@@ -94,3 +94,17 @@ Each line says what to do, what to hear, and what the log shows when it went rig
 23. **An unmounted folder.** Unmount (or rename) a music folder, then `music/sync`. Bopsie still
     lists its music. Mount it again and sync: nothing changed. Log: `scan failed` naming the
     provider, `it lists nothing`.
+
+### Settings, from the web UI
+
+24. **Sync adjust by ear.** Group two AirPlay speakers, stand between them, and move sync adjust
+    on one in steps of 5 ms from its player page, playing again after each change. The echo
+    narrows to none; the setting shows as saved.
+25. **A maximum volume.** Set a speaker's maximum below its volume: it turns down at once. Turn
+    it up from Bopsie, and on its own app or remote: within a few seconds it is back at the
+    maximum. Log: `turned down to its maximum`.
+26. **A protocol turned off.** For a speaker reached over two protocols, turn off the one it
+    plays over while it plays: it plays on over the other. Turn the other off too: the player
+    shows unavailable.
+27. **PIN pairing.** On the PIN speaker's page, Pair shows a PIN on the speaker; enter it. The
+    speaker becomes available and plays.
