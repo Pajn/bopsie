@@ -1,7 +1,7 @@
 //! The AirPlay provider: speakers found on the network become players, PIN pairing stores
 //! their credentials, and one shared PTP daemon gives AirPlay 2 groups a common clock.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -42,8 +42,6 @@ const PAIRING_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone)]
 pub struct Config {
     pub binary: PathBuf,
-    /// Passwords by player id, for speakers that ask for one.
-    pub passwords: BTreeMap<String, String>,
     /// Extra environment for every `cliairplay` process.
     pub env: Vec<(String, String)>,
     /// Run the shared PTP daemon for AirPlay 2 groups.
@@ -59,7 +57,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             binary: PathBuf::new(),
-            passwords: BTreeMap::new(),
             env: Vec::new(),
             ptp: false,
             pipes: PathBuf::new(),
@@ -359,13 +356,11 @@ impl AirplayProvider {
             .unwrap()
             .get(&speaker.id)
             .cloned();
-        let password = self.inner.config.passwords.get(&speaker.id).cloned();
         let id = speaker.id.clone();
         let endpoint = AirplayEndpoint::new(
             speaker,
             self.inner.launcher.clone(),
             credentials,
-            password,
             self.inner.players.clone(),
         );
         endpoints.insert(id, endpoint.clone());
@@ -408,6 +403,12 @@ impl AirplayProvider {
             .get(id)
             .cloned()
             .ok_or_else(|| not_found(id))
+    }
+
+    /// Speaker `id`'s settings changed: see [`AirplayEndpoint::settings_changed`].
+    pub fn settings_changed(&self, id: &str) -> Result<()> {
+        self.endpoint(id)?.settings_changed();
+        Ok(())
     }
 
     /// Asks the speaker to show a PIN, for [`AirplayProvider::pair_finish`].

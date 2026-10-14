@@ -219,11 +219,6 @@ async fn start_airplay(config: &Config, players: Players, db: Database) -> Optio
     }
     let airplay_config = AirplayConfig {
         binary,
-        passwords: config
-            .players
-            .iter()
-            .filter_map(|(id, player)| Some((id.clone(), player.password.clone()?)))
-            .collect(),
         env: Vec::new(),
         ptp: config.airplay.ptp,
         pipes: config.storage.data_dir.join("airplay"),

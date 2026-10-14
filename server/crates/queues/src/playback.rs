@@ -492,6 +492,7 @@ impl Playback {
     }
 
     fn player_changed(&self, id: &str) {
+        self.carrier_turned_off(id);
         let available = self.device(id).is_ok_and(|d| d.available());
         let was = self
             .inner
@@ -533,6 +534,52 @@ impl Playback {
         self.reconcile_native(id);
         self.publish(EventType::PlayerUpdated, id, self.player(id, None));
         self.publish(EventType::QueueUpdated, id, self.queue(id));
+    }
+
+    /// A device whose carrier in a playing group was turned off in its settings: its output
+    /// leaves the stream, and the group carries it another way if it has one. Its output
+    /// still works, so nothing else would take it out.
+    fn carrier_turned_off(&self, id: &str) {
+        let Some(leader) = self.leader_of(id) else {
+            return;
+        };
+        let Ok(leading) = self.entry(&leader) else {
+            return;
+        };
+        let Some(carrier) = leading.plan.as_ref().and_then(|p| p.carrier(id)).cloned() else {
+            return;
+        };
+        let Ok(device) = self.device(id) else {
+            return;
+        };
+        if carrier.native || !device.member(&carrier.endpoint).is_some_and(|m| m.disabled) {
+            return;
+        }
+        tracing::info!(
+            device = id,
+            endpoint = carrier.endpoint,
+            "its endpoint was turned off; it leaves the stream"
+        );
+        if leader == id {
+            // The whole group streams anew, over what the leader has left; a leader with
+            // nothing left pauses, as one that went away does.
+            if device.available() && leading.session.snapshot().state == PlaybackState::Playing {
+                let position = leading.session.position(clock::now());
+                if let Err(error) = self.begin(&leader, resume_at(position)) {
+                    tracing::warn!(queue = leader, %error, "cannot play on");
+                }
+            }
+            return;
+        }
+        if let Some(entry) = self.inner.entries.lock().unwrap().get_mut(&leader)
+            && let Some(plan) = &mut entry.plan
+        {
+            plan.carriers.retain(|c| c.device != id);
+        }
+        leading.session.remove_sink(id);
+        if device.available() {
+            self.reconnect(id);
+        }
     }
 
     fn reconnect(&self, id: &str) {

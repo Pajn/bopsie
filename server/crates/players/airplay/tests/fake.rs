@@ -80,7 +80,7 @@ fn fake_in(env: &[(&str, &str)], flags: &str, players: Players) -> Fake {
         env: all_env,
         ptp_shared: Arc::new(Mutex::new(false)),
     };
-    let endpoint = AirplayEndpoint::new(speaker(flags), launcher, None, None, players.clone());
+    let endpoint = AirplayEndpoint::new(speaker(flags), launcher, None, players.clone());
     Fake {
         dir,
         endpoint,
@@ -560,4 +560,37 @@ fn health_follows_what_the_speaker_does() {
     assert_eq!(health().counts[&HealthEvent::Exited], 1);
     fake.endpoint.prepare();
     assert!(eventually(|| health().level == Level::Good));
+}
+
+#[test]
+fn a_password_saved_in_the_settings_reaches_the_next_process() {
+    let fake = fake();
+    let samples = noise(1, 44_100 / 2 * 2);
+    let (mut handle, _) = session(&fake, &samples);
+    let _ = until_idle(&mut handle);
+    handle.shutdown();
+    let args = || std::fs::read_to_string(fake.capture("args")).unwrap();
+    assert!(!args().contains("--password"));
+
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(fake.players.save_endpoint(
+            "apaabbcc001122",
+            bopsie_players::settings::SavedEndpoint {
+                password: Some("hunter22".into()),
+                ..Default::default()
+            },
+        ))
+        .unwrap();
+    fake.endpoint.settings_changed();
+    let (mut handle, _) = session(&fake, &samples);
+    let _ = until_idle(&mut handle);
+    handle.shutdown();
+    let args = args();
+    let args: Vec<&str> = args.lines().collect();
+    assert!(
+        args.windows(2).any(|w| w == ["--password", "hunter22"]),
+        "{args:?}"
+    );
+    assert_eq!(fake.endpoint.diagnostics()["password"], true);
 }

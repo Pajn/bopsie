@@ -57,7 +57,6 @@ struct State {
     volume: u8,
     muted: bool,
     credentials: Option<String>,
-    password: Option<String>,
     /// Why the speaker cannot be played, when a connection failed for good.
     failure: Option<String>,
 }
@@ -80,7 +79,6 @@ impl AirplayEndpoint {
         speaker: Speaker,
         launcher: Launcher,
         credentials: Option<String>,
-        password: Option<String>,
         players: Players,
     ) -> Arc<Self> {
         let id = speaker.id.clone();
@@ -92,7 +90,6 @@ impl AirplayEndpoint {
                 volume: DEFAULT_VOLUME,
                 muted: false,
                 credentials,
-                password,
                 failure: None,
             }),
             players,
@@ -191,6 +188,14 @@ impl AirplayEndpoint {
         self.shared.players.changed(&self.shared.id);
     }
 
+    /// Its settings changed, such as its password: a connection that failed for want of one
+    /// is tried again, and the next stream starts a process with the new settings.
+    pub fn settings_changed(&self) {
+        self.shared.state.lock().unwrap().failure = None;
+        self.supervisor.kill();
+        self.shared.players.changed(&self.shared.id);
+    }
+
     pub fn supervisor(&self) -> &Supervisor {
         &self.supervisor
     }
@@ -213,7 +218,8 @@ fn launch(shared: &Shared, launcher: &Launcher) -> Launch {
         bit_depth: FORMAT.bits,
         volume: Some(if state.muted { 0 } else { state.volume }),
         credentials: state.credentials.clone(),
-        password: state.password.clone(),
+        // Read at each launch, so a password saved in the settings applies to the next.
+        password: shared.players.endpoint_settings(&shared.id).password.value,
         ptp_shared: *launcher.ptp_shared.lock().unwrap(),
         quirks: shared.snapshot(&state).quirks.quirks,
     };
@@ -362,7 +368,7 @@ impl Endpoint for AirplayEndpoint {
             "discovered": state.discovered,
             "sightings": self.sightings(),
             "paired": state.credentials.is_some(),
-            "password": state.password.is_some(),
+            "password": self.shared.players.endpoint_settings(&self.shared.id).password.value.is_some(),
             "failure": state.failure,
             "process": {
                 "running": self.supervisor.is_running(),

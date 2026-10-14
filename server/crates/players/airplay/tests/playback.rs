@@ -107,7 +107,7 @@ async fn a_speaker_whose_process_dies_mid_song_rejoins() {
         ],
         ptp_shared: Arc::new(Mutex::new(false)),
     };
-    let endpoint = AirplayEndpoint::new(speaker(), launcher, None, None, players.clone());
+    let endpoint = AirplayEndpoint::new(speaker(), launcher, None, players.clone());
     players.register(endpoint.clone());
     eventually(|| playback.player(ID, None).is_some()).await;
 

@@ -6,6 +6,7 @@ pub mod auth;
 pub mod music;
 pub mod players;
 pub mod queues;
+pub mod settings;
 
 use crate::command::Registry;
 
@@ -66,6 +67,8 @@ pub fn registry() -> Registry {
         .add::<admin::Devices>()
         .add::<admin::Groups>()
         .add::<admin::Server>()
-        .add::<admin::Logs>();
+        .add::<admin::Logs>()
+        .add::<settings::PlayerUpdate>()
+        .add::<settings::EndpointUpdate>();
     registry
 }

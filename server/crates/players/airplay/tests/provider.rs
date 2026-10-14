@@ -37,7 +37,6 @@ impl Setup {
             self.db.clone(),
             Config {
                 binary: PathBuf::from(env!("CARGO_BIN_EXE_fake-cliairplay")),
-                passwords: Default::default(),
                 env: vec![(
                     "FAKE_CLIAIRPLAY_DIR".into(),
                     self.dir.path().join("capture").display().to_string(),

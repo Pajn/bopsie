@@ -11,6 +11,7 @@ use bopsie_core::config::Config;
 use bopsie_core::media::MediaType;
 use bopsie_library::ListQuery;
 use bopsie_players::planner::{Plan, Strategy};
+use bopsie_players::settings::Sourced;
 use bopsie_players::{Capabilities, Device, Facts, Member};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -31,8 +32,40 @@ pub struct DeviceView {
     pub name: String,
     pub enabled: bool,
     pub available: bool,
+    pub max_volume: Option<u8>,
+    /// Each setting and the layer it comes from: `default`, `config` or `saved`.
+    pub settings: DeviceSettingsView,
     /// Its endpoints, in order of protocol preference.
     pub members: Vec<EndpointView>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct DeviceSettingsView {
+    pub name: SourcedView<Option<String>>,
+    pub enabled: SourcedView<bool>,
+    pub max_volume: SourcedView<Option<u8>>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct EndpointSettingsView {
+    /// Whether the device may play over this endpoint.
+    pub enabled: SourcedView<bool>,
+    /// Whether a password is set; it is never shown.
+    pub password: SourcedView<bool>,
+}
+
+/// A setting's value and the layer it comes from: `default`, `config` or `saved`.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SourcedView<T> {
+    pub value: T,
+    pub layer: String,
+}
+
+fn sourced<T, U>(setting: Sourced<T>, map: impl FnOnce(T) -> U) -> SourcedView<U> {
+    SourcedView {
+        layer: to_name(&setting.layer),
+        value: map(setting.value),
+    }
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -60,6 +93,9 @@ pub struct EndpointView {
     pub health: HealthView,
     /// What the protocol knows beyond the above, in its own shape.
     pub diagnostics: Value,
+    /// Turned off in the device's settings.
+    pub disabled: bool,
+    pub settings: EndpointSettingsView,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -207,6 +243,14 @@ fn endpoint(ctx: &Context, member: &Member) -> EndpointView {
             recent,
         },
         diagnostics: member.endpoint.diagnostics(),
+        disabled: member.disabled,
+        settings: {
+            let settings = players.endpoint_settings(&member.id);
+            EndpointSettingsView {
+                enabled: sourced(settings.enabled, |v| v),
+                password: sourced(settings.password, |p| p.is_some()),
+            }
+        },
     }
 }
 
@@ -216,6 +260,20 @@ fn device(ctx: &Context, device: &Device) -> DeviceView {
         name: device.name.clone(),
         enabled: device.enabled,
         available: device.available(),
+        max_volume: device.max_volume,
+        settings: {
+            let settings = ctx
+                .api
+                .playback
+                .devices()
+                .players()
+                .device_settings(&device.id);
+            DeviceSettingsView {
+                name: sourced(settings.name, |v| v),
+                enabled: sourced(settings.enabled, |v| v),
+                max_volume: sourced(settings.max_volume, |v| v),
+            }
+        },
         members: device
             .members
             .iter()

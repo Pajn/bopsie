@@ -131,7 +131,7 @@ impl Endpoint for Speaker {
         &self.id
     }
     fn state(&self) -> EndpointState {
-        EndpointState {
+        let mut state = EndpointState {
             name: self.name.clone(),
             provider: self.provider,
             available: self.available.load(Ordering::SeqCst),
@@ -161,7 +161,11 @@ impl Endpoint for Speaker {
             },
             quirks: Default::default(),
             native_leader: None,
-        }
+        };
+        state.quirks = self
+            .players
+            .resolve_quirks(&self.id, &state, &Default::default());
+        state
     }
     fn output(&self, format: OutputFormat, _timeline: Timeline) -> Box<dyn Sink> {
         self.outputs.fetch_add(1, Ordering::SeqCst);
