@@ -1,0 +1,11 @@
+# The image's config: its paths are the image's. Mount another over /etc/bopsie/config.toml to
+# change anything else; config.example.toml lists every setting.
+
+[storage]
+data_dir = "/data"
+
+[library]
+folders = ["/music"]
+
+[airplay]
+binary = "/usr/local/bin/cliairplay"

@@ -207,6 +207,13 @@ mod tests {
     }
 
     #[test]
+    fn the_container_config_parses() {
+        let config = Config::parse(include_str!("../../../packaging/container.toml")).unwrap();
+        assert_eq!(config.storage.data_dir, PathBuf::from("/data"));
+        assert_eq!(config.library.folders, [PathBuf::from("/music")]);
+    }
+
+    #[test]
     fn the_example_config_is_the_defaults() {
         let example = include_str!("../../../config.example.toml");
         assert_eq!(Config::parse(example).unwrap(), Config::default());

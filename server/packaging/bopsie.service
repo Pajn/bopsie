@@ -1,0 +1,37 @@
+# The server as a systemd service, running as its own user with its data in
+# /var/lib/bopsie. The README's "Running as a service" section installs it.
+
+[Unit]
+Description=Bopsie music server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bopsie
+Group=bopsie
+ExecStart=/usr/local/bin/bopsie-server --config /etc/bopsie/config.toml
+StateDirectory=bopsie
+WorkingDirectory=/var/lib/bopsie
+# The PTP daemon that keeps AirPlay 2 groups in sync binds UDP ports 319 and 320.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# The server stops its speakers and processes itself on SIGTERM; anything left after the
+# timeout is killed.
+KillMode=mixed
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

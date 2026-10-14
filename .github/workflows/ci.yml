@@ -90,3 +90,59 @@ jobs:
       - run: cargo test --locked
         env:
           BOPSIE_REQUIRE_FFMPEG: '1'
+
+  server-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          load: true
+          tags: bopsie-server:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test the image
+        run: |
+          docker run -d --name bopsie -p 8095:8095 bopsie-server:ci
+          for _ in $(seq 1 30); do curl -fsS localhost:8095/info && break; sleep 1; done
+          curl -fsS localhost:8095/info
+          docker exec bopsie cliairplay --check
+          docker exec bopsie ffmpeg -version
+          docker stop bopsie
+          docker logs bopsie
+      - name: Check the systemd unit
+        run: |
+          docker create --name extract bopsie-server:ci
+          sudo docker cp extract:/usr/local/bin/bopsie-server /usr/local/bin/bopsie-server
+          sudo useradd --system bopsie
+          systemd-analyze verify server/packaging/bopsie.service
+      - name: Name the image
+        id: meta
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-server
+          tags: |
+            type=raw,value=main
+            type=sha
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha

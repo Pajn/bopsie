@@ -72,6 +72,46 @@ MA_URL=http://localhost:8095 MA_USERNAME=admin MA_PASSWORD=at-least-8-characters
   pnpm test:integration
 ```
 
+### In a container
+
+The image has the server, ffmpeg and `cliairplay`. CI publishes it from `main` as
+`ghcr.io/<owner>/<repository>-server`, tagged `main` and with each commit's short hash. To build
+it yourself:
+
+```sh
+docker build -t bopsie-server .
+docker run -d --name bopsie --network host \
+  -v bopsie-data:/data -v /path/to/music:/music:ro bopsie-server
+```
+
+AirPlay discovery and streaming need the host's network, hence `--network host`. The image
+keeps its data in the `/data` volume and plays the music mounted at `/music`; its config is
+[`packaging/container.toml`](packaging/container.toml), and a file mounted over
+`/etc/bopsie/config.toml` replaces it. It runs as an unprivileged user; `cliairplay` carries
+`CAP_NET_BIND_SERVICE` for the PTP clock, which works as long as the container keeps that
+capability, as Docker and Podman grant by default.
+
+### As a service
+
+On Linux with systemd, [`packaging/bopsie.service`](packaging/bopsie.service) runs the server
+as a `bopsie` user with its data in `/var/lib/bopsie`, and gives it `CAP_NET_BIND_SERVICE` for
+the PTP clock:
+
+```sh
+cargo build --release -p bopsie-server
+sudo install -m 755 target/release/bopsie-server /usr/local/bin/
+sudo scripts/fetch-cliairplay.sh /usr/local/bin/cliairplay
+sudo useradd --system --home-dir /var/lib/bopsie bopsie
+sudo install -d /etc/bopsie
+sudo install -m 644 config.example.toml /etc/bopsie/config.toml   # then edit it
+sudo install -m 644 packaging/bopsie.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now bopsie
+```
+
+In `/etc/bopsie/config.toml`, set `data_dir = "/var/lib/bopsie"`, the music folders, and
+`binary = "/usr/local/bin/cliairplay"`. The service may read anywhere but writes only its data
+directory.
+
 ## Development
 
 Requires a stable Rust toolchain with clippy and rustfmt, and ffmpeg for the tests that decode
