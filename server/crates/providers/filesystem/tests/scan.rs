@@ -292,3 +292,49 @@ async fn listings_page_filter_and_order() {
         3
     );
 }
+
+async fn track_count(library: &Library) -> u32 {
+    library
+        .count(MediaType::Track, ListQuery::default())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_folder_that_lists_nothing_keeps_its_tracks_until_a_forced_sync() {
+    let f = fixture();
+    f.library.sync().await.unwrap();
+    let before = track_count(&f.library).await;
+    assert!(before > 0);
+
+    // The disk is not mounted: the folder is there, and empty.
+    let music = f.dir.path().join("music");
+    fs::remove_dir_all(&music).unwrap();
+    fs::create_dir(&music).unwrap();
+    f.library.sync().await.unwrap();
+    assert_eq!(track_count(&f.library).await, before, "nothing deleted");
+
+    f.library.sync_with(true).await.unwrap();
+    assert_eq!(track_count(&f.library).await, 0, "a forced sync empties it");
+}
+
+#[tokio::test]
+async fn tracks_under_an_unreadable_folder_are_kept() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    f.library.sync().await.unwrap();
+    let before = track_count(&f.library).await;
+
+    let other = f.dir.path().join("music/Other Artist");
+    fs::set_permissions(&other, fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = fs::read_dir(&other).is_ok();
+    let changes = f.library.sync().await;
+    fs::set_permissions(&other, fs::Permissions::from_mode(0o755)).unwrap();
+    if readable {
+        // Running as a user no permission stops, such as root: nothing to show.
+        return;
+    }
+    let changes = changes.unwrap();
+    assert!(changes.deleted.is_empty(), "{changes:?}");
+    assert_eq!(track_count(&f.library).await, before);
+}

@@ -13,7 +13,8 @@ use std::time::UNIX_EPOCH;
 
 use bopsie_core::media::AudioFormat;
 use bopsie_library::provider::{
-    Entry, EntryKind, MusicProvider, ProviderError, ScannedImage, ScannedPlaylist, ScannedTrack,
+    Entry, EntryKind, Listing, MusicProvider, ProviderError, ScannedImage, ScannedPlaylist,
+    ScannedTrack,
 };
 use lofty::file::FileType;
 use lofty::picture::{MimeType, PictureType};
@@ -160,7 +161,7 @@ impl MusicProvider for FilesystemProvider {
         &self.instance
     }
 
-    fn list(&self) -> Result<Vec<Entry>, ProviderError> {
+    fn list(&self) -> Result<Listing, ProviderError> {
         if !self.root.is_dir() {
             return Err(ProviderError::Unreadable(format!(
                 "{} is not a folder",
@@ -168,6 +169,7 @@ impl MusicProvider for FilesystemProvider {
             )));
         }
         let mut entries = Vec::new();
+        let mut unreadable = Vec::new();
         for entry in WalkDir::new(&self.root)
             .follow_links(true)
             .into_iter()
@@ -177,6 +179,9 @@ impl MusicProvider for FilesystemProvider {
                 Ok(entry) => entry,
                 Err(error) => {
                     tracing::warn!(%error, "skipping an unreadable path");
+                    if let Some(id) = error.path().and_then(|path| self.id_of(path)) {
+                        unreadable.push(id);
+                    }
                     continue;
                 }
             };
@@ -209,7 +214,10 @@ impl MusicProvider for FilesystemProvider {
                 stamp: format!("{}:{modified}", metadata.len()),
             });
         }
-        Ok(entries)
+        Ok(Listing {
+            entries,
+            unreadable,
+        })
     }
 
     fn read_track(&self, id: &str) -> Result<ScannedTrack, ProviderError> {
@@ -321,7 +329,7 @@ mod tests {
     #[test]
     fn lists_tracks_and_playlists_by_relative_path() {
         let (_dir, provider) = library();
-        let mut entries = provider.list().unwrap();
+        let mut entries = provider.list().unwrap().entries;
         entries.sort_by(|a, b| a.id.cmp(&b.id));
         let listed: Vec<(&str, EntryKind)> =
             entries.iter().map(|e| (e.id.as_str(), e.kind)).collect();

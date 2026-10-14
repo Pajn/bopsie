@@ -322,7 +322,12 @@ impl Command for Search {
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
-pub struct SyncArgs {}
+pub struct SyncArgs {
+    /// Remove the tracks of a source that lists none, which a sync otherwise keeps in case
+    /// its disk is not mounted. This server's own addition.
+    #[serde(default)]
+    pub force: Option<bool>,
+}
 
 pub struct Sync;
 impl Command for Sync {
@@ -333,10 +338,11 @@ impl Command for Sync {
     type Args = SyncArgs;
     type Output = ();
 
-    async fn handle(ctx: Context, _: SyncArgs) -> Result<()> {
+    async fn handle(ctx: Context, args: SyncArgs) -> Result<()> {
         let library = ctx.api.library.clone();
+        let force = args.force.unwrap_or(false);
         tokio::spawn(async move {
-            if let Err(error) = library.sync().await {
+            if let Err(error) = library.sync_with(force).await {
                 tracing::error!(%error, "library sync failed");
             }
         });

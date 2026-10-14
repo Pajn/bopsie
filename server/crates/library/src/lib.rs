@@ -204,10 +204,17 @@ impl Library {
     /// Providers that fail are logged and skipped, so one unreachable source does not hold
     /// back the rest.
     pub async fn sync(&self) -> Result<Changes> {
+        self.sync_with(false).await
+    }
+
+    /// As [`Library::sync`]. A provider that lists nothing while the library still has
+    /// tracks from it, such as a folder whose disk is not mounted, is taken as unavailable
+    /// and its tracks are kept, unless `force` says it really is empty now.
+    pub async fn sync_with(&self, force: bool) -> Result<Changes> {
         let _syncing = self.syncing.lock().await;
         let mut changes = Changes::default();
         for provider in self.providers.iter() {
-            match self.scan(provider.clone()).await {
+            match self.scan(provider.clone(), force).await {
                 Ok(provider_changes) => changes.merge(provider_changes),
                 Err(error) => tracing::warn!(
                     provider = provider.instance_id(),
@@ -237,18 +244,19 @@ impl Library {
         Ok(changes)
     }
 
-    async fn scan(&self, provider: Arc<dyn MusicProvider>) -> Result<Changes> {
+    async fn scan(&self, provider: Arc<dyn MusicProvider>, force: bool) -> Result<Changes> {
         let source = Source {
             domain: provider.domain(),
             instance: provider.instance_id().to_owned(),
         };
         let lister = provider.clone();
-        let mut entries = blocking(move || lister.list()).await?.map_err(|error| {
+        let listing = blocking(move || lister.list()).await?.map_err(|error| {
             Error::new(
                 bopsie_core::ErrorCode::ProviderUnavailable,
                 error.to_string(),
             )
         })?;
+        let mut entries = listing.entries.clone();
         // Items get ids in a reproducible order.
         entries.sort_by(|a, b| a.id.cmp(&b.id));
 
@@ -290,10 +298,21 @@ impl Library {
             .iter()
             .map(|entry| (kind_name(entry.kind).to_owned(), entry.id.clone()))
             .collect();
+        let known_tracks = known.keys().filter(|key| key.0 == "track").count();
+        if entries.is_empty() && known_tracks > 0 && !force {
+            return Err(Error::new(
+                bopsie_core::ErrorCode::ProviderUnavailable,
+                format!(
+                    "it lists nothing, but {known_tracks} tracks were there; is it mounted? \
+                     Its tracks are kept until a forced sync"
+                ),
+            ));
+        }
         let gone = |kind: &str| -> Vec<String> {
             known
                 .keys()
                 .filter(|key| key.0 == kind && !listed.contains(*key))
+                .filter(|key| !listing.hidden(&key.1))
                 .map(|key| key.1.clone())
                 .collect()
         };

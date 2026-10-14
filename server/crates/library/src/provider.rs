@@ -60,12 +60,34 @@ pub struct ScannedPlaylist {
     pub track_ids: Vec<String>,
 }
 
+/// What a provider has, as far as it could see.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Listing {
+    pub entries: Vec<Entry>,
+    /// Item id prefixes it could not look under, such as an unreadable folder. What the library
+    /// knew there is kept, not taken as gone.
+    pub unreadable: Vec<String>,
+}
+
+impl Listing {
+    /// Whether item `id` lies where the provider could not look.
+    pub fn hidden(&self, id: &str) -> bool {
+        self.unreadable.iter().any(|prefix| {
+            prefix.is_empty()
+                || id == prefix
+                || id
+                    .strip_prefix(prefix.as_str())
+                    .is_some_and(|rest| rest.starts_with('/'))
+        })
+    }
+}
+
 pub trait MusicProvider: Send + Sync + 'static {
     /// The kind of provider, such as `filesystem_local`.
     fn domain(&self) -> &'static str;
     /// This instance, such as `filesystem_local--3f2a9c1e`. Stable across restarts.
     fn instance_id(&self) -> &str;
-    fn list(&self) -> Result<Vec<Entry>, ProviderError>;
+    fn list(&self) -> Result<Listing, ProviderError>;
     fn read_track(&self, id: &str) -> Result<ScannedTrack, ProviderError>;
     fn read_playlist(&self, id: &str) -> Result<ScannedPlaylist, ProviderError>;
     /// The bytes of an image named by [`ScannedImage::Path`].
