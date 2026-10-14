@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Bopsie",
+    "slug": "bopsie-web",
+    "version": "0.1.0",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["web"],
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "../mobile/assets/brand/bopsie-icon.png"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
