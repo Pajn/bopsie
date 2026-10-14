@@ -315,6 +315,30 @@ impl Library {
         Ok(())
     }
 
+    /// Keeps uploaded artwork in the artwork cache, under its content's hash as embedded art
+    /// is, and answers with the proxy id an edit's `image` names it by.
+    pub async fn store_artwork(&self, data: Vec<u8>, extension: &'static str) -> Result<String> {
+        let artwork_dir = self.artwork_dir.clone();
+        let image = blocking(move || {
+            prepare_image(
+                ARTWORK_CACHE,
+                &artwork_dir,
+                Some(ScannedImage::Embedded {
+                    data,
+                    extension: extension.to_owned(),
+                }),
+            )
+        })
+        .await?
+        .ok_or_else(Error::unexpected)?;
+        self.db
+            .call(move |conn| {
+                Ok(scan::store_image(conn, Some(&image))?.expect("an image was given"))
+            })
+            .await
+            .map_err(Error::from)
+    }
+
     /// The fields of item `id` that were edited by hand, with their values.
     pub async fn edits(
         &self,

@@ -91,7 +91,7 @@ pub fn album_key(album_artists: &[String], album: &str) -> String {
     format!("{}\u{1e}{}", artists.join("\u{1f}"), match_key(album))
 }
 
-fn store_image(tx: &Connection, image: Option<&ImageRef>) -> Result<Option<String>> {
+pub(crate) fn store_image(tx: &Connection, image: Option<&ImageRef>) -> Result<Option<String>> {
     let Some(image) = image else {
         return Ok(None);
     };

@@ -24,6 +24,7 @@ struct Embedded;
 const RESERVED: &[&str] = &[
     "/api",
     "/api-docs",
+    "/artwork",
     "/auth",
     "/imageproxy",
     "/info",

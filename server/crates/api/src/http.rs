@@ -35,6 +35,10 @@ pub fn router(api: Arc<Api>) -> Router {
         .route("/ws", get(websocket))
         .route("/imageproxy/{proxy_id}", get(imageproxy::serve))
         .route("/sendspin", get(sendspin::upgrade))
+        .route(
+            "/artwork",
+            post(artwork).layer(axum::extract::DefaultBodyLimit::max(ARTWORK_LIMIT)),
+        )
         .fallback(web::fallback)
         .with_state(api);
     match streams {
@@ -215,6 +219,51 @@ async fn command(State(api): ApiState, headers: HeaderMap, body: Bytes) -> Respo
     match api.commands.call(ctx, &body.command, body.args).await {
         Ok(result) => Json(result).into_response(),
         Err(error) => command_error(error),
+    }
+}
+
+/// The largest artwork that can be uploaded.
+const ARTWORK_LIMIT: usize = 10 * 1024 * 1024;
+
+/// `POST /artwork`: an admin uploads an image, JPEG or PNG, as the raw request body. It is kept
+/// in the artwork cache and named by the proxy id answered, for an edit's `image`.
+async fn artwork(State(api): ApiState, headers: HeaderMap, body: Bytes) -> Response {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let Some(token) = token else {
+        return unauthorized("Authentication required");
+    };
+    let session = match api.auth.authenticate(token).await {
+        Ok(session) => session,
+        Err(_) => return unauthorized("Authentication failed"),
+    };
+    if !session.allows(crate::auth::Scope::Admin) {
+        return text(StatusCode::FORBIDDEN, "This needs the admin scope");
+    }
+    let extension = match image::guess_format(&body) {
+        Ok(image::ImageFormat::Jpeg) => "jpg",
+        Ok(image::ImageFormat::Png) => "png",
+        _ => {
+            return text(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "Artwork is a JPEG or PNG image",
+            );
+        }
+    };
+    // Checked whole, so that what is kept is an image the proxy can resize.
+    let data = body.to_vec();
+    let check = data.clone();
+    let decodes = tokio::task::spawn_blocking(move || image::load_from_memory(&check).is_ok())
+        .await
+        .unwrap_or(false);
+    if !decodes {
+        return text(StatusCode::BAD_REQUEST, "The image cannot be read");
+    }
+    match api.library.store_artwork(data, extension).await {
+        Ok(proxy_id) => Json(json!({"proxy_id": proxy_id})).into_response(),
+        Err(_) => internal_error(),
     }
 }
 

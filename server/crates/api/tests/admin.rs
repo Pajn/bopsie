@@ -526,3 +526,109 @@ async fn an_album_edited_by_an_admin_reaches_every_client() {
         .await;
     assert_eq!(code, 3, "invalid data");
 }
+
+fn png() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::RgbImage::from_pixel(4, 4, image::Rgb([200, 30, 30]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    bytes
+}
+
+async fn upload(
+    server: &Server,
+    token: Option<&str>,
+    body: Vec<u8>,
+) -> (axum::http::StatusCode, Value) {
+    let mut request = axum::http::Request::post("/artwork");
+    if let Some(token) = token {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
+    let (status, body, _) = server
+        .request(request.body(axum::body::Body::from(body)).unwrap())
+        .await;
+    (status, body)
+}
+
+#[tokio::test]
+async fn uploaded_artwork_becomes_an_albums_image() {
+    use axum::http::StatusCode;
+    let (server, token) = start_set_up().await;
+
+    assert_eq!(
+        upload(&server, None, png()).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        upload(&server, Some(&token), b"not an image".to_vec())
+            .await
+            .0,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE
+    );
+    let mut broken = png();
+    broken.truncate(30);
+    assert_eq!(
+        upload(&server, Some(&token), broken).await.0,
+        StatusCode::BAD_REQUEST
+    );
+    let mut huge = png();
+    huge.resize(11 * 1024 * 1024, 0);
+    assert_eq!(
+        upload(&server, Some(&token), huge).await.0,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    // Only admins upload.
+    let bob = server
+        .api
+        .auth
+        .create_user("bob", "battery staple", "user", None)
+        .await
+        .unwrap();
+    let bob_token = server
+        .api
+        .auth
+        .issue(
+            &bob.user_id,
+            "test",
+            bopsie_api::auth::lifetime::TokenKind::Session,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        upload(&server, Some(&bob_token), png()).await.0,
+        StatusCode::FORBIDDEN
+    );
+
+    let (status, answer) = upload(&server, Some(&token), png()).await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    let proxy_id = answer["proxy_id"].as_str().unwrap().to_owned();
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let first = client
+        .result("music/albums/library_items", json!({}))
+        .await
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "First Album")
+        .unwrap()["item_id"]
+        .clone();
+    client
+        .result(
+            "admin/library/update",
+            json!({"media_type": "album", "item_id": first, "changes": {"image": proxy_id}}),
+        )
+        .await;
+    let album = client
+        .result(
+            "music/albums/get",
+            json!({"item_id": first, "provider_instance_id_or_domain": "library"}),
+        )
+        .await;
+    assert_eq!(album["metadata"]["images"][0]["proxy_id"], proxy_id);
+    let (status, _) = server.get(&format!("/imageproxy/{proxy_id}?size=80")).await;
+    assert_eq!(status, StatusCode::OK);
+}
