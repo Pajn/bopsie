@@ -155,8 +155,10 @@ impl Endpoint for SendspinEndpoint {
                 volume: commands.iter().any(|c| c == "volume"),
                 mute: commands.iter().any(|c| c == "mute"),
                 pairing: Pairing::None,
+                native_group: None,
             },
             quirks: Default::default(),
+            native_leader: None,
         };
         endpoint.quirks =
             self.shared

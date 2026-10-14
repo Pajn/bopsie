@@ -6,6 +6,9 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+axum.workspace = true
+futures.workspace = true
+rand.workspace = true
 bopsie-players.workspace = true
 bopsie-audio.workspace = true
 bopsie-core.workspace = true
@@ -23,6 +26,9 @@ tracing.workspace = true
 [dev-dependencies]
 rcgen.workspace = true
 tokio-rustls.workspace = true
+bopsie-fixtures.workspace = true
+tempfile.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
 
 [lints]
 workspace = true

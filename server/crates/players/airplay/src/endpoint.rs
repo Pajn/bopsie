@@ -265,8 +265,10 @@ impl Shared {
                 volume: true,
                 mute: true,
                 pairing: state.speaker.pairing(),
+                native_group: None,
             },
             quirks: Default::default(),
+            native_leader: None,
         };
         endpoint.quirks =
             self.players

@@ -132,8 +132,10 @@ impl Spec {
                     volume: true,
                     mute: true,
                     pairing: Default::default(),
+                    native_group: None,
                 },
                 quirks: resolved,
+                native_leader: None,
             },
             health: Health {
                 level: self.health,

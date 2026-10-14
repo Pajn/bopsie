@@ -36,4 +36,15 @@ pub struct Capabilities {
     pub volume: bool,
     pub mute: bool,
     pub pairing: Pairing,
+    /// The vendor multiroom it can group by, where the devices themselves carry the audio.
+    pub native_group: Option<NativeGroup>,
+}
+
+/// A vendor's own multiroom: devices group with others of the same family and version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeGroup {
+    /// Such as `linkplay`.
+    pub family: &'static str,
+    /// Devices group only within one version.
+    pub version: u32,
 }

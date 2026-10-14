@@ -11,7 +11,7 @@ pub mod planner;
 pub mod quirks;
 
 pub use devices::{Device, Devices, Member};
-pub use facts::{Capabilities, Facts, Pairing};
+pub use facts::{Capabilities, Facts, NativeGroup, Pairing};
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -50,6 +50,9 @@ pub struct EndpointState {
     pub capabilities: Capabilities,
     /// Its quirks, from [`Players::resolve_quirks`].
     pub quirks: Resolved,
+    /// The endpoint it follows in its vendor's own multiroom, if it does: then it plays only
+    /// what that one plays.
+    pub native_leader: Option<String>,
 }
 
 /// What is playing, for endpoints that show it.
@@ -86,6 +89,16 @@ pub trait Endpoint: Send + Sync {
     /// ours. May block for seconds.
     fn prepare(&self) -> Option<Micros> {
         None
+    }
+    /// Follows `leader`, an endpoint of the same native group family, in that multiroom. May
+    /// block for seconds.
+    fn join_native(&self, leader: &str) -> Result<(), String> {
+        Err(format!("{} cannot follow {leader} natively", self.id()))
+    }
+    /// Stops following its native leader, or stops leading its native followers. May block
+    /// for seconds.
+    fn leave_native(&self) -> Result<(), String> {
+        Ok(())
     }
 }
 

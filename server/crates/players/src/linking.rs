@@ -134,8 +134,10 @@ mod tests {
                 volume: true,
                 mute: true,
                 pairing: Default::default(),
+                native_group: None,
             },
             quirks: Default::default(),
+            native_leader: None,
         }
     }
 

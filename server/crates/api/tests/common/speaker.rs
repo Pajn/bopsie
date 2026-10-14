@@ -156,8 +156,10 @@ impl Endpoint for Speaker {
                 volume: true,
                 mute: true,
                 pairing: Default::default(),
+                native_group: None,
             },
             quirks: Default::default(),
+            native_leader: None,
         }
     }
     fn output(&self, format: OutputFormat, _timeline: Timeline) -> Box<dyn Sink> {
