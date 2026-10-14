@@ -594,3 +594,67 @@ fn a_password_saved_in_the_settings_reaches_the_next_process() {
     );
     assert_eq!(fake.endpoint.diagnostics()["password"], true);
 }
+
+/// The next press the speaker's controls report, within a few seconds.
+fn next_press(
+    presses: &mut tokio::sync::broadcast::Receiver<(String, bopsie_players::Remote)>,
+) -> Option<bopsie_players::Remote> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        match presses.try_recv() {
+            Ok((_, remote)) => return Some(remote),
+            Err(_) => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    None
+}
+
+#[test]
+fn a_button_the_process_reports_is_a_press() {
+    use bopsie_players::Remote;
+    let fake = fake_with(&[("FAKE_CLIAIRPLAY_REMOTE", "play_pause")], "0x4");
+    let mut presses = fake.players.remotes();
+    let samples = noise(6, 44_100 / 2 * 2);
+    let (mut handle, _) = session(&fake, &samples);
+    assert_eq!(next_press(&mut presses), Some(Remote::PlayPause));
+    let _ = until_idle(&mut handle);
+    handle.shutdown();
+}
+
+#[test]
+fn dacp_requests_are_presses_and_volume_reports() {
+    use bopsie_players::Remote;
+    use bopsie_players_airplay::dacp::Request;
+    let fake = fake();
+    let mut presses = fake.players.remotes();
+    let samples = noise(7, 44_100 / 2 * 2);
+    let (mut handle, _) = session(&fake, &samples);
+    assert!(
+        !fake.endpoint.active_remote().is_empty(),
+        "the stream has an id"
+    );
+
+    fake.endpoint.dacp(Request::Remote(Remote::Next));
+    assert_eq!(next_press(&mut presses), Some(Remote::Next));
+
+    // A discrete pause is a press unless the speaker says it went to another source.
+    fake.endpoint.dacp(Request::DiscretePause);
+    assert_eq!(next_press(&mut presses), Some(Remote::Pause));
+
+    // The volume the speaker reports back after the server set it is its echo.
+    fake.endpoint.set_volume(30);
+    fake.endpoint.dacp(Request::Volume(Some(55)));
+    assert_eq!(fake.endpoint.state().volume, Some(30));
+    let _ = until_idle(&mut handle);
+    handle.shutdown();
+}
+
+#[test]
+fn a_volume_set_on_the_speaker_is_taken() {
+    use bopsie_players_airplay::dacp::Request;
+    let fake = fake();
+    fake.endpoint.dacp(Request::Volume(Some(55)));
+    assert_eq!(fake.endpoint.state().volume, Some(55));
+    fake.endpoint.dacp(Request::Volume(None));
+    assert_eq!(fake.endpoint.state().muted, Some(true));
+}

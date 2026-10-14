@@ -10,6 +10,8 @@
 //! moves every START that much later than asked, and `FAKE_CLIAIRPLAY_CLOCK_READY_MS` reports
 //! a PTP clock that is ready that long after connecting. `FAKE_CLIAIRPLAY_EXIT_ONCE_MS` makes
 //! the first stream in the directory exit that long after connecting, as a crash would.
+//! `FAKE_CLIAIRPLAY_REMOTE=<command>` reports that remote command, as a button pressed on the
+//! speaker, once connected.
 //! With `--pair-setup` it pairs on PIN 1234;
 //! with `--ptp-daemon` it runs until stopped.
 //!
@@ -121,6 +123,9 @@ fn main() {
     println!(
         "[STATUS] latency lead_ms=2000 device_min_frames=11025 device_max_frames=88200 device_render_ms=0 warm_lead_ms=600"
     );
+    if let Ok(command) = std::env::var("FAKE_CLIAIRPLAY_REMOTE") {
+        println!("[EVENT] remote command={command}");
+    }
 
     if let Some(after) = std::env::var("FAKE_CLIAIRPLAY_EXIT_ONCE_MS")
         .ok()

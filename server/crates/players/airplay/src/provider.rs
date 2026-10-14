@@ -16,6 +16,7 @@ use bopsie_players::{Endpoint, Players};
 use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 
+use crate::dacp;
 use crate::discovery::{self, Directory, Sighting};
 use crate::endpoint::{AirplayEndpoint, Launcher};
 use crate::pidfile;
@@ -82,6 +83,8 @@ struct Inner {
     /// The PTP daemon's process id, while it runs.
     ptp: Mutex<Option<u32>>,
     mdns: Mutex<Option<mdns_sd::ServiceDaemon>>,
+    /// Where speakers send what their own controls ask for, once listening.
+    dacp_port: Mutex<Option<u16>>,
     /// The threads that keep the PTP daemon and discovery running.
     watchers: Mutex<Vec<std::thread::JoinHandle<()>>>,
     stopping: AtomicBool,
@@ -148,10 +151,81 @@ impl AirplayProvider {
                 pairing: Mutex::default(),
                 ptp: Mutex::default(),
                 mdns: Mutex::default(),
+                dacp_port: Mutex::default(),
                 watchers: Mutex::default(),
                 stopping: AtomicBool::new(false),
             }),
         })
+    }
+
+    /// Listens for what speakers' own controls ask for: their buttons, remotes and apps. A
+    /// request names the stream it is about by its `Active-Remote` id, which finds the speaker.
+    /// Needs a Tokio runtime; announced when discovery starts.
+    pub async fn listen_for_controls(&self) -> Result<u16> {
+        let listener = dacp::bind().await.map_err(|e| {
+            Error::new(
+                ErrorCode::SetupFailed,
+                format!("cannot listen for DACP: {e}"),
+            )
+        })?;
+        let port = listener.local_addr().map(|a| a.port()).unwrap_or_default();
+        *self.inner.dacp_port.lock().unwrap() = Some(port);
+        let provider = Arc::downgrade(&self.inner);
+        tokio::spawn(dacp::serve(
+            listener,
+            move |active_remote: &str, path: &str| {
+                let Some(inner) = provider.upgrade() else {
+                    return;
+                };
+                let endpoint = inner
+                    .endpoints
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .find(|e| e.active_remote() == active_remote)
+                    .cloned();
+                match (endpoint, dacp::parse(path)) {
+                    (Some(endpoint), Some(request)) => endpoint.dacp(request),
+                    (endpoint, _) => tracing::debug!(
+                        speaker = endpoint.map(|e| e.id().to_owned()),
+                        active_remote,
+                        path,
+                        "a DACP request not acted on"
+                    ),
+                }
+            },
+        ));
+        tracing::info!(port, "listening for speakers' own controls");
+        Ok(port)
+    }
+
+    /// Announces the DACP listener on `daemon`, so speakers find where to send their controls.
+    fn announce_controls(&self, daemon: &mdns_sd::ServiceDaemon) {
+        let Some(port) = *self.inner.dacp_port.lock().unwrap() else {
+            return;
+        };
+        let dacp_id = &self.inner.launcher.dacp_id;
+        let service = mdns_sd::ServiceInfo::new(
+            dacp::SERVICE,
+            &format!("iTunes_Ctrl_{dacp_id}"),
+            &format!("bopsie-{}.local.", dacp_id.to_lowercase()),
+            (),
+            port,
+            [
+                ("txtvers", "1"),
+                ("Ver", "63B5E5C0C201542E"),
+                ("DbId", "63B5E5C0C201542E"),
+                ("OSsi", "0x1F5"),
+            ]
+            .as_slice(),
+        )
+        .map(mdns_sd::ServiceInfo::enable_addr_auto);
+        match service.map(|service| daemon.register(service)) {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) | Err(error) => {
+                tracing::warn!(%error, "cannot announce where speakers send their controls");
+            }
+        }
     }
 
     /// Starts the PTP daemon, if configured, and browses the network for speakers. Both are
@@ -202,6 +276,7 @@ impl AirplayProvider {
             move |fullname| loser.lose(fullname),
         )
         .map_err(|e| Error::new(ErrorCode::SetupFailed, format!("cannot browse: {e}")))?;
+        self.announce_controls(&daemon);
         if let Some(old) = self.inner.mdns.lock().unwrap().replace(daemon) {
             let _ = old.shutdown();
         }

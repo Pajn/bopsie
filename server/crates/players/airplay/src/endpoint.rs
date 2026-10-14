@@ -1,8 +1,9 @@
 //! An AirPlay speaker as the rest of the server sees it.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
@@ -10,9 +11,10 @@ use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
 use bopsie_players::health::Event;
 use bopsie_players::{
-    Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing, Players,
+    Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing, Players, Remote,
 };
 
+use crate::dacp::Request;
 use crate::sink::AirplaySink;
 use crate::sink::CLOCK_PATIENCE;
 use crate::speaker::{Speaker, StreamOptions};
@@ -59,10 +61,17 @@ struct State {
     credentials: Option<String>,
     /// Why the speaker cannot be played, when a connection failed for good.
     failure: Option<String>,
+    /// The id the running process's stream goes by, which the speaker's DACP requests name.
+    active_remote: String,
+    /// When the server last set the volume: the speaker reports it back, which is no change.
+    volume_sent: Option<Instant>,
 }
 
 struct Shared {
     id: String,
+    /// Counts the times the speaker said it went to another source, so that a pause it sent
+    /// just before is not taken for a press.
+    released: AtomicU64,
     state: Mutex<State>,
     players: Players,
 }
@@ -84,6 +93,7 @@ impl AirplayEndpoint {
         let id = speaker.id.clone();
         let shared = Arc::new(Shared {
             id: id.clone(),
+            released: AtomicU64::new(0),
             state: Mutex::new(State {
                 speaker,
                 discovered: true,
@@ -91,6 +101,8 @@ impl AirplayEndpoint {
                 muted: false,
                 credentials,
                 failure: None,
+                active_remote: String::new(),
+                volume_sent: None,
             }),
             players,
         });
@@ -196,6 +208,60 @@ impl AirplayEndpoint {
         self.shared.players.changed(&self.shared.id);
     }
 
+    /// The id the running stream goes by in the speaker's DACP requests.
+    pub fn active_remote(&self) -> String {
+        self.shared.state.lock().unwrap().active_remote.clone()
+    }
+
+    /// What the speaker's DACP request asked for.
+    pub fn dacp(&self, request: Request) {
+        let shared = &self.shared;
+        match request {
+            Request::Remote(remote) => shared.players.remote(&shared.id, remote),
+            Request::DiscretePause => {
+                // Acted on unless the speaker says, within the second, that it went to
+                // another source: then it was that, not a press.
+                let released = shared.released.load(Ordering::SeqCst);
+                let shared = shared.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(DISCRETE_PAUSE_WAIT);
+                    if shared.released.load(Ordering::SeqCst) == released {
+                        shared.players.remote(&shared.id, Remote::Pause);
+                    }
+                });
+            }
+            Request::PreventPlayback(true) => {
+                shared.released.fetch_add(1, Ordering::SeqCst);
+                // Some speakers say so for a moment while a stream sets up.
+                if self.supervisor.is_streaming() {
+                    shared.players.remote(&shared.id, Remote::Released);
+                }
+            }
+            Request::PreventPlayback(false) => {}
+            Request::Volume(volume) => {
+                {
+                    let mut state = shared.state.lock().unwrap();
+                    // The speaker reports back each volume it is set to.
+                    if state
+                        .volume_sent
+                        .is_some_and(|sent| sent.elapsed() < VOLUME_ECHO)
+                    {
+                        return;
+                    }
+                    match volume {
+                        Some(volume) => {
+                            state.volume = volume;
+                            state.muted = false;
+                        }
+                        None => state.muted = true,
+                    }
+                }
+                tracing::info!(speaker = shared.id, ?volume, "the speaker's own volume");
+                shared.players.changed(&shared.id);
+            }
+        }
+    }
+
     pub fn supervisor(&self) -> &Supervisor {
         &self.supervisor
     }
@@ -209,11 +275,12 @@ impl AirplayEndpoint {
 }
 
 fn launch(shared: &Shared, launcher: &Launcher) -> Launch {
-    let state = shared.state.lock().unwrap();
+    let mut state = shared.state.lock().unwrap();
+    state.active_remote = format!("{}", rand_u32());
     let cmdpipe = launcher.pipes.join(format!("{}.fifo", shared.id));
     let options = StreamOptions {
         dacp_id: launcher.dacp_id.clone(),
-        active_remote: format!("{}", rand_u32()),
+        active_remote: state.active_remote.clone(),
         sample_rate: FORMAT.sample_rate,
         bit_depth: FORMAT.bits,
         volume: Some(if state.muted { 0 } else { state.volume }),
@@ -230,6 +297,11 @@ fn launch(shared: &Shared, launcher: &Launcher) -> Launch {
         env: launcher.env.clone(),
     }
 }
+
+/// How long a discrete pause waits for the speaker to say it went to another source instead.
+const DISCRETE_PAUSE_WAIT: Duration = Duration::from_secs(1);
+/// How long after the server sets the volume a report of it is taken for the speaker's echo.
+const VOLUME_ECHO: Duration = Duration::from_secs(2);
 
 /// An Active-Remote id: any number, new for each process.
 fn rand_u32() -> u32 {
@@ -309,6 +381,10 @@ impl Shared {
                     self.players.changed(&self.id);
                 }
             }
+            Status::Remote { command } => match Remote::from_name(command) {
+                Some(remote) => self.players.remote(&self.id, remote),
+                None => tracing::debug!(speaker = self.id, command, "an unknown remote command"),
+            },
             Status::ClockReady { state, .. } if state == "stalled" => {
                 tracing::warn!(
                     speaker = self.id,
@@ -409,7 +485,11 @@ impl Endpoint for AirplayEndpoint {
     }
 
     fn set_volume(&self, volume: u8) {
-        self.shared.state.lock().unwrap().volume = volume;
+        {
+            let mut state = self.shared.state.lock().unwrap();
+            state.volume = volume;
+            state.volume_sent = Some(Instant::now());
+        }
         self.command(vec![format!("VOLUME={volume}")]);
         self.shared.players.changed(&self.shared.id);
     }

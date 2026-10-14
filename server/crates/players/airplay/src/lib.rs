@@ -1,6 +1,7 @@
 //! The AirPlay `PlayerProvider`: mDNS discovery of `_raop` and `_airplay`, pairing, the
 //! `cliairplay` supervisor and the shared PTP daemon.
 
+pub mod dacp;
 pub mod discovery;
 pub mod endpoint;
 pub mod pidfile;

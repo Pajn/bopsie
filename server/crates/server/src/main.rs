@@ -235,6 +235,10 @@ async fn start_airplay(config: &Config, players: Players, db: Database) -> Optio
             return None;
         }
     };
+    // Before discovery, which announces where speakers send their own controls.
+    if let Err(error) = provider.listen_for_controls().await {
+        tracing::warn!(%error, "speakers' own controls will do nothing");
+    }
     if let Err(error) = provider.discover() {
         tracing::error!(%error, "AirPlay discovery could not start");
     }
