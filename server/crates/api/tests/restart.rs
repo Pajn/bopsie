@@ -101,10 +101,15 @@ async fn queues_groups_and_volumes_outlast_a_restart() {
             > 1.0
     })
     .await;
-    first.playback.save(true).await;
     let elapsed = first.playback.queue("kitchen").unwrap()["elapsed_time"]
         .as_f64()
         .unwrap();
+    first.playback.shutdown().await;
+    assert_eq!(
+        first.playback.queue("kitchen").unwrap()["state"],
+        "idle",
+        "stopped at shutdown"
+    );
     drop(kitchen);
 
     let second = run(dir.path()).await;

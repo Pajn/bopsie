@@ -26,8 +26,8 @@ use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
-/// How long open connections get to finish once shutdown starts.
-const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// How long shutdown may take, from stopping playback to closing the last connection.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 
 /// A music server that speaks the part of the Music Assistant API Bopsie uses.
 #[derive(Parser)]
@@ -106,7 +106,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         library: library.clone(),
         events,
         players,
-        playback,
+        playback: playback.clone(),
         airplay: airplay.clone(),
     };
     let api = Api::new(db, config.server.clone(), services, commands::registry()).await?;
@@ -123,13 +123,21 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             },
         ),
     );
+    let (closing, closed) = tokio::sync::watch::channel(false);
+    let until_closed = move || {
+        let mut closed = closed.clone();
+        async move {
+            let _ = closed.wait_for(|closed| *closed).await;
+        }
+    };
     let sendspin_listener = TcpListener::bind(config.sendspin.bind).await?;
     tracing::info!(address = %sendspin_listener.local_addr()?, "Sendspin listening");
-    tokio::spawn(
+    let direct_server = tokio::spawn(
         axum::serve(
             sendspin_listener,
             direct.into_make_service_with_connect_info::<SocketAddr>(),
         )
+        .with_graceful_shutdown(until_closed())
         .into_future(),
     );
 
@@ -143,27 +151,31 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(config.server.bind).await?;
     tracing::info!(address = %listener.local_addr()?, "listening");
 
-    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(
         axum::serve(
             listener,
             router(api).into_make_service_with_connect_info::<SocketAddr>(),
         )
-        .with_graceful_shutdown(async {
-            let _ = stopped.await;
-        })
+        .with_graceful_shutdown(until_closed())
         .into_future(),
     );
     shutdown_signal().await;
     tracing::info!("shutting down");
-    if let Some(airplay) = &airplay {
-        airplay.shutdown();
-    }
-    let _ = stop.send(());
-    // WebSocket clients stay connected until told otherwise, so the wait is bounded.
-    match tokio::time::timeout(SHUTDOWN_GRACE, server).await {
+    // Playback first, while speakers can still be told; then AirPlay's processes; then the
+    // listeners. WebSocket clients stay connected until told otherwise, so all of it is
+    // bounded.
+    let shutdown = async {
+        playback.shutdown().await;
+        if let Some(airplay) = airplay {
+            let _ = tokio::task::spawn_blocking(move || airplay.shutdown()).await;
+        }
+        let _ = closing.send(true);
+        let _ = direct_server.await;
+        server.await
+    };
+    match tokio::time::timeout(SHUTDOWN_GRACE, shutdown).await {
         Ok(result) => result??,
-        Err(_) => tracing::info!("closing the connections still open"),
+        Err(_) => tracing::info!("closing what is still open"),
     }
     Ok(())
 }

@@ -9,6 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -93,6 +94,8 @@ struct Inner {
     last_saved: Mutex<BTreeMap<String, (SavedQueue, Instant)>>,
     last_groups: Mutex<Option<BTreeMap<String, String>>>,
     last_volumes: Mutex<BTreeMap<String, (u8, bool)>>,
+    /// Shutting down: nothing more is saved.
+    closing: AtomicBool,
     rng: Mutex<StdRng>,
 }
 
@@ -164,6 +167,7 @@ impl Playback {
                 last_saved: Mutex::default(),
                 last_groups: Mutex::default(),
                 last_volumes: Mutex::default(),
+                closing: AtomicBool::new(false),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
             }),
         };
@@ -358,12 +362,40 @@ impl Playback {
         Ok(())
     }
 
+    /// Saves everything, as it is now, then stops every session: outputs finish, AirPlay
+    /// speakers are flushed and Sendspin clients told the stream ended. Nothing is saved after,
+    /// so the next start finds each queue where it was playing, not stopped.
+    pub async fn shutdown(&self) {
+        self.save(true).await;
+        self.inner.closing.store(true, Ordering::SeqCst);
+        let sessions: Vec<QueueSession> = self
+            .inner
+            .entries
+            .lock()
+            .unwrap()
+            .values()
+            .map(|entry| entry.session.clone())
+            .collect();
+        let _ = tokio::task::spawn_blocking(move || {
+            for session in sessions {
+                if session.snapshot().state != PlaybackState::Idle {
+                    session.stop();
+                }
+                session.shutdown();
+            }
+        })
+        .await;
+    }
+
     /// Writes what changed since the last save, or everything with `all`; the position of
     /// a playing queue at most every [`POSITION_EVERY`].
     pub async fn save(&self, all: bool) {
         let Some(db) = self.inner.db.get() else {
             return;
         };
+        if self.inner.closing.load(Ordering::SeqCst) {
+            return;
+        }
         let entries: Vec<(String, Entry)> = self
             .inner
             .entries
