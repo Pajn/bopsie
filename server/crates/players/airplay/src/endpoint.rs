@@ -8,6 +8,7 @@ use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
+use bopsie_players::health::Event;
 use bopsie_players::{
     Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing, Players,
 };
@@ -16,7 +17,7 @@ use crate::sink::AirplaySink;
 use crate::sink::CLOCK_PATIENCE;
 use crate::speaker::{Speaker, StreamOptions};
 use crate::status::Status;
-use crate::supervisor::{ClockStart, Launch, Supervisor};
+use crate::supervisor::{ClockStart, LATE_TOLERANCE_MS, Launch, Supervisor};
 
 /// The format `cliairplay` takes on every route: 16-bit stereo at 44.1 kHz.
 pub const FORMAT: OutputFormat = OutputFormat {
@@ -108,8 +109,11 @@ impl AirplayEndpoint {
                     shared.observe(status);
                 }
             },
-            move || {
+            move |expected| {
                 if let Some(shared) = for_exit.upgrade() {
+                    if !expected {
+                        shared.players.record(&shared.id, Event::Exited);
+                    }
                     shared.players.changed(&shared.id);
                 }
             },
@@ -261,6 +265,9 @@ impl Shared {
         endpoint
     }
     fn observe(&self, status: &Status) {
+        if let Some(event) = telemetry(status) {
+            self.players.record(&self.id, event);
+        }
         match status {
             Status::Connected => {
                 let had_failure = self.state.lock().unwrap().failure.take().is_some();
@@ -288,6 +295,28 @@ impl Shared {
             }
             _ => {}
         }
+    }
+}
+
+/// What a status line says about the speaker's health.
+fn telemetry(status: &Status) -> Option<Event> {
+    match status {
+        Status::Connected => Some(Event::Connected),
+        Status::Error { .. } if status.is_terminal() => Some(Event::ConnectFailed),
+        Status::ClockReady { state, .. } => match state.as_str() {
+            "ready" => Some(Event::ClockReady),
+            "stalled" => Some(Event::ClockStalled),
+            _ => None,
+        },
+        Status::Started {
+            requested_unix_ms,
+            at_unix_ms,
+        } => Some(if *at_unix_ms > requested_unix_ms + LATE_TOLERANCE_MS {
+            Event::LateStart
+        } else {
+            Event::Started
+        }),
+        _ => None,
     }
 }
 

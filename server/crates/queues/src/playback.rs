@@ -734,6 +734,7 @@ impl Playback {
         Some(model::player(
             id,
             &state,
+            &self.inner.players.health(id),
             &Grouping {
                 synced_to: entry.synced_to.as_deref(),
                 members: &entry.members,

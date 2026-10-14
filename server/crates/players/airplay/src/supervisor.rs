@@ -114,7 +114,7 @@ struct Inner {
     id: String,
     make_launch: Box<dyn Fn() -> Result<Launch, String> + Send + Sync>,
     on_status: Box<dyn Fn(&Status) + Send + Sync>,
-    on_exit: Box<dyn Fn() + Send + Sync>,
+    on_exit: Box<dyn Fn(bool) + Send + Sync>,
     running: Mutex<Option<Running>>,
     stdin: Mutex<Option<ChildStdin>>,
     pipe: Mutex<Option<File>>,
@@ -130,6 +130,8 @@ struct Inner {
     last_failure: Mutex<Option<Failure>>,
     /// When the process last took audio, or started.
     last_active: Mutex<Instant>,
+    /// The running process was told to end, so its exit is expected.
+    ending: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone)]
@@ -140,12 +142,12 @@ pub struct Supervisor {
 impl Supervisor {
     /// `make_launch` builds the launch when a process starts, so that it carries the volume,
     /// credentials and password current at that moment. `on_status` hears every line, and
-    /// `on_exit` that a process ended.
+    /// `on_exit` that a process ended, and whether it was told to.
     pub fn new(
         id: &str,
         make_launch: impl Fn() -> Result<Launch, String> + Send + Sync + 'static,
         on_status: impl Fn(&Status) + Send + Sync + 'static,
-        on_exit: impl Fn() + Send + Sync + 'static,
+        on_exit: impl Fn(bool) + Send + Sync + 'static,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -164,6 +166,7 @@ impl Supervisor {
                 connecting: std::sync::atomic::AtomicBool::new(false),
                 last_failure: Mutex::default(),
                 last_active: Mutex::new(Instant::now()),
+                ending: std::sync::atomic::AtomicBool::new(false),
             }),
         }
     }
@@ -300,6 +303,9 @@ impl Supervisor {
         self.read_lines(stdout, generation, false);
         self.read_lines(stderr, generation, true);
         *self.inner.stdin.lock().unwrap() = child.stdin.take();
+        self.inner
+            .ending
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         *self.inner.running.lock().unwrap() = Some(Running { child, generation });
         *self.inner.last_active.lock().unwrap() = Instant::now();
 
@@ -367,7 +373,11 @@ impl Supervisor {
                     supervisor.signals_mut().exited = true;
                     supervisor.inner.changed.notify_all();
                     tracing::info!(speaker = supervisor.inner.id, "cliairplay exited");
-                    (supervisor.inner.on_exit)();
+                    let expected = supervisor
+                        .inner
+                        .ending
+                        .load(std::sync::atomic::Ordering::SeqCst);
+                    (supervisor.inner.on_exit)(expected);
                 }
             })
             .expect("spawning a reader thread");
@@ -520,6 +530,9 @@ impl Supervisor {
 
     /// Ends the session cleanly, so the speaker knows it is over, then the process.
     pub fn disconnect(&self) {
+        self.inner
+            .ending
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         if self.command(&["ACTION=DISCONNECT".into()]).is_ok() {
             let _ = self.wait("the disconnection", DISCONNECT_TIMEOUT, |s| s.exited);
         }
@@ -528,6 +541,9 @@ impl Supervisor {
 
     /// Ends the process, if one runs.
     pub fn kill(&self) {
+        self.inner
+            .ending
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let running = self.inner.running.lock().unwrap().take();
         *self.inner.pipe.lock().unwrap() = None;
         *self.inner.stdin.lock().unwrap() = None;

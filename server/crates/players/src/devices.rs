@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use bopsie_core::db::{Database, Migrations};
 use tokio::sync::broadcast;
 
+use crate::health::Health;
 use crate::linking::{assign, link};
 use crate::{Change, Endpoint, EndpointState, Players};
 
@@ -33,6 +34,7 @@ pub struct Member {
     pub id: String,
     pub endpoint: Arc<dyn Endpoint>,
     pub state: EndpointState,
+    pub health: Health,
 }
 
 /// A device as it is now.
@@ -144,6 +146,7 @@ impl Devices {
             .map(|endpoint| Member {
                 id: endpoint.id().to_owned(),
                 state: endpoint.state(),
+                health: self.inner.players.health(endpoint.id()),
                 endpoint,
             })
             .collect();

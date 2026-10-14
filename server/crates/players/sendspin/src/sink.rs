@@ -11,6 +11,8 @@ use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
 
+use bopsie_players::health::Event;
+
 use crate::connection::{Outgoing, Shared};
 use crate::pacer::Pacer;
 use crate::wire::{self, AUDIO_HEADER_BYTES, Codec, StreamFormat};
@@ -107,6 +109,9 @@ impl SendspinSink {
         if timestamp + duration <= clock::now() {
             // Too late to play; the client would drop it.
             tracing::debug!(client = self.shared.id, "dropping a late chunk");
+            self.shared
+                .players
+                .record(&self.shared.id, Event::LateChunk);
             return Ok(());
         }
         let _ = self

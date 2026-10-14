@@ -5,6 +5,7 @@
 
 pub mod devices;
 mod facts;
+pub mod health;
 pub mod linking;
 pub mod quirks;
 
@@ -102,6 +103,8 @@ pub struct Players {
     changes: broadcast::Sender<Change>,
     /// The config file's settings, by player id.
     settings: Arc<BTreeMap<String, PlayerConfig>>,
+    /// What outputs saw of each endpoint.
+    logs: Arc<Mutex<BTreeMap<String, health::Log>>>,
 }
 
 impl Default for Players {
@@ -117,7 +120,32 @@ impl Players {
             endpoints: Arc::default(),
             changes: broadcast::channel(256).0,
             settings: Arc::new(settings),
+            logs: Arc::default(),
         }
+    }
+
+    /// Records what an output saw of endpoint `id`, announcing a change in its health level.
+    pub fn record(&self, id: &str, event: health::Event) {
+        tracing::debug!(endpoint = id, ?event, "telemetry");
+        let changed = self
+            .logs
+            .lock()
+            .unwrap()
+            .entry(id.to_owned())
+            .or_default()
+            .record(event, std::time::Instant::now());
+        if changed {
+            self.changed(id);
+        }
+    }
+
+    pub fn health(&self, id: &str) -> health::Health {
+        self.logs
+            .lock()
+            .unwrap()
+            .get(id)
+            .map(|log| log.health(std::time::Instant::now()))
+            .unwrap_or_default()
     }
 
     /// The config file's settings for `id`.

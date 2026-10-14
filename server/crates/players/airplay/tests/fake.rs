@@ -12,6 +12,7 @@ use bopsie_audio::timeline::Timeline;
 use bopsie_core::clock;
 use bopsie_core::config::PlayerConfig;
 use bopsie_fixtures::{noise, write_wav};
+use bopsie_players::health::{Event as HealthEvent, Level};
 use bopsie_players::quirks::{AirplayProtocol, Quirks, Timing};
 use bopsie_players::{Endpoint, NowPlaying, Players};
 use bopsie_players_airplay::endpoint::{AirplayEndpoint, FORMAT, Launcher};
@@ -23,6 +24,7 @@ const LEAD: i64 = 400_000;
 struct Fake {
     dir: tempfile::TempDir,
     endpoint: Arc<AirplayEndpoint>,
+    players: Players,
 }
 
 fn speaker(flags: &str) -> Speaker {
@@ -78,8 +80,12 @@ fn fake_in(env: &[(&str, &str)], flags: &str, players: Players) -> Fake {
         env: all_env,
         ptp_shared: Arc::new(Mutex::new(false)),
     };
-    let endpoint = AirplayEndpoint::new(speaker(flags), launcher, None, None, players);
-    Fake { dir, endpoint }
+    let endpoint = AirplayEndpoint::new(speaker(flags), launcher, None, None, players.clone());
+    Fake {
+        dir,
+        endpoint,
+        players,
+    }
 }
 
 fn fake() -> Fake {
@@ -403,6 +409,8 @@ fn a_start_the_speaker_moves_later_is_started_again_in_step() {
     let _ = until_idle(&mut handle);
     handle.shutdown();
     assert!(fake.endpoint.supervisor().signals().corrections >= 1);
+    let health = fake.players.health("apaabbcc001122");
+    assert!(health.counts[&HealthEvent::LateStart] >= 1);
     let actions = fake.actions();
     assert_eq!(
         &actions[..3],
@@ -418,6 +426,9 @@ fn an_authentication_failure_makes_the_speaker_unavailable() {
     let error = fake.endpoint.supervisor().ensure_connected().unwrap_err();
     assert!(error.to_string().starts_with("auth_required"), "{error}");
     assert!(eventually(|| !fake.endpoint.state().available));
+    let health = fake.players.health("apaabbcc001122");
+    assert_eq!(health.level, Level::Failing);
+    assert_eq!(health.counts[&HealthEvent::ConnectFailed], 1);
 }
 
 #[test]
@@ -511,4 +522,33 @@ fn an_idle_speaker_is_disconnected_when_its_quirk_says_so() {
     plain.endpoint.prepare();
     std::thread::sleep(Duration::from_millis(2_500));
     assert!(plain.endpoint.supervisor().is_running());
+}
+
+#[test]
+fn health_follows_what_the_speaker_does() {
+    let fake = fake();
+    let health = || fake.players.health("apaabbcc001122");
+    let (mut handle, _) = session(&fake, &noise(8, 4_410 * 2));
+    let _ = until_idle(&mut handle);
+    handle.shutdown();
+    assert_eq!(health().level, Level::Good);
+    assert_eq!(health().counts[&HealthEvent::Connected], 1);
+    assert_eq!(health().counts[&HealthEvent::Started], 1);
+
+    // Ended by the server: not a failure.
+    fake.endpoint.supervisor().kill();
+    assert!(eventually(|| !fake.endpoint.supervisor().is_running()));
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(!health().counts.contains_key(&HealthEvent::Exited));
+
+    // Ended on its own: failing until it works again.
+    fake.endpoint.prepare();
+    fake.endpoint
+        .supervisor()
+        .command(&["ACTION=STOP".into()])
+        .unwrap();
+    assert!(eventually(|| health().level == Level::Failing));
+    assert_eq!(health().counts[&HealthEvent::Exited], 1);
+    fake.endpoint.prepare();
+    assert!(eventually(|| health().level == Level::Good));
 }

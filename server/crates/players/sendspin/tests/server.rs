@@ -373,4 +373,17 @@ async fn a_client_that_leaves_becomes_unavailable() {
         .await;
     while changes.recv().await.unwrap() != Change::Updated("phone".to_owned()) {}
     assert!(!players.get("phone").unwrap().state().available);
+    assert!(players.health("phone").counts.is_empty(), "it said goodbye");
+}
+
+#[tokio::test]
+async fn a_client_whose_connection_drops_is_counted() {
+    let (addr, players) = start().await;
+    let client = Client::connect(addr, "phone", 1_048_576).await;
+    registered(&players, "phone").await;
+    let mut changes = players.subscribe();
+    drop(client);
+    while changes.recv().await.unwrap() != Change::Updated("phone".to_owned()) {}
+    let health = players.health("phone");
+    assert_eq!(health.counts[&bopsie_players::health::Event::Dropped], 1);
 }

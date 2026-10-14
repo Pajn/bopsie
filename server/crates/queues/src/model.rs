@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bopsie_core::media::Track;
 use bopsie_players::EndpointState;
+use bopsie_players::health::Health;
 use serde_json::{Value, json};
 
 use crate::state::{PlaybackState, Queue, QueueItem, RepeatMode};
@@ -146,6 +147,7 @@ pub struct Grouping<'a> {
 pub fn player(
     id: &str,
     endpoint: &EndpointState,
+    health: &Health,
     grouping: &Grouping<'_>,
     playback: &PlayerPlayback<'_>,
     viewer_owns: bool,
@@ -221,7 +223,7 @@ pub fn player(
         "icon": if endpoint.app { "smartphone" } else { "speaker" },
         "group_volume": grouping.group_volume.or(endpoint.volume),
         "group_volume_muted": false,
-        "extra_attributes": {},
+        "extra_attributes": {"health": health},
         "power_control": "none",
         "volume_control": "native",
         "mute_control": "native",

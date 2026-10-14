@@ -11,6 +11,7 @@ use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
+use bopsie_players::health::Event;
 use bopsie_players::{
     Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Pairing, Players,
 };
@@ -79,7 +80,7 @@ pub(crate) struct Shared {
     /// Counts streams started, so a delayed `stream/end` does not end a newer stream.
     pub generation: AtomicU64,
     pub runtime: Handle,
-    players: Players,
+    pub players: Players,
 }
 
 impl Shared {
@@ -294,6 +295,7 @@ impl SendspinServer {
             players: self.players.clone(),
         });
         let mut registered = false;
+        let mut said_goodbye = false;
         tracing::info!(client = id, name = hello.name, "Sendspin client connected");
 
         while let Some(Ok(message)) = stream.next().await {
@@ -344,6 +346,7 @@ impl SendspinServer {
                 }
                 ClientMessage::Goodbye { reason } => {
                     tracing::info!(client = id, reason, "Sendspin client said goodbye");
+                    said_goodbye = true;
                     break;
                 }
                 ClientMessage::Hello(_) | ClientMessage::Command(_) | ClientMessage::Other(_) => {}
@@ -352,6 +355,9 @@ impl SendspinServer {
 
         shared.info.lock().unwrap().connected = false;
         if registered {
+            if !said_goodbye {
+                self.players.record(&id, Event::Dropped);
+            }
             self.players.changed(&id);
         }
         tracing::info!(client = id, "Sendspin client disconnected");
