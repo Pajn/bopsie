@@ -13,6 +13,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { describeError } from '@/lib/errors';
 import { Badge, Button, Card, Choice, InlineError, Stack, Text, TextField } from '@/ui/primitives';
+import { describeSource } from './model';
 
 /** Runs a change, then reads the admin views again; says what went wrong. */
 function useSave() {
@@ -350,6 +351,30 @@ export function PlayerSettings({ device }: { device: AdminDevice }) {
             layer={settings.max_volume.layer}
             onReset={() => void update({ max_volume: null })}
           />
+        </Stack>
+      </Row>
+      <Row
+        label="Spotify Connect"
+        hint="Shows in the Spotify app; picking it plays Spotify to this player's group"
+      >
+        <Stack gap="xs">
+          <Stack horizontal gap="xs">
+            <Button
+              title={settings.spotify_connect.value ? 'On' : 'Off'}
+              variant={settings.spotify_connect.value ? 'primary' : 'secondary'}
+              loading={busy}
+              onPress={() => void update({ spotify_connect: !settings.spotify_connect.value })}
+            />
+            <Layer
+              layer={settings.spotify_connect.layer}
+              onReset={() => void update({ spotify_connect: null })}
+            />
+          </Stack>
+          {device.sources.map((source) => (
+            <Text key={source.id} variant="caption" muted>
+              {describeSource(source)}
+            </Text>
+          ))}
         </Stack>
       </Row>
       <InlineError message={error} />

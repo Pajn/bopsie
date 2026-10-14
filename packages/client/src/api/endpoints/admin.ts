@@ -29,7 +29,12 @@ export const adminLogs = (connection: MaConnection, after?: number, limit?: numb
 export const updatePlayerSettings = (
   connection: MaConnection,
   playerId: string,
-  changes: { name?: string | null; enabled?: boolean | null; max_volume?: number | null },
+  changes: {
+    name?: string | null;
+    enabled?: boolean | null;
+    max_volume?: number | null;
+    spotify_connect?: boolean | null;
+  },
 ) => connection.command<void>('admin/player/update', { player_id: playerId, ...changes });
 
 /**

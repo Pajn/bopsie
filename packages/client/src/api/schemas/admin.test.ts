@@ -11,7 +11,18 @@ test('an admin device reads as the server writes it', () => {
       name: { value: 'Kitchen', layer: 'saved' },
       enabled: { value: true, layer: 'default' },
       max_volume: { value: 40, layer: 'config' },
+      spotify_connect: { value: true, layer: 'default' },
     },
+    sources: [
+      {
+        id: 'spotify_connect--kitchen',
+        name: 'Spotify',
+        connected: true,
+        playing: true,
+        title: 'Step on You',
+        artist: null,
+      },
+    ],
     members: [
       {
         id: 'kitchen',
@@ -66,6 +77,7 @@ test('an admin device reads as the server writes it', () => {
   expect(parsed.members[0]?.quirk_sources.timing).toEqual({ layer: 'rule', name: 'sonos' });
   expect(parsed.members[0]?.health.recent[0]?.event).toBe('started');
   expect(parsed.settings.max_volume).toEqual({ value: 40, layer: 'config' });
+  expect(parsed.sources[0]?.title).toBe('Step on You');
 });
 
 test('a group without a plan reads', () => {

@@ -1,6 +1,6 @@
 import type { AdminDevice, AdminGroup } from '@bopsie/client/api/schemas/admin';
 import type { Player } from '@bopsie/client/api/schemas/player';
-import { playerRows, queueOf, worst } from './model';
+import { describeSource, playerRows, queueOf, worst } from './model';
 
 function device(id: string, name: string, available: boolean, levels: string[]): AdminDevice {
   return {
@@ -57,4 +57,20 @@ test('rows join devices, players and groups', () => {
   expect(kitchen?.strategy).toBe('airplay_direct');
   expect(bedroom?.follows).toBe('Kitchen');
   expect(bedroom && queueOf(bedroom)).toBe('kitchen');
+});
+
+test('a source says what it does', () => {
+  const source = {
+    id: 'spotify_connect--kitchen',
+    name: 'Spotify',
+    connected: true,
+    playing: true,
+    title: 'Teardrop',
+    artist: 'Massive Attack',
+  };
+  expect(describeSource(source)).toBe('Spotify: playing Teardrop by Massive Attack');
+  expect(describeSource({ ...source, playing: false, artist: null })).toBe(
+    'Spotify: paused on Teardrop',
+  );
+  expect(describeSource({ ...source, connected: false })).toBe('Spotify: waiting to be picked');
 });

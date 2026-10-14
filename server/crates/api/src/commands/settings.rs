@@ -33,13 +33,16 @@ pub struct PlayerUpdateArgs {
     /// The loudest the player may be set, 0 to 100. The server holds it there.
     #[serde(default, deserialize_with = "present")]
     pub max_volume: Option<Option<u8>>,
+    /// Whether the player shows in the Spotify app as a Spotify Connect device.
+    #[serde(default, deserialize_with = "present")]
+    pub spotify_connect: Option<Option<bool>>,
 }
 
 pub struct PlayerUpdate;
 impl Command for PlayerUpdate {
     const NAME: &'static str = "admin/player/update";
     const ACCESS: Access = Access::Scope(Scope::Admin);
-    const SUMMARY: &'static str = "Save a player's name, whether it is enabled, and its maximum volume, over the config file.";
+    const SUMMARY: &'static str = "Save a player's name, whether it is enabled, its maximum volume and whether it is a Spotify Connect device, over the config file.";
     type Args = PlayerUpdateArgs;
     type Output = ();
 
@@ -66,6 +69,9 @@ impl Command for PlayerUpdate {
                 return Err(invalid("max_volume is 0 to 100"));
             }
             saved.max_volume = max_volume;
+        }
+        if let Some(spotify_connect) = args.spotify_connect {
+            saved.spotify_connect = spotify_connect;
         }
         players.save_device(&device.id, saved).await?;
         // Clients hear of it as of any change to the device's endpoints.

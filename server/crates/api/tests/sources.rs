@@ -267,6 +267,16 @@ async fn a_speaker_that_joins_a_group_playing_a_source_plays_it_too() {
     )
     .await;
     assert_eq!(bedroom.frames(), 0);
+    let devices = client.result("admin/devices", json!({})).await;
+    let kitchen_device = devices
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["id"] == "kitchen")
+        .unwrap();
+    assert_eq!(kitchen_device["sources"][0]["id"], "fake--kitchen");
+    assert_eq!(kitchen_device["sources"][0]["playing"], true);
+    assert_eq!(kitchen_device["sources"][0]["title"], "A Spotify Song");
     client
         .result(
             "players/cmd/group",

@@ -1,4 +1,4 @@
-import type { AdminDevice, AdminGroup } from '@bopsie/client/api/schemas/admin';
+import type { AdminDevice, AdminGroup, AdminSource } from '@bopsie/client/api/schemas/admin';
 import type { Player } from '@bopsie/client/api/schemas/player';
 import type { Tone } from '@/ui/primitives';
 
@@ -68,4 +68,13 @@ export function playerRows(
 /** The queue a player's controls act on: its leader's while it follows one. */
 export function queueOf(row: PlayerRow): string {
   return row.player?.synced_to ?? row.id;
+}
+
+/** What a source is doing, in a line: such as `Spotify: playing Teardrop by Massive Attack`. */
+export function describeSource(source: AdminSource): string {
+  if (!source.connected) return `${source.name}: waiting to be picked`;
+  const what = source.title
+    ? `${source.title}${source.artist ? ` by ${source.artist}` : ''}`
+    : 'nothing yet';
+  return `${source.name}: ${source.playing ? 'playing' : 'paused on'} ${what}`;
 }

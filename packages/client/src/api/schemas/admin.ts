@@ -70,6 +70,18 @@ export const adminEndpoint = z.looseObject({
 });
 export type AdminEndpoint = z.infer<typeof adminEndpoint>;
 
+/** A source announced for a device, as it stands. */
+export const adminSource = z.looseObject({
+  id: z.string(),
+  name: z.string(),
+  /** Someone picked it, as in the Spotify app, and it has a session. */
+  connected: z.boolean(),
+  playing: z.boolean(),
+  title: z.nullish(z.string()),
+  artist: z.nullish(z.string()),
+});
+export type AdminSource = z.infer<typeof adminSource>;
+
 export const adminDevice = z.looseObject({
   id: z.string(),
   name: z.string(),
@@ -80,8 +92,12 @@ export const adminDevice = z.looseObject({
     name: sourced(z.nullable(z.string())),
     enabled: sourced(z.boolean()),
     max_volume: sourced(z.nullable(z.number())),
+    /** Whether it shows in the Spotify app as a Spotify Connect device. */
+    spotify_connect: sourced(z.boolean()),
   }),
   members: z.array(adminEndpoint),
+  /** The sources announced for it, such as its Spotify Connect device. */
+  sources: z.array(adminSource),
 });
 export type AdminDevice = z.infer<typeof adminDevice>;
 

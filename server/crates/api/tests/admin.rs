@@ -182,6 +182,22 @@ async fn a_rename_reaches_every_client_and_clears_back() {
         settings["max_volume"],
         json!({"value": 40, "layer": "saved"})
     );
+    assert_eq!(
+        settings["spotify_connect"],
+        json!({"value": true, "layer": "default"})
+    );
+    client
+        .result(
+            "admin/player/update",
+            json!({"player_id": "kitchen", "spotify_connect": false}),
+        )
+        .await;
+    let devices = client.result("admin/devices", json!({})).await;
+    assert_eq!(
+        device(&devices, "kitchen")["settings"]["spotify_connect"],
+        json!({"value": false, "layer": "saved"})
+    );
+    assert_eq!(device(&devices, "kitchen")["sources"], json!([]));
 
     // Cleared, the name is the speaker's own again; what was not mentioned stays.
     client

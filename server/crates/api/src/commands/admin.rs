@@ -37,6 +37,21 @@ pub struct DeviceView {
     pub settings: DeviceSettingsView,
     /// Its endpoints, in order of protocol preference.
     pub members: Vec<EndpointView>,
+    /// The sources announced for it, such as its Spotify Connect device.
+    pub sources: Vec<SourceView>,
+}
+
+/// A source announced for a device, as it stands.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SourceView {
+    pub id: String,
+    pub name: String,
+    /// Someone picked it, as in the Spotify app, and it has a session.
+    pub connected: bool,
+    pub playing: bool,
+    /// What it plays: title, and artist when known.
+    pub title: Option<String>,
+    pub artist: Option<String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -44,6 +59,7 @@ pub struct DeviceSettingsView {
     pub name: SourcedView<Option<String>>,
     pub enabled: SourcedView<bool>,
     pub max_volume: SourcedView<Option<u8>>,
+    pub spotify_connect: SourcedView<bool>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -272,12 +288,30 @@ fn device(ctx: &Context, device: &Device) -> DeviceView {
                 name: sourced(settings.name, |v| v),
                 enabled: sourced(settings.enabled, |v| v),
                 max_volume: sourced(settings.max_volume, |v| v),
+                spotify_connect: sourced(settings.spotify_connect, |v| v),
             }
         },
         members: device
             .members
             .iter()
             .map(|member| endpoint(ctx, member))
+            .collect(),
+        sources: ctx
+            .api
+            .sources
+            .of_player(&device.id)
+            .iter()
+            .map(|source| {
+                let state = source.state();
+                SourceView {
+                    id: source.id().to_owned(),
+                    name: source.name(),
+                    connected: state.connected,
+                    playing: state.playing,
+                    title: state.media.as_ref().map(|m| m.title.clone()),
+                    artist: state.media.and_then(|m| m.artist),
+                }
+            })
             .collect(),
     }
 }
