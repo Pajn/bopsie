@@ -15,9 +15,17 @@ const withDetoxTestRepo = (config) =>
   withProjectBuildGradle(config, (mod) => {
     const marker = 'Detox-android';
     if (!mod.modResults.contents.includes(marker)) {
+      // Wherever the workspace hoisted Detox to, relative to android/.
+      const repo = path
+        .relative(
+          mod.modRequest.platformProjectRoot,
+          path.join(path.dirname(require.resolve('detox/package.json')), marker),
+        )
+        .split(path.sep)
+        .join('/');
       mod.modResults.contents = mod.modResults.contents.replace(
         /allprojects\s*\{\s*repositories\s*\{/,
-        (match) => `${match}\n    maven { url("$rootDir/../node_modules/detox/Detox-android") }`,
+        (match) => `${match}\n    maven { url("$rootDir/${repo}") }`,
       );
     }
     return mod;

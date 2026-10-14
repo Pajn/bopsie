@@ -168,7 +168,9 @@ patchedDependencies:
 
 importers:
 
-  .:
+  .: {}
+
+  mobile:
     dependencies:
       '@expo/vector-icons':
         specifier: ^15.1.1

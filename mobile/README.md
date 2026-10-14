@@ -33,10 +33,11 @@ where they are, as Music Assistant requires.
 
 ## Development
 
-Every command in this README runs from `mobile/`.
+Every command in this README runs from `mobile/`, apart from `pnpm install`, which runs once
+for the whole workspace from the repository's root.
 
 ```sh
-pnpm install
+pnpm install           # from the root
 pnpm prebuild          # generates ios/ and android/ (not committed)
 pnpm android           # build and run the dev client on a device or emulator
 pnpm ios               # build and run the dev client on a simulator

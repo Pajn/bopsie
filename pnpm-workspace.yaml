@@ -1,5 +1,10 @@
 # pnpm 12 reads its settings from here rather than package.json or .npmrc.
 
+packages:
+  - mobile
+  - web
+  - packages/*
+
 # A flat, npm-style node_modules.
 nodeLinker: hoisted
 
@@ -24,5 +29,5 @@ minimumReleaseAgeExclude:
   - expo-router
 
 patchedDependencies:
-  '@expo/metro-config@57.0.13': patches/@expo__metro-config@57.0.13.patch
-  expo-router@57.0.21: patches/expo-router@57.0.21.patch
+  '@expo/metro-config@57.0.13': mobile/patches/@expo__metro-config@57.0.13.patch
+  expo-router@57.0.21: mobile/patches/expo-router@57.0.21.patch

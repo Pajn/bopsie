@@ -9,3 +9,5 @@ server in Rust that speaks the part of the Music Assistant API the client uses.
 - [`docs/research`](docs/research) — what the protocols and libraries look like, with sources.
 
 The Nix flake at the root provides the development shell (`nix develop`, or `direnv allow`).
+
+The JavaScript packages are one pnpm workspace: run `pnpm install` once, at the root.
