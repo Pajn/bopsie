@@ -7,18 +7,18 @@
 # To move to a new release, update VERSION and the checksums from its SHA256SUMS asset.
 set -euo pipefail
 
-VERSION="v0.5.7"
+VERSION="v0.5.8"
 DEST="${1:-cliairplay}"
 
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) ASSET=cliairplay-linux-x86_64
-    SHA256=6d1a1ab1502c4cfde5d98f4426e73575b1dda8767ee553e7d07b6dd1df64c23a ;;
+    SHA256=0b33f68cdbb32a658cd50124cdb558e141247e0ff845a19474194a6e839d5500 ;;
   Linux-aarch64 | Linux-arm64) ASSET=cliairplay-linux-aarch64
-    SHA256=d09ba736a2cc0d236212a7cc7787a253ce82f66f2a75f68701de45b53cba8ae6 ;;
+    SHA256=73cfae9328d8882114cc788bd15676fc1dec844ff87ca832fb602818cc1b409d ;;
   Darwin-arm64) ASSET=cliairplay-macos-arm64
-    SHA256=05cf8ae76ee4d6ebeeff41f7ef19dfb3d7aead5e1c05b009dc7f0c1fac08550f ;;
+    SHA256=6d460ad08562844d978f337bee28a79b0eea390c84c239b5d66f55624e27d719 ;;
   Darwin-x86_64) ASSET=cliairplay-macos-x86_64
-    SHA256=d70668077e660474b5458433b7815ba55cc31d701b5eaa4e6959f71b581be01c ;;
+    SHA256=589dfb70112dd1a5bbebf86ecd1a9ac3cb0d4d9114f84ccb942ecb324e8a6455 ;;
   *) echo "No cliairplay build for $(uname -s) $(uname -m)" >&2; exit 1 ;;
 esac
 

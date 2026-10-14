@@ -5,9 +5,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use bopsie_core::backoff::{self, Backoff};
 use bopsie_core::db::{self, Database, Migrations};
 use bopsie_core::{Error, ErrorCode, Result};
 use bopsie_players::{Endpoint, Players};
@@ -16,6 +18,7 @@ use nix::unistd::Pid;
 
 use crate::discovery::{self, Directory, Sighting};
 use crate::endpoint::{AirplayEndpoint, Launcher};
+use crate::pidfile;
 
 pub const MIGRATIONS: Migrations = Migrations {
     component: "airplay",
@@ -29,10 +32,14 @@ pub const MIGRATIONS: Migrations = Migrations {
 
 /// How long the PTP daemon gets to show it can run.
 const PTP_GRACE: Duration = Duration::from_millis(500);
+/// How often the PTP daemon is checked on.
+const PTP_CHECK: Duration = Duration::from_millis(200);
+/// How long the PTP daemon gets to end when told to.
+const PTP_STOP: Duration = Duration::from_secs(2);
 /// How long pairing waits for the speaker once the PIN is in.
 const PAIRING_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub binary: PathBuf,
     /// Passwords by player id, for speakers that ask for one.
@@ -41,8 +48,24 @@ pub struct Config {
     pub env: Vec<(String, String)>,
     /// Run the shared PTP daemon for AirPlay 2 groups.
     pub ptp: bool,
-    /// Where command pipes are made.
+    /// Where command pipes are made, and processes recorded.
     pub pipes: PathBuf,
+    /// How long a speaker that left mDNS may come back before it is given up: a moment's
+    /// network trouble does not end its stream.
+    pub lost_grace: Duration,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            binary: PathBuf::new(),
+            passwords: BTreeMap::new(),
+            env: Vec::new(),
+            ptp: false,
+            pipes: PathBuf::new(),
+            lost_grace: Duration::from_secs(30),
+        }
+    }
 }
 
 struct Pairing {
@@ -59,8 +82,12 @@ struct Inner {
     endpoints: Mutex<HashMap<String, Arc<AirplayEndpoint>>>,
     credentials: Mutex<HashMap<String, String>>,
     pairing: Mutex<HashMap<String, Pairing>>,
-    ptp: Mutex<Option<Child>>,
+    /// The PTP daemon's process id, while it runs.
+    ptp: Mutex<Option<u32>>,
     mdns: Mutex<Option<mdns_sd::ServiceDaemon>>,
+    /// The threads that keep the PTP daemon and discovery running.
+    watchers: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    stopping: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -98,6 +125,13 @@ impl AirplayProvider {
                 format!("cannot create {}: {e}", config.pipes.display()),
             )
         })?;
+        let pipes = config.pipes.clone();
+        let ended = tokio::task::spawn_blocking(move || pidfile::end_leftovers(&pipes))
+            .await
+            .unwrap_or(0);
+        if ended > 0 {
+            tracing::info!(ended, "ended cliairplay processes an earlier run left");
+        }
         let launcher = Launcher {
             binary: config.binary.clone(),
             pipes: config.pipes.clone(),
@@ -117,56 +151,191 @@ impl AirplayProvider {
                 pairing: Mutex::default(),
                 ptp: Mutex::default(),
                 mdns: Mutex::default(),
+                watchers: Mutex::default(),
+                stopping: AtomicBool::new(false),
             }),
         })
     }
 
-    /// Starts the PTP daemon, if configured, and browses the network for speakers.
+    /// Starts the PTP daemon, if configured, and browses the network for speakers. Both are
+    /// started again, after a wait, whenever they stop.
     pub fn discover(&self) -> Result<()> {
         if self.inner.config.ptp {
-            self.start_ptp();
+            let provider = self.clone();
+            let watcher = std::thread::Builder::new()
+                .name("airplay-ptp".into())
+                .spawn(move || provider.keep_ptp())
+                .expect("spawning a thread");
+            self.inner.watchers.lock().unwrap().push(watcher);
         }
+        // The first browse fails here, so a server that cannot browse says so at once.
+        let threads = self.browse()?;
+        let provider = self.clone();
+        let watcher = std::thread::Builder::new()
+            .name("airplay-mdns".into())
+            .spawn(move || provider.keep_browsing(threads))
+            .expect("spawning a thread");
+        self.inner.watchers.lock().unwrap().push(watcher);
+        Ok(())
+    }
+
+    fn stopping(&self) -> bool {
+        self.inner.stopping.load(Ordering::SeqCst)
+    }
+
+    /// Sleeps for `wait`, or until the provider stops. Returns whether it is stopping.
+    fn sleep(&self, wait: Duration) -> bool {
+        let deadline = Instant::now() + wait;
+        while Instant::now() < deadline {
+            if self.stopping() {
+                return true;
+            }
+            std::thread::sleep(PTP_CHECK.min(deadline - Instant::now()));
+        }
+        self.stopping()
+    }
+
+    fn browse(&self) -> Result<Vec<std::thread::JoinHandle<()>>> {
         let daemon = mdns_sd::ServiceDaemon::new()
             .map_err(|e| Error::new(ErrorCode::SetupFailed, format!("cannot start mDNS: {e}")))?;
         let (seer, loser) = (self.clone(), self.clone());
-        discovery::browse(
+        let threads = discovery::browse(
             &daemon,
             move |sighting| seer.see(sighting),
             move |fullname| loser.lose(fullname),
         )
         .map_err(|e| Error::new(ErrorCode::SetupFailed, format!("cannot browse: {e}")))?;
-        *self.inner.mdns.lock().unwrap() = Some(daemon);
-        Ok(())
+        if let Some(old) = self.inner.mdns.lock().unwrap().replace(daemon) {
+            let _ = old.shutdown();
+        }
+        Ok(threads)
     }
 
-    /// One `cliairplay --ptp-daemon` for the host. It needs UDP ports 319 and 320; where it
-    /// cannot have them, as on macOS, each stream keeps its own clock.
-    fn start_ptp(&self) {
-        let spawned = Command::new(&self.inner.config.binary)
-            .arg("--ptp-daemon")
-            .envs(self.inner.config.env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-        let mut child = match spawned {
-            Ok(child) => child,
-            Err(error) => {
-                tracing::warn!(%error, "cannot start the PTP daemon");
+    /// Browses again whenever browsing ends, until the provider stops.
+    fn keep_browsing(&self, mut threads: Vec<std::thread::JoinHandle<()>>) {
+        let mut backoff = Backoff::new(backoff::Policy::RECONNECT);
+        loop {
+            for thread in threads.drain(..) {
+                let _ = thread.join();
+            }
+            if self.stopping() {
                 return;
             }
-        };
-        std::thread::sleep(PTP_GRACE);
-        if let Ok(Some(status)) = child.try_wait() {
+            let wait = backoff.failed(Instant::now());
             tracing::warn!(
-                %status,
-                "the PTP daemon could not run; AirPlay 2 groups will not share a clock (it needs UDP ports 319 and 320)"
+                ?wait,
+                "AirPlay discovery stopped; browsing again after a wait"
             );
-            return;
+            if self.sleep(wait) {
+                return;
+            }
+            match self.browse() {
+                Ok(started) => {
+                    backoff.working(Instant::now());
+                    threads = started;
+                }
+                Err(error) => tracing::warn!(%error, "cannot browse for AirPlay speakers"),
+            }
         }
-        tracing::info!("PTP daemon running");
-        *self.inner.launcher.ptp_shared.lock().unwrap() = true;
-        *self.inner.ptp.lock().unwrap() = Some(child);
+    }
+
+    /// One `cliairplay --ptp-daemon` for the host, started again whenever it ends. It needs UDP
+    /// ports 319 and 320; where it cannot have them, as on macOS, each stream keeps its own
+    /// clock.
+    fn keep_ptp(&self) {
+        let pidfile = self.inner.config.pipes.join("ptp-daemon.pid");
+        let mut backoff = Backoff::new(backoff::Policy::RECONNECT);
+        let mut warned = false;
+        while !self.stopping() {
+            let spawned = Command::new(&self.inner.config.binary)
+                .arg("--ptp-daemon")
+                .envs(self.inner.config.env.iter().map(|(k, v)| (k, v)))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn();
+            let mut child = match spawned {
+                Ok(child) => child,
+                Err(error) => {
+                    tracing::warn!(%error, "cannot start the PTP daemon");
+                    if self.sleep(backoff.failed(Instant::now())) {
+                        return;
+                    }
+                    continue;
+                }
+            };
+            pidfile::record(&pidfile, child.id());
+            if let Some(stderr) = child.stderr.take() {
+                std::thread::spawn(move || {
+                    for line in BufReader::new(stderr)
+                        .lines()
+                        .map_while(std::result::Result::ok)
+                    {
+                        tracing::debug!(target: "cliairplay::ptp", "{line}");
+                    }
+                });
+            }
+            let ran = self.watch_ptp(&mut child, &mut backoff, &mut warned);
+            self.set_ptp(None);
+            pidfile::forget(&pidfile);
+            if !ran || self.stopping() {
+                return;
+            }
+            let wait = backoff.failed(Instant::now());
+            if self.sleep(wait) {
+                return;
+            }
+        }
+    }
+
+    /// Watches the PTP daemon until it ends, or ends it when the provider stops. Returns
+    /// whether it should be started again.
+    fn watch_ptp(&self, child: &mut Child, backoff: &mut Backoff, warned: &mut bool) -> bool {
+        let started = Instant::now();
+        let mut serving = false;
+        loop {
+            if self.stopping() {
+                let _ = kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM);
+                let deadline = Instant::now() + PTP_STOP;
+                while child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                if serving {
+                    tracing::warn!(%status, "the PTP daemon stopped; starting it again");
+                } else if !*warned {
+                    *warned = true;
+                    tracing::warn!(
+                        %status,
+                        "the PTP daemon could not run; AirPlay 2 groups will not share a clock (it needs UDP ports 319 and 320)"
+                    );
+                }
+                return true;
+            }
+            if !serving && started.elapsed() >= PTP_GRACE {
+                serving = true;
+                *warned = false;
+                backoff.working(Instant::now());
+                tracing::info!("PTP daemon running");
+                self.set_ptp(Some(child.id()));
+            }
+            std::thread::sleep(PTP_CHECK);
+        }
+    }
+
+    /// Whether streams share the PTP daemon's clock: only while it runs.
+    fn set_ptp(&self, pid: Option<u32>) {
+        *self.inner.launcher.ptp_shared.lock().unwrap() = pid.is_some();
+        *self.inner.ptp.lock().unwrap() = pid;
+    }
+
+    /// The PTP daemon's process id, while it runs.
+    pub fn ptp_daemon(&self) -> Option<u32> {
+        *self.inner.ptp.lock().unwrap()
     }
 
     /// A speaker's service was resolved.
@@ -209,9 +378,25 @@ impl AirplayProvider {
         let Some(id) = self.inner.directory.lock().unwrap().lose(fullname) else {
             return;
         };
-        if let Some(endpoint) = self.inner.endpoints.lock().unwrap().get(&id) {
-            tracing::info!(speaker = id, "AirPlay speaker gone");
-            endpoint.lost();
+        let Some(endpoint) = self.inner.endpoints.lock().unwrap().get(&id).cloned() else {
+            return;
+        };
+        // Given up only if it has not been found again by the end of the grace period.
+        let seen = endpoint.sightings();
+        let grace = self.inner.config.lost_grace;
+        let lose = move || {
+            if endpoint.sightings() == seen {
+                tracing::info!(speaker = id, "AirPlay speaker gone");
+                endpoint.lost();
+            }
+        };
+        if grace.is_zero() {
+            lose();
+        } else {
+            std::thread::spawn(move || {
+                std::thread::sleep(grace);
+                lose();
+            });
         }
     }
 
@@ -320,19 +505,35 @@ impl AirplayProvider {
         self.inner.endpoints.lock().unwrap().contains_key(id)
     }
 
-    /// Ends the PTP daemon and every speaker's process.
+    /// Ends discovery, the PTP daemon and every speaker's process, telling each speaker its
+    /// session is over first.
     pub fn shutdown(&self) {
-        for endpoint in self.inner.endpoints.lock().unwrap().values() {
-            if endpoint.supervisor().is_running() {
-                let _ = endpoint.supervisor().command(&["ACTION=DISCONNECT".into()]);
-            }
-        }
-        if let Some(mut ptp) = self.inner.ptp.lock().unwrap().take() {
-            let _ = kill(Pid::from_raw(ptp.id() as i32), Signal::SIGTERM);
-            let _ = ptp.wait();
-        }
+        self.inner.stopping.store(true, Ordering::SeqCst);
         if let Some(daemon) = self.inner.mdns.lock().unwrap().take() {
             let _ = daemon.shutdown();
+        }
+        let endpoints: Vec<_> = self
+            .inner
+            .endpoints
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
+        let ending: Vec<_> = endpoints
+            .into_iter()
+            .map(|endpoint| std::thread::spawn(move || endpoint.supervisor().disconnect()))
+            .collect();
+        for thread in ending {
+            let _ = thread.join();
+        }
+        for (_, mut pairing) in self.inner.pairing.lock().unwrap().drain() {
+            let _ = pairing.child.kill();
+            let _ = pairing.child.wait();
+        }
+        let watchers: Vec<_> = self.inner.watchers.lock().unwrap().drain(..).collect();
+        for watcher in watchers {
+            let _ = watcher.join();
         }
     }
 

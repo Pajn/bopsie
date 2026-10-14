@@ -28,6 +28,10 @@ fn setup() -> Setup {
 
 impl Setup {
     async fn provider(&self, ptp: bool) -> AirplayProvider {
+        self.provider_with(ptp, Duration::ZERO).await
+    }
+
+    async fn provider_with(&self, ptp: bool, lost_grace: Duration) -> AirplayProvider {
         AirplayProvider::new(
             self.players.clone(),
             self.db.clone(),
@@ -40,6 +44,7 @@ impl Setup {
                 )],
                 ptp,
                 pipes: self.dir.path().join("pipes"),
+                lost_grace,
             },
         )
         .await
@@ -152,6 +157,8 @@ async fn streams_share_the_ptp_daemon_when_it_runs() {
     let s = setup();
     let provider = s.provider(true).await;
     provider.discover().unwrap();
+    // The daemon starts in the background; streams share it once it serves.
+    wait_for(|| provider.ptp_daemon()).await;
     provider.see(sighting("0x4"));
     // Getting a speaker ready starts its process; its arguments show the shared clock.
     let endpoint = s.players.get(ID).unwrap();
@@ -160,7 +167,9 @@ async fn streams_share_the_ptp_daemon_when_it_runs() {
         .unwrap();
     let args = std::fs::read_to_string(s.dir.path().join("capture/args")).unwrap();
     assert!(args.lines().any(|a| a == "--ptp-shared"), "{args}");
-    provider.shutdown();
+    tokio::task::spawn_blocking(move || provider.shutdown())
+        .await
+        .unwrap();
 }
 
 /// A speaker announced over mDNS on this machine is found. Needs multicast, which some CI
@@ -222,4 +231,82 @@ async fn the_config_file_overrides_how_a_speaker_says_it_pairs() {
         state.quirks.source("pairing"),
         Some(&bopsie_players::quirks::Source::Config)
     );
+}
+
+#[tokio::test]
+async fn a_speaker_that_comes_back_within_the_grace_period_was_never_gone() {
+    let s = setup();
+    let provider = s.provider_with(false, Duration::from_millis(300)).await;
+    provider.see(sighting("0x4"));
+    provider.lose("Living Room._airplay._tcp.local.");
+    provider.see(sighting("0x4"));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(s.players.get(ID).unwrap().state().available);
+
+    provider.lose("Living Room._airplay._tcp.local.");
+    assert!(s.players.get(ID).unwrap().state().available, "not yet");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!s.players.get(ID).unwrap().state().available);
+}
+
+#[tokio::test]
+async fn the_ptp_daemon_is_started_again_when_it_ends() {
+    let s = setup();
+    let provider = s.provider(true).await;
+    provider.discover().unwrap();
+    let first = wait_for(|| provider.ptp_daemon()).await;
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(first as i32),
+        nix::sys::signal::Signal::SIGKILL,
+    )
+    .unwrap();
+    let second = wait_for(|| provider.ptp_daemon().filter(|pid| *pid != first)).await;
+    assert_ne!(first, second);
+    let pidfile = s.dir.path().join("pipes/ptp-daemon.pid");
+    assert_eq!(
+        std::fs::read_to_string(&pidfile).unwrap(),
+        second.to_string()
+    );
+
+    tokio::task::spawn_blocking(move || provider.shutdown())
+        .await
+        .unwrap();
+    assert!(!pidfile.exists(), "shutdown ends it");
+    assert!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(second as i32), None).is_err(),
+        "and reaps it"
+    );
+}
+
+#[tokio::test]
+async fn processes_an_earlier_run_left_are_ended() {
+    let s = setup();
+    let pipes = s.dir.path().join("pipes");
+    std::fs::create_dir_all(&pipes).unwrap();
+    let mut leftover = std::process::Command::new(env!("CARGO_BIN_EXE_fake-cliairplay"))
+        .arg("--ptp-daemon")
+        .spawn()
+        .unwrap();
+    std::fs::write(pipes.join("ptp-daemon.pid"), leftover.id().to_string()).unwrap();
+    // A pid that is no longer cliairplay is left alone.
+    std::fs::write(pipes.join("other.pid"), std::process::id().to_string()).unwrap();
+
+    let _provider = s.provider(false).await;
+    let status = tokio::task::spawn_blocking(move || leftover.wait())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!status.success(), "ended by a signal");
+    assert!(!pipes.join("ptp-daemon.pid").exists());
+}
+
+/// Polls `found` for up to five seconds.
+async fn wait_for<T>(mut found: impl FnMut() -> Option<T>) -> T {
+    for _ in 0..250 {
+        if let Some(value) = found() {
+            return value;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("never found");
 }

@@ -17,6 +17,9 @@ use std::time::{Duration, Instant};
 use nix::fcntl::OFlag;
 use nix::sys::stat::Mode;
 
+use bopsie_core::backoff::{self, Backoff};
+
+use crate::pidfile;
 use crate::status::{self, Status};
 
 /// How long a process has to connect to its speaker.
@@ -32,8 +35,6 @@ const FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
 const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// How much later than asked a start may be and still count as on time.
 pub const LATE_TOLERANCE_MS: u64 = 20;
-/// How long after a failed start the next attempt waits.
-const BACKOFF: Duration = Duration::from_secs(5);
 
 /// How to start the process.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +109,8 @@ const CLOCK_MARGIN_MS: u64 = 500;
 struct Running {
     child: Child,
     generation: u64,
+    /// Where the process is recorded, for a later run to end it if this one cannot.
+    pidfile: PathBuf,
 }
 
 struct Inner {
@@ -123,7 +126,8 @@ struct Inner {
     generation: Mutex<u64>,
     /// A START has been sent and not flushed since.
     streaming: Mutex<bool>,
-    failed_at: Mutex<Option<Instant>>,
+    /// How long after a failed connection the next one waits.
+    backoff: Mutex<Backoff>,
     /// A background connection is under way.
     connecting: std::sync::atomic::AtomicBool,
     /// Why the last connection failed, until one succeeds.
@@ -162,7 +166,7 @@ impl Supervisor {
                 changed: Condvar::new(),
                 generation: Mutex::new(0),
                 streaming: Mutex::new(false),
-                failed_at: Mutex::default(),
+                backoff: Mutex::new(Backoff::new(backoff::Policy::RECONNECT)),
                 connecting: std::sync::atomic::AtomicBool::new(false),
                 last_failure: Mutex::default(),
                 last_active: Mutex::new(Instant::now()),
@@ -214,13 +218,19 @@ impl Supervisor {
 
     /// Starts the process if it is not running, and waits until it has connected.
     pub fn ensure_connected(&self) -> Result<(), Failure> {
-        if !self.is_running() {
-            self.spawn()?;
+        let spawned = if self.is_running() {
+            Ok(())
+        } else {
+            self.spawn()
+        };
+        let result = spawned.and_then(|()| {
+            self.wait("the connection", CONNECT_TIMEOUT, |s| s.connected)
+                .inspect_err(|_| self.failed())
+                .map(drop)
+        });
+        if result.is_ok() {
+            self.inner.backoff.lock().unwrap().working(Instant::now());
         }
-        let result = self
-            .wait("the connection", CONNECT_TIMEOUT, |s| s.connected)
-            .inspect_err(|_| self.failed())
-            .map(drop);
         *self.inner.last_failure.lock().unwrap() = result.clone().err();
         result
     }
@@ -260,15 +270,13 @@ impl Supervisor {
     }
 
     fn failed(&self) {
-        *self.inner.failed_at.lock().unwrap() = Some(Instant::now());
+        let wait = self.inner.backoff.lock().unwrap().failed(Instant::now());
+        tracing::debug!(speaker = self.inner.id, ?wait, "the next connection waits");
     }
 
     fn spawn(&self) -> Result<(), Failure> {
-        if let Some(at) = *self.inner.failed_at.lock().unwrap() {
-            let since = at.elapsed();
-            if since < BACKOFF {
-                return Err(Failure::BackingOff(BACKOFF - since));
-            }
+        if let Some(wait) = self.inner.backoff.lock().unwrap().wait(Instant::now()) {
+            return Err(Failure::BackingOff(wait));
         }
         self.kill();
         let launch = (self.inner.make_launch)().map_err(Failure::Spawn)?;
@@ -306,7 +314,13 @@ impl Supervisor {
         self.inner
             .ending
             .store(false, std::sync::atomic::Ordering::SeqCst);
-        *self.inner.running.lock().unwrap() = Some(Running { child, generation });
+        let pidfile = launch.cmdpipe.with_extension("pid");
+        pidfile::record(&pidfile, child.id());
+        *self.inner.running.lock().unwrap() = Some(Running {
+            child,
+            generation,
+            pidfile,
+        });
         *self.inner.last_active.lock().unwrap() = Instant::now();
 
         let pipe = self.open_pipe(&launch.cmdpipe)?;
@@ -550,6 +564,7 @@ impl Supervisor {
         if let Some(mut running) = running {
             let _ = running.child.kill();
             let _ = running.child.wait();
+            pidfile::forget(&running.pidfile);
             tracing::debug!(
                 speaker = self.inner.id,
                 generation = running.generation,

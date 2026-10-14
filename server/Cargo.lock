@@ -339,6 +339,7 @@ dependencies = [
  "bopsie-core",
  "bopsie-fixtures",
  "bopsie-players",
+ "bopsie-queues",
  "mdns-sd",
  "nix",
  "rand 0.10.3",

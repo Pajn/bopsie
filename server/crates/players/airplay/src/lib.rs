@@ -3,6 +3,7 @@
 
 pub mod discovery;
 pub mod endpoint;
+pub mod pidfile;
 pub mod provider;
 pub mod sink;
 pub mod speaker;

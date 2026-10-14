@@ -195,6 +195,7 @@ async fn start_airplay(config: &Config, players: Players, db: Database) -> Optio
         env: Vec::new(),
         ptp: config.airplay.ptp,
         pipes: config.storage.data_dir.join("airplay"),
+        ..AirplayConfig::default()
     };
     let provider = match AirplayProvider::new(players, db, airplay_config).await {
         Ok(provider) => provider,

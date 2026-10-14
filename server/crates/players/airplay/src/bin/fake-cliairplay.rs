@@ -8,7 +8,9 @@
 //! `FAKE_CLIAIRPLAY_FAIL=<code>` fails to connect with that error code,
 //! `FAKE_CLIAIRPLAY_CONNECT_MS` delays the connection, and `FAKE_CLIAIRPLAY_START_LATE_MS`
 //! moves every START that much later than asked, and `FAKE_CLIAIRPLAY_CLOCK_READY_MS` reports
-//! a PTP clock that is ready that long after connecting. With `--pair-setup` it pairs on PIN 1234;
+//! a PTP clock that is ready that long after connecting. `FAKE_CLIAIRPLAY_EXIT_ONCE_MS` makes
+//! the first stream in the directory exit that long after connecting, as a crash would.
+//! With `--pair-setup` it pairs on PIN 1234;
 //! with `--ptp-daemon` it runs until stopped.
 //!
 //! Like the real binary, it takes audio no faster than it would play it, after a buffer's
@@ -119,6 +121,20 @@ fn main() {
     println!(
         "[STATUS] latency lead_ms=2000 device_min_frames=11025 device_max_frames=88200 device_render_ms=0 warm_lead_ms=600"
     );
+
+    if let Some(after) = std::env::var("FAKE_CLIAIRPLAY_EXIT_ONCE_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        let marker = dir.join("exited");
+        if !marker.exists() {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(after));
+                std::fs::write(marker, b"").unwrap();
+                std::process::exit(9);
+            });
+        }
+    }
 
     let received = Arc::new(AtomicU64::new(0));
     // Whether the next audio should be reported as buffered.

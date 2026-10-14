@@ -71,6 +71,8 @@ struct Shared {
 pub struct AirplayEndpoint {
     shared: Arc<Shared>,
     supervisor: Supervisor,
+    /// Counts the times discovery found the speaker again.
+    sightings: std::sync::atomic::AtomicU64,
 }
 
 impl AirplayEndpoint {
@@ -118,7 +120,11 @@ impl AirplayEndpoint {
                 }
             },
         );
-        let endpoint = Arc::new(Self { shared, supervisor });
+        let endpoint = Arc::new(Self {
+            shared,
+            supervisor,
+            sightings: std::sync::atomic::AtomicU64::new(0),
+        });
         let watched = Arc::downgrade(&endpoint);
         std::thread::Builder::new()
             .name("airplay-idle".into())
@@ -150,11 +156,18 @@ impl AirplayEndpoint {
 
     /// New records for the speaker from discovery.
     pub fn rediscovered(&self, speaker: Speaker) {
+        self.sightings
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut state = self.shared.state.lock().unwrap();
         state.speaker = speaker;
         state.discovered = true;
         drop(state);
         self.shared.players.changed(&self.shared.id);
+    }
+
+    /// How many times discovery found the speaker again.
+    pub fn sightings(&self) -> u64 {
+        self.sightings.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The speaker left the network.

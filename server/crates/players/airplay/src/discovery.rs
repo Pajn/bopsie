@@ -139,18 +139,20 @@ impl Directory {
     }
 }
 
-/// Browses for speakers on its own thread, reporting each sighting and loss.
+/// Browses for speakers, one thread per service type, reporting each sighting and loss. The
+/// threads end when the daemon stops answering.
 pub fn browse(
     daemon: &mdns_sd::ServiceDaemon,
     on_sighting: impl Fn(Sighting) + Send + Sync + 'static,
     on_loss: impl Fn(&str) + Send + Sync + 'static,
-) -> Result<(), mdns_sd::Error> {
+) -> Result<Vec<std::thread::JoinHandle<()>>, mdns_sd::Error> {
     let on_sighting = std::sync::Arc::new(on_sighting);
     let on_loss = std::sync::Arc::new(on_loss);
+    let mut threads = Vec::new();
     for service_type in [AIRPLAY_SERVICE, RAOP_SERVICE] {
         let events = daemon.browse(service_type)?;
         let (on_sighting, on_loss) = (on_sighting.clone(), on_loss.clone());
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("airplay-discovery".into())
             .spawn(move || {
                 while let Ok(event) = events.recv() {
@@ -183,8 +185,9 @@ pub fn browse(
                 }
             })
             .expect("spawning the discovery thread");
+        threads.push(thread);
     }
-    Ok(())
+    Ok(threads)
 }
 
 #[cfg(test)]

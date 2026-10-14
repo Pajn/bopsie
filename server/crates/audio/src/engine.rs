@@ -375,10 +375,9 @@ impl Engine {
             self.output_failed(&key, error);
             return;
         }
-        // While playing, the newcomer gets what is still to play of the recent audio.
-        if self.current.is_some()
-            && let Some(realtime) = self.settings.realtime
-        {
+        // The newcomer gets what is still to play of the recent audio, which may be all there
+        // is when the rest was written ahead; a stop empties it.
+        if let Some(realtime) = self.settings.realtime {
             let from = realtime
                 .timeline
                 .frame_at((realtime.clock)() + realtime.lead);
@@ -386,6 +385,13 @@ impl Engine {
                 let mut packed = Vec::new();
                 pack(&samples, sink.format().bits, &mut packed);
                 if let Err(error) = sink.write(from, &packed) {
+                    self.output_failed(&key, error);
+                    return;
+                }
+                // With nothing more to come, it is told so, as the others were.
+                if self.idle
+                    && let Err(error) = sink.drain()
+                {
                     self.output_failed(&key, error);
                     return;
                 }
