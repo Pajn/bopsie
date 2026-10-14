@@ -528,3 +528,72 @@ mod realtime {
         assert_eq!(end, due + 44_100 * 5);
     }
 }
+
+/// Takes audio as fast as it comes, as a LinkPlay stream does.
+struct Eager;
+
+impl Sink for Eager {
+    fn format(&self) -> OutputFormat {
+        output(16)
+    }
+    fn write(&mut self, _at: u64, _data: &[u8]) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn finish(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_seek_plays_one_lead_from_now_however_far_ahead_was_written() {
+    use bopsie_audio::engine::Realtime;
+    use bopsie_audio::timeline::Timeline;
+    use bopsie_core::clock;
+
+    let dir = tempfile::tempdir().unwrap();
+    write_wav(
+        &dir.path().join("a.wav"),
+        44_100,
+        2,
+        &noise(11, 44_100 * 2 * 30),
+    )
+    .unwrap();
+    let timeline = Timeline::new(44_100, clock::now());
+    let lead = 300_000;
+    let settings = Settings {
+        format: SESSION,
+        ffmpeg: None,
+        ring_frames: 0,
+        realtime: Some(Realtime {
+            timeline,
+            lead,
+            clock: clock::now,
+        }),
+    };
+    let source = Tracks(vec![request("a", &dir.path().join("a.wav"))].into());
+    let mut handle = engine::spawn(
+        settings,
+        Box::new(source),
+        vec![("eager".into(), Box::new(Eager))],
+    );
+    handle.send(Command::Restart {
+        epoch: 1,
+        not_before: None,
+    });
+    // Let it write well ahead.
+    std::thread::sleep(Duration::from_millis(500));
+    let asked = clock::now();
+    handle.send(Command::Seek(Duration::from_secs(10)));
+    let at = loop {
+        if let Event::Seeked { at, .. } = handle.events.blocking_recv().unwrap().event {
+            break at;
+        }
+    };
+    let audible = timeline.instant_of(at) - asked;
+    assert!(
+        audible <= lead + 200_000,
+        "audible {} ms after the seek",
+        audible / 1_000
+    );
+    handle.shutdown();
+}

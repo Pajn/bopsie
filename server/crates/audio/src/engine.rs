@@ -329,6 +329,7 @@ impl Engine {
                 self.continuous = false;
                 self.each_sink("clear", |sink| sink.clear());
                 self.ring.clear();
+                self.rewind();
             }
             Command::NextChanged => {
                 self.prepared = None;
@@ -422,6 +423,17 @@ impl Engine {
         }
     }
 
+    /// After the outputs were cleared, what was written ahead is gone: the next audio goes one
+    /// lead from now, not after it.
+    fn rewind(&mut self) {
+        if let Some(realtime) = self.settings.realtime {
+            let due = realtime
+                .timeline
+                .frame_at((realtime.clock)() + realtime.lead);
+            self.head = self.head.min(due);
+        }
+    }
+
     fn seek(&mut self, position: Duration) {
         let Some(playing) = &mut self.current else {
             return;
@@ -434,6 +446,7 @@ impl Engine {
                 let id = playing.id.clone();
                 self.each_sink("clear", |sink| sink.clear());
                 self.ring.clear();
+                self.rewind();
                 self.anchor();
                 self.emit(Event::Seeked {
                     id,
