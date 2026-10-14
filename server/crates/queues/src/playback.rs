@@ -284,6 +284,7 @@ impl Playback {
             }
         });
         self.restore_device(id);
+        self.enforce_cap(id);
         self.publish(EventType::PlayerAdded, id, self.player(id, None));
         self.publish(EventType::QueueAdded, id, self.queue(id));
     }
@@ -295,6 +296,7 @@ impl Playback {
         if let Some((volume, muted)) = volume
             && let Ok((_, member)) = self.active(id)
         {
+            let volume = volume.min(self.cap(id));
             if member.state.volume != Some(volume) {
                 member.endpoint.set_volume(volume);
             }
@@ -492,6 +494,7 @@ impl Playback {
     }
 
     fn player_changed(&self, id: &str) {
+        self.enforce_cap(id);
         self.carrier_turned_off(id);
         let available = self.device(id).is_ok_and(|d| d.available());
         let was = self
@@ -613,6 +616,7 @@ impl Playback {
             if let Some(carrier) = plan.carrier(device).filter(|c| !c.native)
                 && let Some(member) = self.device(device)?.member(&carrier.endpoint)
             {
+                self.enforce_cap(device);
                 leading.session.add_sink(
                     device.to_owned(),
                     member.endpoint.output(carrier.format, timeline),
@@ -886,6 +890,10 @@ impl Playback {
             sample_rate: plan.sample_rate,
             channels: plan.channels,
         };
+        // Each speaker is at most at its maximum before it hears anything.
+        for carrier in &plan.carriers {
+            self.enforce_cap(&carrier.device);
+        }
         let timeline = Timeline::new(format.sample_rate, clock::now());
         let sinks = plan
             .streamed()
@@ -1442,8 +1450,40 @@ impl Playback {
     }
 
     pub fn volume_set(&self, player: &str, volume: u8) -> Result<()> {
-        self.active(player)?.1.endpoint.set_volume(volume.min(100));
+        let volume = volume.min(self.cap(player));
+        self.active(player)?.1.endpoint.set_volume(volume);
         Ok(())
+    }
+
+    /// The loudest `device` may be set: its settings' maximum, else 100.
+    fn cap(&self, device: &str) -> u8 {
+        self.device(device)
+            .ok()
+            .and_then(|d| d.max_volume)
+            .unwrap_or(100)
+            .min(100)
+    }
+
+    /// Turns down any endpoint of `device` that is louder than its maximum, whoever turned it
+    /// up: an app, the speaker's own remote, or a protocol's default at connecting.
+    fn enforce_cap(&self, device: &str) {
+        let Ok(found) = self.device(device) else {
+            return;
+        };
+        let Some(cap) = found.max_volume else {
+            return;
+        };
+        for member in &found.members {
+            if member.state.capabilities.volume && member.state.volume.is_some_and(|v| v > cap) {
+                tracing::info!(
+                    device,
+                    endpoint = member.id,
+                    cap,
+                    "turned down to its maximum"
+                );
+                member.endpoint.set_volume(cap);
+            }
+        }
     }
 
     pub fn volume_mute(&self, player: &str, muted: bool) -> Result<()> {
@@ -1455,17 +1495,20 @@ impl Playback {
     /// `volume`.
     pub fn group_volume(&self, player: &str, volume: u8) -> Result<()> {
         let leader = self.leader_of(player).ok_or_else(|| not_found(player))?;
-        let members: Vec<Member> = self
+        let members: Vec<(String, Member)> = self
             .group_of(&leader)
-            .iter()
-            .filter_map(|id| Some(self.active(id).ok()?.1))
+            .into_iter()
+            .filter_map(|id| {
+                let member = self.active(&id).ok()?.1;
+                Some((id, member))
+            })
             .collect();
         let loudest = members
             .iter()
-            .filter_map(|m| m.state.volume)
+            .filter_map(|(_, m)| m.state.volume)
             .max()
             .unwrap_or(0);
-        for member in members {
+        for (id, member) in members {
             let current = member.state.volume.unwrap_or(loudest);
             let scaled = if loudest == 0 {
                 volume
@@ -1473,7 +1516,7 @@ impl Playback {
                 ((f64::from(current) * f64::from(volume) / f64::from(loudest)).round() as u8)
                     .min(100)
             };
-            member.endpoint.set_volume(scaled);
+            member.endpoint.set_volume(scaled.min(self.cap(&id)));
         }
         Ok(())
     }

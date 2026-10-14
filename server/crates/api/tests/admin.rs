@@ -387,3 +387,79 @@ async fn a_leader_whose_protocol_is_turned_off_plays_on_over_another() {
         .await;
     assert_eq!(queue["state"], "playing");
 }
+
+#[tokio::test]
+async fn the_server_holds_a_player_at_its_maximum_volume() {
+    let (server, token) = start_set_up().await;
+    let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let bedroom = Speaker::register(&server.players, "bedroom", "airplay", &[CD], None);
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    until(&mut client, "players/all", json!({}), |all| {
+        all.as_array().unwrap().len() == 2
+    })
+    .await;
+    let volume = |s: &Speaker| *s.volume.lock().unwrap();
+    assert_eq!(volume(&kitchen), 40);
+
+    // A maximum below where it is turns it down at once.
+    client
+        .result(
+            "admin/player/update",
+            json!({"player_id": "kitchen", "max_volume": 30}),
+        )
+        .await;
+    eventually(|| volume(&kitchen) == 30).await;
+
+    // Setting it louder stops at the maximum.
+    client
+        .result(
+            "players/cmd/volume_set",
+            json!({"player_id": "kitchen", "volume_level": 80}),
+        )
+        .await;
+    assert_eq!(volume(&kitchen), 30);
+
+    // Turned up by something else, it is turned back down.
+    *kitchen.volume.lock().unwrap() = 90;
+    server.players.changed("kitchen");
+    eventually(|| volume(&kitchen) == 30).await;
+
+    // In a group, each member stops at its own maximum.
+    client
+        .result(
+            "players/cmd/group",
+            json!({"player_id": "bedroom", "target_player": "kitchen"}),
+        )
+        .await;
+    client
+        .result(
+            "players/cmd/group_volume",
+            json!({"player_id": "kitchen", "volume_level": 80}),
+        )
+        .await;
+    assert_eq!((volume(&kitchen), volume(&bedroom)), (30, 80));
+
+    // Without a maximum it goes where it is set.
+    client
+        .result(
+            "admin/player/update",
+            json!({"player_id": "kitchen", "max_volume": null}),
+        )
+        .await;
+    client
+        .result(
+            "players/cmd/volume_set",
+            json!({"player_id": "kitchen", "volume_level": 80}),
+        )
+        .await;
+    assert_eq!(volume(&kitchen), 80);
+}
+
+async fn eventually(mut holds: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !holds() {
+        assert!(tokio::time::Instant::now() < deadline, "never held");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
