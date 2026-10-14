@@ -7,6 +7,7 @@ pub mod devices;
 mod facts;
 pub mod health;
 pub mod linking;
+pub mod planner;
 pub mod quirks;
 
 pub use devices::{Device, Devices, Member};

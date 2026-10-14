@@ -20,6 +20,22 @@ pub struct Config {
     pub airplay: AirplayConfig,
     /// Settings for one player, by player id.
     pub players: BTreeMap<String, PlayerConfig>,
+    pub planner: PlannerConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PlannerConfig {
+    /// The protocols a group may play over, in order of preference.
+    pub protocols: Vec<String>,
+}
+
+impl Default for PlannerConfig {
+    fn default() -> Self {
+        Self {
+            protocols: vec!["airplay".to_owned(), "sendspin".to_owned()],
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
