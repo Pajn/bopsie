@@ -28,6 +28,7 @@ export const lightTheme = {
     danger: '#B3261E',
     warning: '#8A5A00',
     good: '#1E6B34',
+    code: { string: '#2E7D32', value: '#6750A4' },
   },
   spacing,
   radius,
@@ -49,5 +50,6 @@ export const darkTheme = {
     danger: '#F2B8B5',
     warning: '#F0C46C',
     good: '#8FD6A0',
+    code: { string: '#A5D6A7', value: '#D0BCFF' },
   },
 } as const;

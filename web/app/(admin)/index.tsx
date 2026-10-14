@@ -1,4 +1,5 @@
 import { ScrollView } from 'react-native';
+import { useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import JsonTree from '@/debug/JsonTree';
 import { Card, Facts, Stack, Text } from '@/ui/primitives';
@@ -6,6 +7,13 @@ import { Card, Facts, Stack, Text } from '@/ui/primitives';
 export default function ServerScreen() {
   const { connection } = useConnection();
   const info = connection.serverInfo;
+  const { theme } = useUnistyles();
+  const colors = {
+    text: theme.colors.text,
+    muted: theme.colors.textMuted,
+    string: theme.colors.code.string,
+    value: theme.colors.code.value,
+  };
   return (
     <ScrollView>
       <Stack gap="lg">
@@ -20,7 +28,7 @@ export default function ServerScreen() {
           />
         </Card>
         <Card title="Server info">
-          <JsonTree value={JSON.parse(JSON.stringify(info))} />
+          <JsonTree value={JSON.parse(JSON.stringify(info))} colors={colors} />
         </Card>
       </Stack>
     </ScrollView>

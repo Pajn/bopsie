@@ -1,5 +1,5 @@
 import { Link, Slot, usePathname } from 'expo-router';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useAccountActions } from '@/auth/AuthProvider';
 import { ConnectionProvider, useConnection } from '@/connection/ConnectionProvider';
@@ -22,8 +22,11 @@ function Shell() {
         </Stack>
         <Stack gap="xs" style={styles.links}>
           {PAGES.map((page) => (
-            <Link key={page.href} href={page.href} style={styles.link(pathname === page.href)}>
-              {page.title}
+            // A Link is not themed by unistyles; the Text inside it is.
+            <Link key={page.href} href={page.href} asChild>
+              <Pressable>
+                <Text style={styles.link(pathname === page.href)}>{page.title}</Text>
+              </Pressable>
             </Link>
           ))}
         </Stack>
