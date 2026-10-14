@@ -76,6 +76,26 @@ paused, so that its own play resumes the group. Sendspin clients that take the c
 role, such as Bopsie's player on Android, control their group too, and are told its volume,
 repeat and shuffle. A speaker switched to another source leaves its group, which plays on.
 
+### Spotify Connect
+
+Every speaker shows in the Spotify app as a Spotify Connect device, under its name. Picking one
+plays Spotify to the group the speaker is in, through the server, in sync across AirPlay,
+LinkPlay and Sendspin as anything else plays. The group's queue rests, paused, meanwhile, and
+playing something from Bopsie on the group takes it back from Spotify. Spotify's play, pause,
+skip and seek act on the group, its volume slider moves the group's volume within each speaker's
+maximum, and the group's controls, including the speakers' own buttons, reach Spotify. Bopsie
+shows what Spotify plays.
+
+It needs Spotify Premium. The devices are announced by mDNS (`_spotify-connect._tcp`), each with
+a small HTTP server of its own on a free port, and play through
+[librespot](https://github.com/librespot-org/librespot). The credentials of whoever picked a
+device are kept in the data directory under `spotify/`, so it reconnects after a restart.
+Spotify has been changing how its audio is protected, and librespot no longer plays for every
+account; `cargo run -p bopsie-sources-spotify --example spotify-probe` announces one device that
+logs what it is given, to check an account before relying on it. A speaker's settings in the web
+UI, or `spotify_connect = false` in the config file, turn it off for that speaker; `[spotify]`
+turns it off for all.
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh

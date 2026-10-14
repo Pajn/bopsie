@@ -44,6 +44,13 @@ enabled = true
 # the certificate and its key.
 # certificate = "/etc/bopsie/linkplay-client.pem"
 
+[spotify]
+# Each speaker shows in the Spotify app as a Spotify Connect device; picking one plays Spotify to
+# the speaker's group through the server. A speaker's settings can turn it off for that speaker.
+# It needs Spotify Premium. The credentials of whoever picks a device are kept in the data
+# directory, under spotify/.
+enabled = true
+
 [web]
 # The web UI at /, for managing the server, is built into the server. To serve another build of
 # it instead, such as web/dist while working on it, name its directory.
@@ -58,13 +65,14 @@ protocols = ["airplay", "sendspin"]
 # Settings saved in the web UI are kept in the database and win over these; clearing one
 # there falls back to what is here.
 # A speaker reached over more than one protocol is one player whose endpoints have ids of their
-# own (players/all with return_protocol_players lists them): name, enabled and max_volume
-# apply to the player's id, password and quirks to an endpoint's.
+# own (players/all with return_protocol_players lists them): name, enabled, max_volume and
+# spotify_connect apply to the player's id, password and quirks to an endpoint's.
 # [players.apaabbcc001122]
 # name = "Kitchen"          # instead of the name the speaker gives itself
 # enabled = false           # hide it and never play to it
 # password = "password"     # for speakers that ask for one
 # max_volume = 40           # the loudest it may be set, 0 to 100
+# spotify_connect = false   # do not show it in the Spotify app
 #
 # Quirks, over the rules shipped in crates/players/quirks.toml:
 # [players.apaabbcc001122.quirks]

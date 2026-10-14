@@ -14,6 +14,7 @@ time, and how they recover.
 - A phone with Bopsie, signed in to the server.
 - Two LinkPlay speakers, such as a WiiM and an Audio Pro, for the LinkPlay checks. Note the
   input each is on and its volume first, to put back afterwards.
+- The Spotify app, signed in to a Premium account, for the Spotify Connect checks.
 - The server's log at `info`, with `RUST_LOG=info,bopsie_players_airplay=debug` for the AirPlay
   checks, to read the lines quoted below.
 
@@ -124,3 +125,21 @@ Each line says what to do, what to hear, and what the log shows when it went rig
 31. **A Sendspin controller.** On an Android phone playing from Bopsie, use the notification's
     controls: pause, play, next and the progress bar act on the group the phone plays in. Log:
     `the speaker's own controls` with the phone's id.
+
+### Spotify Connect
+
+32. **Picking a speaker.** In the Spotify app, pick an AirPlay speaker and play. It is audible
+    within a few seconds; Bopsie shows the track with its artwork, and the queue screen says it
+    plays from Spotify. Log: `picked in the Spotify app`, then `playing a source`.
+33. **Pause, play and seek.** Pause in Spotify: the speaker goes quiet at once. Play: it picks up
+    where it went quiet, not seconds later. Seek: it plays from there within a few seconds.
+34. **A group.** Add a LinkPlay speaker to the group in Bopsie while Spotify plays: it joins in
+    sync. Press pause on one speaker: Spotify shows paused.
+35. **Volume.** Move Spotify's volume slider: the group follows, within each speaker's maximum.
+    Move the group's volume in Bopsie: Spotify's slider follows.
+36. **Taking the group back.** Play an album from Bopsie on the group: Spotify lets go and the
+    album plays. Log: `the queue plays again`.
+37. **Turned off.** Turn Spotify Connect off on a speaker's page: within a few seconds it is gone
+    from the Spotify app's devices. Turn it back on.
+38. **After a restart.** Restart the server, then pick the device in Spotify again: it plays
+    without being picked twice or signed in again.
