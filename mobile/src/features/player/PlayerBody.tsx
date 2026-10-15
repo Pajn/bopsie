@@ -271,6 +271,7 @@ function Control({
   large?: boolean;
   testID?: string;
 }) {
+  const size = large ? 36 : 28;
   return (
     <Pressable
       onPress={onPress}
@@ -280,7 +281,13 @@ function Control({
       style={({ pressed }) => [large && styles.large, pressed && styles.pressed]}
       {...(testID && { testID })}
     >
-      <Icon name={icon} size={large ? 36 : 28} />
+      <Icon
+        name={icon}
+        size={size}
+        // A triangle's weight sits left of its box, so in a round button it looks off
+        // centre; nudged right by where its weight falls short, it looks centred.
+        {...(icon === 'play' && { style: { marginLeft: Math.round(size * 0.08) } })}
+      />
     </Pressable>
   );
 }
