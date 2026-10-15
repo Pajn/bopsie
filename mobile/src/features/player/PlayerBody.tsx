@@ -19,6 +19,7 @@ import { nextRepeatMode } from './repeat';
 import { collapsePlayer, coverSwipe } from './sheetStore';
 import { useNow } from './useNow';
 import { usePlaybackActions, useQueue } from './usePlayback';
+import { usePlayerColors } from './usePlayerTint';
 import { useSheetDrag } from './useSheetDrag';
 import { useSkipSwipe } from './useSkipSwipe';
 
@@ -30,7 +31,7 @@ import { useSkipSwipe } from './useSkipSwipe';
 export function PlayerBody({ open, travel }: { open: boolean; travel: number }) {
   const queue = useQueue().data;
   const playback = usePlaybackActions();
-  const { theme } = useUnistyles();
+  const colors = usePlayerColors();
   const playing = queue?.state === 'playing';
   // The position only moves while it can be seen.
   const now = useNow(playing && open);
@@ -126,9 +127,9 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
               setDragging(null);
               playback.seek(value);
             }}
-            minimumTrackTintColor={theme.colors.accent}
-            maximumTrackTintColor={theme.colors.border}
-            thumbTintColor={theme.colors.accent}
+            minimumTrackTintColor={colors.accent}
+            maximumTrackTintColor={colors.surface}
+            thumbTintColor={colors.accent}
             testID="player-seek"
           />
           <View style={styles.times}>
@@ -250,6 +251,7 @@ function Toggle({
   testID: string;
 }) {
   const { theme } = useUnistyles();
+  const colors = usePlayerColors();
   if (hidden) return <View style={styles.toggle} />;
   return (
     <Pressable
@@ -261,9 +263,9 @@ function Toggle({
       style={({ pressed }) => [styles.toggle, pressed && styles.pressed]}
       testID={testID}
     >
-      <Icon name={icon} size={22} color={on ? theme.colors.accent : theme.colors.textMuted} />
+      <Icon name={icon} size={22} color={on ? colors.accent : theme.colors.textMuted} />
       {badge ? (
-        <Text variant="caption" style={styles.badge}>
+        <Text variant="caption" style={[styles.badge, { color: colors.accent }]}>
           {badge}
         </Text>
       ) : null}
@@ -285,13 +287,18 @@ function Control({
   testID?: string;
 }) {
   const size = large ? 36 : 28;
+  const colors = usePlayerColors();
   return (
     <Pressable
       onPress={onPress}
       hitSlop={12}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={({ pressed }) => [large && styles.large, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        large && styles.large,
+        large && { backgroundColor: colors.surface },
+        pressed && styles.pressed,
+      ]}
       {...(testID && { testID })}
     >
       <Icon
@@ -308,7 +315,6 @@ function Control({
 const styles = StyleSheet.create((theme, rt) => ({
   screen: {
     flex: 1,
-    backgroundColor: theme.colors.background,
     paddingHorizontal: theme.spacing.xl,
     paddingBottom: theme.spacing.lg + rt.insets.bottom,
   },

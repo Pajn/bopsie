@@ -1,8 +1,14 @@
 import { useSegments } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { BackHandler, useWindowDimensions, View } from 'react-native';
-import Animated, { interpolate, useAnimatedStyle } from 'react-native-reanimated';
-import { StyleSheet } from 'react-native-unistyles';
+import Animated, {
+  interpolate,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { CoverPlacesProvider, FlyingCover, useCoverPlaces } from './FlyingCover';
 import { MiniPlayer } from './MiniPlayer';
 import { nowPlaying } from './nowPlaying';
@@ -15,6 +21,7 @@ import {
   useTabBarHeight,
 } from './sheetStore';
 import { useQueue } from './usePlayback';
+import { PlayerTintProvider, useCoverTint } from './usePlayerTint';
 
 /** Screens that open over the player as sheets, which leave it up beneath them. */
 const OVER_PLAYER = new Set(['player-menu']);
@@ -36,6 +43,20 @@ export function PlayerSheet() {
   const empty = queue === null || (queue !== undefined && current === null);
   const frame = useRef<View>(null);
   const covers = useCoverPlaces(frame);
+  const tint = useCoverTint(current?.artwork ?? null);
+  const { theme } = useUnistyles();
+  const background = tint?.background ?? theme.colors.background;
+  // The background cross-fades from the last cover's tint to the next.
+  const fromColor = useSharedValue(background);
+  const toColor = useSharedValue(background);
+  const fade = useSharedValue(1);
+  useEffect(() => {
+    if (background === toColor.value) return;
+    fromColor.value = interpolateColor(fade.value, [0, 1], [fromColor.value, toColor.value]);
+    toColor.value = background;
+    fade.value = 0;
+    fade.value = withTiming(1, { duration: 450 });
+  }, [background, fromColor, toColor, fade]);
   const open = usePlayerOpen();
   const dockHeight = useDockHeight();
   const tabBarHeight = useTabBarHeight();
@@ -75,6 +96,7 @@ export function PlayerSheet() {
   // What is behind has to be covered as soon as the sheet leaves the dock.
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, expansion.value * 12),
+    backgroundColor: interpolateColor(fade.value, [0, 1], [fromColor.value, toColor.value]),
   }));
   const bodyStyle = useAnimatedStyle(() => ({
     opacity: interpolate(expansion.value, [0.1, 0.55], [0, 1], 'clamp'),
@@ -92,40 +114,42 @@ export function PlayerSheet() {
     >
       <View ref={frame} style={styles.frame} pointerEvents="box-none">
         <CoverPlacesProvider value={covers.value}>
-          <Animated.View style={[styles.backdrop, backdropStyle]} pointerEvents="none" />
-          <Animated.View
-            style={[styles.body, bodyStyle]}
-            pointerEvents={open ? 'auto' : 'none'}
-            accessibilityElementsHidden={!open}
-            importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
-          >
-            <PlayerBody open={open} travel={travel} />
-          </Animated.View>
-          <Animated.View
-            style={[styles.dock, { height: dockHeight || undefined }, dockStyle]}
-            pointerEvents={open ? 'none' : 'box-none'}
-          >
-            <MiniPlayer travel={travel} />
-          </Animated.View>
-          {current && covers.places.mini && covers.places.full ? (
-            <FlyingCover
-              artwork={current.artwork}
-              mini={covers.places.mini}
-              full={covers.places.full}
-            />
-          ) : null}
+          <PlayerTintProvider tint={tint}>
+            <Animated.View style={[styles.backdrop, backdropStyle]} pointerEvents="none" />
+            <Animated.View
+              style={[styles.body, bodyStyle]}
+              pointerEvents={open ? 'auto' : 'none'}
+              accessibilityElementsHidden={!open}
+              importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
+            >
+              <PlayerBody open={open} travel={travel} />
+            </Animated.View>
+            <Animated.View
+              style={[styles.dock, { height: dockHeight || undefined }, dockStyle]}
+              pointerEvents={open ? 'none' : 'box-none'}
+            >
+              <MiniPlayer travel={travel} />
+            </Animated.View>
+            {current && covers.places.mini && covers.places.full ? (
+              <FlyingCover
+                artwork={current.artwork}
+                mini={covers.places.mini}
+                full={covers.places.full}
+              />
+            ) : null}
+          </PlayerTintProvider>
         </CoverPlacesProvider>
       </View>
     </Animated.View>
   );
 }
 
-const styles = StyleSheet.create((theme) => ({
+const styles = StyleSheet.create({
   sheet: { position: 'absolute', left: 0, right: 0 },
   /** What the artwork's places are measured against. */
   frame: { ...StyleSheet.absoluteFillObject },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.background },
+  backdrop: { ...StyleSheet.absoluteFillObject },
   body: { ...StyleSheet.absoluteFillObject },
   /** The mini player the sheet rests as, held at its top edge. */
   dock: { position: 'absolute', top: 0, left: 0, right: 0 },
-}));
+});

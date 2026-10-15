@@ -4,17 +4,18 @@ import { OutputsScreen } from '@/features/outputs/OutputsScreen';
 import { Icon } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { type Frame, MorphPanel } from './MorphPanel';
+import { usePlayerColors } from './usePlayerTint';
 
 /** The size of the pill's chevron, which the player's stand-in for the pill makes room for. */
 export const PILL_CHEVRON = 14;
 
 /** What the pill says: where the music plays. */
 export function PillContent({ name }: { name: string }) {
-  const { theme } = useUnistyles();
+  const { accent } = usePlayerColors();
   return (
     <View style={styles.pill}>
-      <Icon name="speaker" size={14} color={theme.colors.accent} />
-      <Text variant="label" style={styles.name} numberOfLines={1}>
+      <Icon name="speaker" size={14} color={accent} />
+      <Text variant="label" style={[styles.name, { color: accent }]} numberOfLines={1}>
         {name}
       </Text>
     </View>
@@ -40,6 +41,7 @@ export function OutputsPanel({
   ready: boolean;
 }) {
   const { theme } = useUnistyles();
+  const { accent } = usePlayerColors();
   return (
     <MorphPanel
       from={pill}
@@ -49,7 +51,7 @@ export function OutputsPanel({
         paddingLeft: theme.spacing.md,
         paddingRight: theme.spacing.md,
         gap: theme.spacing.xs,
-        chevron: { size: PILL_CHEVRON, color: theme.colors.accent },
+        chevron: { size: PILL_CHEVRON, color: accent },
       }}
       chevron="chevron-down"
       title="Play on"
@@ -65,5 +67,5 @@ export function OutputsPanel({
 
 const styles = StyleSheet.create((theme) => ({
   pill: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
-  name: { color: theme.colors.accent, flexShrink: 1 },
+  name: { flexShrink: 1 },
 }));

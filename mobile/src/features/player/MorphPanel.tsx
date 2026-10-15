@@ -18,6 +18,7 @@ import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { dragged, settlesOpen } from './settle';
 import { panelCoverage } from './sheetStore';
+import { usePlayerColors } from './usePlayerTint';
 
 /** Where something sits in the player. */
 export interface Frame {
@@ -84,7 +85,7 @@ export function MorphPanel({
   const [raised, setRaised] = useState(false);
   const progress = useSharedValue(0);
   const topInset = rt.insets.top;
-  const closedColor = theme.colors.surfaceVariant;
+  const closedColor = usePlayerColors().surface;
   const openColor = theme.colors.background;
   const openPadding = theme.spacing.lg;
   // How far the panel's top moves between closed and open, which a drag covers.
