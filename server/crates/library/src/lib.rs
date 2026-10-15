@@ -1,6 +1,7 @@
 //! The SQLite library: schema and migrations, the scanner, FTS5 search, the artwork cache, and
 //! the `MusicProvider` trait with its registry.
 
+pub mod catalog;
 pub mod edit;
 pub mod provider;
 pub mod query;
@@ -21,6 +22,7 @@ use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 
+use catalog::Catalogs;
 use provider::{EntryKind, MusicProvider, ScannedImage};
 use scan::{ARTWORK_CACHE, Changes, ImageRef, PreparedTrack, Source};
 
@@ -35,6 +37,8 @@ pub struct Library {
     db: Database,
     events: EventBus,
     providers: Arc<Vec<Arc<dyn MusicProvider>>>,
+    /// Providers searched and browsed as they are, such as Spotify.
+    catalogs: Catalogs,
     /// Embedded art, stored by content hash.
     artwork_dir: PathBuf,
     /// One sync at a time.
@@ -76,6 +80,7 @@ impl Library {
             db,
             events,
             providers: Arc::new(providers),
+            catalogs: Catalogs::default(),
             artwork_dir,
             syncing: Arc::default(),
             last_sync: Arc::default(),
@@ -151,20 +156,52 @@ impl Library {
             })
             .await?;
         let providers = self.providers.clone();
+        let catalogs = self.catalogs.clone();
         blocking(move || {
             mappings.iter().find_map(|(instance, item)| {
-                providers
-                    .iter()
-                    .find(|p| p.instance_id() == instance)?
-                    .media(item)
+                match providers.iter().find(|p| p.instance_id() == instance) {
+                    Some(provider) => provider.media(item),
+                    None => catalogs.get(instance)?.media(item),
+                }
             })
         })
         .await
     }
 
-    /// The tracks a `library://` URI stands for, with what they play from: a track itself, an
-    /// album's or artist's tracks, or a playlist's, in order. Tracks nothing can play are left
-    /// out.
+    /// The providers searched and browsed as they are, such as Spotify.
+    pub fn catalogs(&self) -> &Catalogs {
+        &self.catalogs
+    }
+
+    /// The library item that `instance`'s item `id` is, if the library holds it.
+    pub async fn by_mapping(
+        &self,
+        instance: &str,
+        media_type: MediaType,
+        id: &str,
+    ) -> Result<Option<MediaItem>> {
+        let (instance, id) = (instance.to_owned(), id.to_owned());
+        let item_id: Option<i64> = self
+            .read(move |conn| {
+                use rusqlite::OptionalExtension;
+                conn.query_row(
+                    "SELECT item_id FROM provider_mappings
+                     WHERE provider_instance = ?1 AND media_type = ?2 AND provider_item_id = ?3",
+                    (&instance, media_type.as_str(), &id),
+                    |row| row.get(0),
+                )
+                .optional()
+            })
+            .await?;
+        match item_id {
+            Some(item_id) => self.item(media_type, item_id).await,
+            None => Ok(None),
+        }
+    }
+
+    /// The tracks a URI stands for, with what they play from: a track itself, an album's or
+    /// artist's tracks, or a playlist's, in order, from the library or from a catalog. Tracks
+    /// nothing can play are left out.
     pub async fn playable(&self, uri: &str) -> Result<Vec<(Track, Input)>> {
         let not_found = || {
             Error::new(
@@ -172,7 +209,26 @@ impl Library {
                 format!("{uri} not found"),
             )
         };
-        let (media_type, id) = parse_library_uri(uri).ok_or_else(not_found)?;
+        let Some((media_type, id)) = parse_library_uri(uri) else {
+            let (scheme, media_type, id) = catalog::parse_uri(uri).ok_or_else(not_found)?;
+            let catalog = self.catalogs.get(scheme).ok_or_else(not_found)?;
+            let tracks = match media_type {
+                MediaType::Track => match catalog.item(MediaType::Track, id).await? {
+                    MediaItem::Track(track) => vec![*track],
+                    _ => return Err(not_found()),
+                },
+                MediaType::Album => catalog.album_tracks(id).await?,
+                MediaType::Artist => catalog.artist_tracks(id).await?,
+                MediaType::Playlist => catalog.playlist_tracks(id).await?,
+            };
+            return Ok(tracks
+                .into_iter()
+                .filter_map(|track| {
+                    let media = catalog.media(&track.fields.item_id)?;
+                    Some((track, media))
+                })
+                .collect());
+        };
         let tracks = match media_type {
             MediaType::Track => match self.item(MediaType::Track, id).await? {
                 Some(MediaItem::Track(track)) => vec![*track],

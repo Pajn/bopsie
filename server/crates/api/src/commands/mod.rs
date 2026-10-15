@@ -46,6 +46,7 @@ pub fn registry() -> Registry {
         .add::<music::ItemByUri>()
         .add::<music::Search>()
         .add::<music::Sync>()
+        .add::<music::Providers>()
         .add::<players::All>()
         .add::<players::Get>()
         .add::<players::VolumeSet>()

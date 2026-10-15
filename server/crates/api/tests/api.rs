@@ -538,6 +538,7 @@ async fn info_and_the_command_list_need_no_auth() {
             "players/cmd/volume_mute",
             "players/cmd/volume_set",
             "players/get",
+            "providers",
         ]
     );
 }

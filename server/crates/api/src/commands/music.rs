@@ -2,7 +2,10 @@
 
 use bopsie_core::media::{Album, LIBRARY, MediaItem, MediaType, Track, parse_library_uri};
 use bopsie_core::{Error, ErrorCode, Result};
+use std::sync::Arc;
+
 use bopsie_library::ListQuery;
+use bopsie_library::catalog::{self, Catalog};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -116,37 +119,50 @@ fn not_found(media_type: MediaType, item_id: &str) -> Error {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ItemArgs {
     pub item_id: String,
-    /// Where the id comes from. Only `library` holds items on this server.
+    /// Where the id comes from: `library`, or a catalog such as `spotify`.
     pub provider_instance_id_or_domain: String,
 }
 
+/// Where an item is: the library, by its id, or a catalog, by the catalog's id for it.
+enum Target<'a> {
+    Library(i64),
+    Catalog(Arc<dyn Catalog>, &'a str),
+}
+
 impl ItemArgs {
-    /// The library id the arguments name.
-    fn id(&self, media_type: MediaType) -> Result<i64> {
-        if self.provider_instance_id_or_domain != LIBRARY {
-            return Err(not_found(media_type, &self.item_id));
+    fn target(&self, ctx: &Context, media_type: MediaType) -> Result<Target<'_>> {
+        if self.provider_instance_id_or_domain == LIBRARY {
+            return self
+                .item_id
+                .parse()
+                .map(Target::Library)
+                .map_err(|_| not_found(media_type, &self.item_id));
         }
-        self.item_id
-            .parse()
-            .map_err(|_| not_found(media_type, &self.item_id))
+        ctx.api
+            .library
+            .catalogs()
+            .get(&self.provider_instance_id_or_domain)
+            .map(|catalog| Target::Catalog(catalog, &self.item_id))
+            .ok_or_else(|| not_found(media_type, &self.item_id))
     }
 }
 
 async fn get(ctx: &Context, media_type: MediaType, args: &ItemArgs) -> Result<Value> {
-    let item = ctx
-        .api
-        .library
-        .item(media_type, args.id(media_type)?)
-        .await?;
-    to_value(item.ok_or_else(|| not_found(media_type, &args.item_id))?)
+    match args.target(ctx, media_type)? {
+        Target::Library(id) => {
+            let item = ctx.api.library.item(media_type, id).await?;
+            to_value(item.ok_or_else(|| not_found(media_type, &args.item_id))?)
+        }
+        Target::Catalog(catalog, id) => to_value(catalog.item(media_type, id).await?),
+    }
 }
 
-/// Fails unless the item exists, so listing an unknown item's children is an error, not empty.
-async fn require(ctx: &Context, media_type: MediaType, args: &ItemArgs) -> Result<i64> {
-    let id = args.id(media_type)?;
+/// Fails unless the library item exists, so listing an unknown item's children is an error,
+/// not empty.
+async fn require(ctx: &Context, media_type: MediaType, id: i64) -> Result<i64> {
     match ctx.api.library.item(media_type, id).await? {
         Some(_) => Ok(id),
-        None => Err(not_found(media_type, &args.item_id)),
+        None => Err(not_found(media_type, &id.to_string())),
     }
 }
 
@@ -187,8 +203,13 @@ impl Command for AlbumTracks {
     type Output = Vec<Value>;
 
     async fn handle(ctx: Context, args: ItemArgs) -> Result<Vec<Value>> {
-        let id = require(&ctx, MediaType::Album, &args).await?;
-        values::<Track>(ctx.api.library.album_tracks(id).await?)
+        match args.target(&ctx, MediaType::Album)? {
+            Target::Library(id) => {
+                let id = require(&ctx, MediaType::Album, id).await?;
+                values::<Track>(ctx.api.library.album_tracks(id).await?)
+            }
+            Target::Catalog(catalog, id) => values(catalog.album_tracks(id).await?),
+        }
     }
 }
 
@@ -201,8 +222,13 @@ impl Command for ArtistAlbums {
     type Output = Vec<Value>;
 
     async fn handle(ctx: Context, args: ItemArgs) -> Result<Vec<Value>> {
-        let id = require(&ctx, MediaType::Artist, &args).await?;
-        values::<Album>(ctx.api.library.artist_albums(id).await?)
+        match args.target(&ctx, MediaType::Artist)? {
+            Target::Library(id) => {
+                let id = require(&ctx, MediaType::Artist, id).await?;
+                values::<Album>(ctx.api.library.artist_albums(id).await?)
+            }
+            Target::Catalog(catalog, id) => values(catalog.artist_albums(id).await?),
+        }
     }
 }
 
@@ -215,8 +241,13 @@ impl Command for ArtistTracks {
     type Output = Vec<Value>;
 
     async fn handle(ctx: Context, args: ItemArgs) -> Result<Vec<Value>> {
-        let id = require(&ctx, MediaType::Artist, &args).await?;
-        values::<Track>(ctx.api.library.artist_tracks(id).await?)
+        match args.target(&ctx, MediaType::Artist)? {
+            Target::Library(id) => {
+                let id = require(&ctx, MediaType::Artist, id).await?;
+                values::<Track>(ctx.api.library.artist_tracks(id).await?)
+            }
+            Target::Catalog(catalog, id) => values(catalog.artist_tracks(id).await?),
+        }
     }
 }
 
@@ -230,14 +261,19 @@ impl Command for PlaylistTracks {
     type Output = Vec<Value>;
 
     async fn handle(ctx: Context, args: ItemArgs) -> Result<Vec<Value>> {
-        let id = require(&ctx, MediaType::Playlist, &args).await?;
-        values::<Track>(ctx.api.library.playlist_tracks(id).await?)
+        match args.target(&ctx, MediaType::Playlist)? {
+            Target::Library(id) => {
+                let id = require(&ctx, MediaType::Playlist, id).await?;
+                values::<Track>(ctx.api.library.playlist_tracks(id).await?)
+            }
+            Target::Catalog(catalog, id) => values(catalog.playlist_tracks(id).await?),
+        }
     }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ItemByUriArgs {
-    /// A `library://<type>/<id>` URI.
+    /// A `library://<type>/<id>` URI, or a catalog's, such as `spotify://album/<id>`.
     pub uri: String,
 }
 
@@ -251,10 +287,15 @@ impl Command for ItemByUri {
 
     async fn handle(ctx: Context, args: ItemByUriArgs) -> Result<Value> {
         let Some((media_type, id)) = parse_library_uri(&args.uri) else {
-            return Err(Error::new(
-                ErrorCode::InvalidProviderUri,
-                format!("Not a valid library URI: {}", args.uri),
-            ));
+            let invalid = || {
+                Error::new(
+                    ErrorCode::InvalidProviderUri,
+                    format!("Not a valid URI: {}", args.uri),
+                )
+            };
+            let (scheme, media_type, id) = catalog::parse_uri(&args.uri).ok_or_else(invalid)?;
+            let catalog = ctx.api.library.catalogs().get(scheme).ok_or_else(invalid)?;
+            return to_value(catalog.item(media_type, id).await?);
         };
         let item = ctx.api.library.item(media_type, id).await?;
         to_value(item.ok_or_else(|| not_found(media_type, &id.to_string()))?)
@@ -267,9 +308,16 @@ pub struct SearchArgs {
     /// Media types to search: `artist`, `album`, `track`, `playlist`. Defaults to all.
     #[serde(default)]
     pub media_types: Option<Vec<String>>,
-    /// Results per media type. Defaults to 50.
+    /// Results per media type, from each source. Defaults to 50.
     #[serde(default)]
     pub limit: Option<u32>,
+    /// Search the library alone, not catalogs such as Spotify.
+    #[serde(default)]
+    pub library_only: Option<bool>,
+    /// The sources to search, by provider id: `library`, or a catalog's such as `spotify`.
+    /// Defaults to all. This server's own addition.
+    #[serde(default)]
+    pub providers: Option<Vec<String>>,
 }
 
 /// Music Assistant's `SearchResults`. Kinds of media this server does not have stay empty.
@@ -290,7 +338,7 @@ pub struct Search;
 impl Command for Search {
     const NAME: &'static str = "music/search";
     const ACCESS: Access = Access::Scope(Scope::LibraryRead);
-    const SUMMARY: &'static str = "Search the library by name.";
+    const SUMMARY: &'static str = "Search the library and catalogs such as Spotify by name: the library's results first, and a catalog's that the library holds as the library's.";
     type Args = SearchArgs;
     type Output = SearchResults;
 
@@ -301,6 +349,22 @@ impl Command for Search {
                 .as_ref()
                 .is_none_or(|types| types.iter().any(|t| t == media_type.as_str()))
         };
+        let from = |provider: &str| {
+            args.providers
+                .as_ref()
+                .is_none_or(|providers| providers.iter().any(|p| p == provider))
+        };
+        let catalogs: Vec<_> = if args.library_only == Some(true) {
+            Vec::new()
+        } else {
+            ctx.api
+                .library
+                .catalogs()
+                .all()
+                .into_iter()
+                .filter(|c| from(c.instance_id()) || from(c.domain()))
+                .collect()
+        };
         let mut results = SearchResults::default();
         for (media_type, slot) in [
             (MediaType::Artist, &mut results.artists),
@@ -308,14 +372,42 @@ impl Command for Search {
             (MediaType::Track, &mut results.tracks),
             (MediaType::Playlist, &mut results.playlists),
         ] {
-            if wanted(media_type) {
-                let items: Vec<MediaItem> = ctx
-                    .api
+            if !wanted(media_type) {
+                continue;
+            }
+            let mut items: Vec<MediaItem> = if from(LIBRARY) {
+                ctx.api
                     .library
                     .search(media_type, args.search_query.clone(), limit)
-                    .await?;
-                *slot = values(items)?;
+                    .await?
+            } else {
+                Vec::new()
+            };
+            for catalog in &catalogs {
+                let found = match catalog
+                    .search(&args.search_query, media_type, limit as usize)
+                    .await
+                {
+                    Ok(found) => found,
+                    // One source failing leaves the others' results.
+                    Err(error) => {
+                        tracing::warn!(catalog = catalog.instance_id(), %error, "search failed");
+                        continue;
+                    }
+                };
+                for item in found {
+                    let held = ctx
+                        .api
+                        .library
+                        .by_mapping(catalog.instance_id(), media_type, &item.fields().item_id)
+                        .await?;
+                    let item = held.unwrap_or(item);
+                    if !items.iter().any(|i| i.fields().uri == item.fields().uri) {
+                        items.push(item);
+                    }
+                }
             }
+            *slot = values(items)?;
         }
         Ok(results)
     }
@@ -347,5 +439,52 @@ impl Command for Sync {
             }
         });
         Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ProvidersArgs {}
+
+pub struct Providers;
+impl Command for Providers {
+    const NAME: &'static str = "providers";
+    const ACCESS: Access = Access::Scope(Scope::LibraryRead);
+    const SUMMARY: &'static str = "The music providers: the sources the library scans, and catalogs such as Spotify, searched and browsed as they are.";
+    type Args = ProvidersArgs;
+    type Output = Vec<Value>;
+
+    async fn handle(ctx: Context, _: ProvidersArgs) -> Result<Vec<Value>> {
+        let provider = |instance: &str, domain: &str, name: &str, streaming: bool| {
+            serde_json::json!({
+                "type": "music",
+                "domain": domain,
+                "name": name,
+                "instance_id": instance,
+                "lookup_key": instance,
+                "available": true,
+                "is_streaming_provider": streaming,
+                "supported_features": if streaming {
+                    vec!["search", "browse"]
+                } else {
+                    vec!["library_artists", "library_albums", "library_tracks", "library_playlists"]
+                },
+            })
+        };
+        let library = &ctx.api.library;
+        Ok(library
+            .providers()
+            .iter()
+            .map(|instance| {
+                let domain = instance.split("--").next().unwrap_or(instance);
+                provider(instance, domain, "Local files", false)
+            })
+            .chain(
+                library
+                    .catalogs()
+                    .all()
+                    .iter()
+                    .map(|c| provider(c.instance_id(), c.domain(), c.name(), true)),
+            )
+            .collect())
     }
 }

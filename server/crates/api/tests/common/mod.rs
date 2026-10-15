@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+pub mod catalog;
 pub mod source;
 pub mod speaker;
 
