@@ -3,10 +3,18 @@
 //! A dedicated thread owns the connection and runs closures sent to it, so SQLite never blocks
 //! the async executor. Each crate owns its tables and contributes its own migrations under a
 //! component name; `schema_migrations` records how far each component has got.
+//!
+//! As every read and write waits its turn on that thread, slow work holds everything up. A
+//! statement slower than [`SLOW_STATEMENT`] is logged with its SQL, and work that runs longer
+//! than [`SLOW_JOB`], or waits longer than [`SLOW_WAIT`] for its turn, with where it came from.
 
+use std::future::Future;
+use std::panic::Location;
 use std::path::Path;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
+use rusqlite::trace::{TraceEvent, TraceEventCodes};
 use rusqlite::{Connection, OptionalExtension};
 use tokio::sync::oneshot;
 
@@ -51,6 +59,34 @@ impl From<DbError> for Error {
 
 type Job = Box<dyn FnOnce(&mut Connection) + Send>;
 
+/// A statement this slow is logged, with its SQL.
+pub const SLOW_STATEMENT: Duration = Duration::from_millis(250);
+/// Work on the database thread this slow is logged, with where it came from.
+pub const SLOW_JOB: Duration = Duration::from_secs(2);
+/// Work that waits this long for its turn is logged: something before it held the thread.
+pub const SLOW_WAIT: Duration = Duration::from_secs(1);
+
+/// `sql` on one line, at most a few hundred characters: enough to find it in the code.
+fn one_line(sql: &str) -> String {
+    let line = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    match line.char_indices().nth(300) {
+        Some((at, _)) => format!("{}…", &line[..at]),
+        None => line,
+    }
+}
+
+fn profile(event: TraceEvent<'_>) {
+    if let TraceEvent::Profile(statement, took) = event
+        && took >= SLOW_STATEMENT
+    {
+        tracing::warn!(
+            ms = took.as_millis() as u64,
+            sql = one_line(&statement.sql()),
+            "slow database statement"
+        );
+    }
+}
+
 /// A handle to the database thread. Clones share the thread, which ends when the last handle
 /// is dropped.
 #[derive(Debug, Clone)]
@@ -74,6 +110,7 @@ impl Database {
     fn start(mut conn: Connection, migrations: &[Migrations]) -> Result<Self, DbError> {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.trace_v2(TraceEventCodes::SQLITE_TRACE_PROFILE, Some(profile));
         migrate(&mut conn, &[&[CORE], migrations].concat())?;
 
         let (jobs, queue) = mpsc::channel::<Job>();
@@ -89,18 +126,38 @@ impl Database {
     }
 
     /// Runs `f` on the database thread and returns its result.
-    pub async fn call<T, F>(&self, f: F) -> Result<T, DbError>
+    #[track_caller]
+    pub fn call<T, F>(&self, f: F) -> impl Future<Output = Result<T, DbError>> + use<T, F>
     where
         T: Send + 'static,
         F: FnOnce(&mut Connection) -> Result<T, DbError> + Send + 'static,
     {
+        let caller = Location::caller();
+        let queued = Instant::now();
         let (reply, result) = oneshot::channel();
-        self.jobs
+        let sent = self
+            .jobs
             .send(Box::new(move |conn| {
+                let started = Instant::now();
+                let waited = started - queued;
+                if waited >= SLOW_WAIT {
+                    tracing::warn!(
+                        ms = waited.as_millis() as u64,
+                        %caller,
+                        "waited for the database"
+                    );
+                }
                 let _ = reply.send(f(conn));
+                let took = started.elapsed();
+                if took >= SLOW_JOB {
+                    tracing::warn!(ms = took.as_millis() as u64, %caller, "slow database work");
+                }
             }))
-            .map_err(|_| DbError::Closed)?;
-        result.await.map_err(|_| DbError::Closed)?
+            .map_err(|_| DbError::Closed);
+        async move {
+            sent?;
+            result.await.map_err(|_| DbError::Closed)?
+        }
     }
 }
 
@@ -192,6 +249,17 @@ pub fn setting_or_init(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slow_sql_is_logged_on_one_short_line() {
+        assert_eq!(
+            one_line("SELECT a\n     FROM b\n  WHERE c = ?1"),
+            "SELECT a FROM b WHERE c = ?1"
+        );
+        let long = one_line(&"x ".repeat(400));
+        assert_eq!(long.chars().count(), 301);
+        assert!(long.ends_with('…'));
+    }
 
     const ITEMS: Migrations = Migrations {
         component: "items",

@@ -126,11 +126,15 @@ impl Library {
         }
     }
 
-    async fn read<T: Send + 'static>(
-        &self,
-        f: impl FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
-    ) -> Result<T> {
-        Ok(self.db.call(move |conn| Ok(f(conn)?)).await?)
+    /// Runs `f` on the database thread; a slow run is logged as where `read` was called.
+    #[track_caller]
+    fn read<T, F>(&self, f: F) -> impl std::future::Future<Output = Result<T>> + use<T, F>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let call = self.db.call(move |conn| Ok(f(conn)?));
+        async move { Ok(call.await?) }
     }
 
     pub async fn list(&self, media_type: MediaType, query: ListQuery) -> Result<Vec<MediaItem>> {
