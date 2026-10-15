@@ -112,7 +112,7 @@ struct Inner {
     last_volumes: Mutex<BTreeMap<String, (u8, bool)>>,
     /// Shutting down: nothing more is saved.
     closing: AtomicBool,
-    /// Devices whose native groups the server is changing, and since when.
+    /// Devices whose native groups the server is changing or last changed, and when.
     settling: Mutex<BTreeMap<String, Instant>>,
     rng: Mutex<StdRng>,
     /// Sources that play to groups, once [`Playback::follow_sources`] is called.
@@ -1498,11 +1498,18 @@ impl Playback {
         if self.entry(player)?.synced_to.is_some() {
             self.ungroup(player)?;
         }
+        let native = plan
+            .carrier(player)
+            .filter(|c| c.native)
+            .zip(plan.carriers.first());
+        if native.is_some() {
+            // Before it is linked: what the device reports from then on, until it has joined,
+            // still says it follows no one.
+            self.settling(player);
+        }
         self.link(player, &leader);
         let playing = self.entry(&leader)?.session.snapshot().state == PlaybackState::Playing;
-        if let Some(carrier) = plan.carrier(player).filter(|c| c.native)
-            && let Some(head) = plan.carriers.first()
-        {
+        if let Some((carrier, head)) = native {
             self.join_natively(player, &carrier.endpoint, &head.endpoint, &leader);
         }
         self.carry(&leader, player)?;
@@ -1594,14 +1601,14 @@ impl Playback {
     }
 
     /// Notes that the devices of `player` are being changed by the server, so that what they
-    /// report meanwhile is not taken for a change made elsewhere.
-    fn settling(&self, player: &str, busy: bool) {
-        let mut settling = self.inner.settling.lock().unwrap();
-        if busy {
-            settling.insert(player.to_owned(), Instant::now());
-        } else {
-            settling.remove(player);
-        }
+    /// report meanwhile, and for [`SETTLING`] after, is not taken for a change made elsewhere:
+    /// a report asked for before the change can arrive after it.
+    fn settling(&self, player: &str) {
+        self.inner
+            .settling
+            .lock()
+            .unwrap()
+            .insert(player.to_owned(), Instant::now());
     }
 
     /// Tells endpoint `follower` of `player` to follow endpoint `leading` of `leader`, in the
@@ -1614,7 +1621,7 @@ impl Playback {
         else {
             return;
         };
-        self.settling(player, true);
+        self.settling(player);
         let (playback, player, leading, leader) = (
             self.clone(),
             player.to_owned(),
@@ -1625,7 +1632,7 @@ impl Playback {
             let joined = tokio::task::spawn_blocking(move || endpoint.join_native(&leading))
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
-            playback.settling(&player, false);
+            playback.settling(&player);
             if let Err(error) = joined {
                 tracing::warn!(
                     device = player,
@@ -1642,13 +1649,13 @@ impl Playback {
 
     /// Tells `player`'s endpoint `endpoint` to leave its native group, in the background.
     fn leave_natively(&self, player: &str, endpoint: Arc<dyn bopsie_players::Endpoint>) {
-        self.settling(player, true);
+        self.settling(player);
         let (playback, player) = (self.clone(), player.to_owned());
         tokio::spawn(async move {
             let left = tokio::task::spawn_blocking(move || endpoint.leave_native())
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
-            playback.settling(&player, false);
+            playback.settling(&player);
             if let Err(error) = left {
                 tracing::warn!(device = player, error, "cannot leave the native group");
             }
@@ -1687,13 +1694,13 @@ impl Playback {
         let Some(native) = self.native_follower(player) else {
             return;
         };
-        self.settling(player, true);
+        self.settling(player);
         let (playback, player, leader) = (self.clone(), player.to_owned(), leader.to_owned());
         tokio::spawn(async move {
             let left = tokio::task::spawn_blocking(move || native.leave_native())
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
-            playback.settling(&player, false);
+            playback.settling(&player);
             if let Err(error) = left {
                 tracing::warn!(device = player, error, "cannot leave the native group");
                 return;
@@ -1720,16 +1727,6 @@ impl Playback {
     /// Takes a device's own report of its native group as what is so: a group made in its
     /// vendor's app is shown as it is, and one left there is left here too.
     fn reconcile_native(&self, id: &str) {
-        let recently = self
-            .inner
-            .settling
-            .lock()
-            .unwrap()
-            .get(id)
-            .is_some_and(|at| at.elapsed() < SETTLING);
-        if recently {
-            return;
-        }
         let Ok(device) = self.device(id) else {
             return;
         };
@@ -1749,6 +1746,18 @@ impl Playback {
         let Ok(entry) = self.entry(id) else {
             return;
         };
+        // Checked after the group is read: the server notes it is changing a group before it
+        // changes it, so a change seen here is one whose settling is seen too.
+        let recently = self
+            .inner
+            .settling
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|at| at.elapsed() < SETTLING);
+        if recently {
+            return;
+        }
         match (reported, entry.synced_to) {
             (Some(leader), current) if current.as_deref() != Some(leader.as_str()) => {
                 if self.entry(&leader).is_err() {
