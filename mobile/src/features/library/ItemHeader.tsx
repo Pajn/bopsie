@@ -5,12 +5,13 @@ import type { IconName } from '@/ui/Icon';
 import { Button, Text } from '@/ui/primitives';
 import { Artwork } from './Artwork';
 
-/** The top of an album, artist or playlist page: artwork, names and a play button. */
+/** The top of an album, artist or playlist page: artwork, names, and play and shuffle buttons. */
 export function ItemHeader({
   item,
   title,
   subtitle,
   onPlay,
+  onShuffle,
   round,
   placeholder,
 }: {
@@ -18,6 +19,7 @@ export function ItemHeader({
   title: string;
   subtitle?: string;
   onPlay: () => void;
+  onShuffle: () => void;
   round?: boolean;
   placeholder?: IconName;
 }) {
@@ -40,7 +42,10 @@ export function ItemHeader({
           </Text>
         ) : null}
       </View>
-      <Button title="Play" onPress={onPlay} testID="item-play" />
+      <View style={styles.buttons}>
+        <Button title="Play" onPress={onPlay} testID="item-play" />
+        <Button title="Shuffle" variant="secondary" onPress={onShuffle} testID="item-shuffle" />
+      </View>
     </View>
   );
 }
@@ -49,4 +54,5 @@ const styles = StyleSheet.create((theme) => ({
   header: { alignItems: 'center', gap: theme.spacing.md, paddingVertical: theme.spacing.lg },
   names: { gap: theme.spacing.xs },
   center: { textAlign: 'center' },
+  buttons: { flexDirection: 'row', gap: theme.spacing.sm },
 }));

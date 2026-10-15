@@ -4,7 +4,10 @@ import {
   type QueueCommand,
   queueCommand,
   seek,
+  setRepeat,
+  setShuffle,
 } from '@bopsie/client/api/endpoints/players';
+import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -64,12 +67,20 @@ export function usePlaybackActions() {
       /** Replaces the queue with `uri` (an album, playlist, artist or track) and plays it. */
       play: (uri: string, startItem?: string) =>
         run((id) => playMedia(connection, id, uri, startItem ? { startItem } : {})),
+      /** Turns shuffle on, then replaces the queue with `uri`, which the server shuffles. */
+      shufflePlay: (uri: string) =>
+        run(async (id) => {
+          await setShuffle(connection, id, true);
+          await playMedia(connection, id, uri);
+        }),
       /** Puts `uri` after the current item, leaving the rest of the queue in place. */
       playNext: (uri: string) => run((id) => playMedia(connection, id, uri, { option: 'next' })),
       /** Puts `uri` at the end of the queue. */
       addToQueue: (uri: string) => run((id) => playMedia(connection, id, uri, { option: 'add' })),
       command: (command: QueueCommand) => run((id) => queueCommand(connection, id, command)),
       seek: (seconds: number) => run((id) => seek(connection, id, seconds)),
+      shuffle: (enabled: boolean) => run((id) => setShuffle(connection, id, enabled)),
+      repeat: (mode: RepeatMode) => run((id) => setRepeat(connection, id, mode)),
     }),
     [connection, run],
   );

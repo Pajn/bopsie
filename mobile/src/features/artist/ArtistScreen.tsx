@@ -61,6 +61,7 @@ export function ArtistScreen({
               item={artist.data ?? null}
               title={artist.data?.name ?? name ?? ''}
               onPlay={() => artist.data && playback.play(artist.data.uri)}
+              onShuffle={() => artist.data && playback.shufflePlay(artist.data.uri)}
               round
               placeholder="user"
             />

@@ -10,6 +10,15 @@ export const playbackState = z.pipe(
 );
 export type PlaybackState = z.output<typeof playbackState>;
 
+/** `RepeatMode`, with anything unknown read as off. */
+export const repeatMode = z.pipe(
+  z.nullish(z.string()),
+  z.transform((value): 'off' | 'one' | 'all' =>
+    value === 'one' || value === 'all' ? value : 'off',
+  ),
+);
+export type RepeatMode = z.output<typeof repeatMode>;
+
 /** `PlayerMedia`: what a player has loaded, whatever its source. */
 export const playerMedia = z.looseObject({
   title: z.nullish(z.string()),
@@ -93,7 +102,7 @@ export const playerQueue = z.looseObject({
   available: booleanOr(false),
   items: numberOr(0),
   shuffle_enabled: booleanOr(false),
-  repeat_mode: stringOr('off'),
+  repeat_mode: repeatMode,
   current_index: z.nullish(z.number()),
   /**
    * The item the player has been handed, which is the current one or, near

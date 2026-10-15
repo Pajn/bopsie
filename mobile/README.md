@@ -26,6 +26,9 @@ where they are, as Music Assistant requires.
 Press and hold a track, album, artist or playlist, or use its more button, to play it next, add it
 to the end of the queue, or go to its album or artists.
 
+The full player shuffles and repeats the queue, or the track playing. Shuffle beside an album's,
+artist's or playlist's Play button turns shuffle on and plays it.
+
 ## Requirements
 
 - Node 24 and pnpm 12. The Nix dev shell provides both.

@@ -65,6 +65,7 @@ export function PlaylistScreen({
               title={playlist.data?.name ?? name ?? ''}
               {...(playlist.data?.owner ? { subtitle: playlist.data.owner } : {})}
               onPlay={() => uri && playback.play(uri)}
+              onShuffle={() => uri && playback.shufflePlay(uri)}
               placeholder="list"
             />
             {error ? <InlineError message={describeError(error)} /> : null}

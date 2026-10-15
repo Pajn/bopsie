@@ -1,3 +1,4 @@
+import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import Slider from '@react-native-community/slider';
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -9,6 +10,7 @@ import { formatDuration, queuePosition } from '@/player/progress';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { itemLinks, nowPlaying } from './nowPlaying';
+import { nextRepeatMode } from './repeat';
 import { useNow } from './useNow';
 import { usePlaybackActions, useQueue } from './usePlayback';
 
@@ -121,6 +123,14 @@ export function NowPlayingScreen() {
         </View>
       </View>
       <View style={styles.controls}>
+        <Toggle
+          icon="shuffle"
+          label="Shuffle"
+          on={queue.shuffle_enabled}
+          hidden={queue.source !== null}
+          onPress={() => playback.shuffle(!queue.shuffle_enabled)}
+          testID="player-shuffle"
+        />
         <Control icon="skip-back" label="Previous" onPress={() => playback.command('previous')} />
         <Control
           icon={playing ? 'pause' : 'play'}
@@ -135,8 +145,66 @@ export function NowPlayingScreen() {
           onPress={() => playback.command('next')}
           testID="player-next"
         />
+        <Toggle
+          icon="repeat"
+          label={REPEAT_LABELS[queue.repeat_mode]}
+          on={queue.repeat_mode !== 'off'}
+          badge={queue.repeat_mode === 'one' ? '1' : undefined}
+          hidden={queue.source !== null}
+          onPress={() => playback.repeat(nextRepeatMode(queue.repeat_mode))}
+          testID="player-repeat"
+        />
       </View>
     </View>
+  );
+}
+
+const REPEAT_LABELS: Record<RepeatMode, string> = {
+  off: 'Repeat: off',
+  all: 'Repeat: all',
+  one: 'Repeat: this track',
+};
+
+/**
+ * Shuffle or repeat: accented while on, with a badge for repeating one track.
+ * Hidden, though still holding its place, while a source plays, which keeps its own.
+ */
+function Toggle({
+  icon,
+  label,
+  on,
+  badge,
+  hidden,
+  onPress,
+  testID,
+}: {
+  icon: IconName;
+  label: string;
+  on: boolean;
+  badge?: string | undefined;
+  hidden: boolean;
+  onPress: () => void;
+  testID: string;
+}) {
+  const { theme } = useUnistyles();
+  if (hidden) return <View style={styles.toggle} />;
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={12}
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: on }}
+      style={({ pressed }) => [styles.toggle, pressed && styles.pressed]}
+      testID={testID}
+    >
+      <Icon name={icon} size={22} color={on ? theme.colors.accent : theme.colors.textMuted} />
+      {badge ? (
+        <Text variant="caption" style={styles.badge}>
+          {badge}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -179,7 +247,17 @@ const styles = StyleSheet.create((theme) => ({
   names: { gap: theme.spacing.xs },
   center: { textAlign: 'center' },
   times: { flexDirection: 'row', justifyContent: 'space-between' },
-  controls: { flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' },
+  controls: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  toggle: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  badge: {
+    position: 'absolute',
+    top: -6,
+    right: -4,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700',
+    color: theme.colors.accent,
+  },
   large: {
     width: 72,
     height: 72,

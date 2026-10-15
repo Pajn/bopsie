@@ -1,6 +1,6 @@
 import * as z from 'zod/mini';
 import type { MaConnection } from '../client';
-import { player, playerQueue, type QueueItem, queueItem } from '../schemas/player';
+import { player, playerQueue, type QueueItem, queueItem, type RepeatMode } from '../schemas/player';
 
 /** `QueueOption`: where new media goes in the queue. */
 export type QueueOption = 'play' | 'replace' | 'next' | 'replace_next' | 'add';
@@ -138,6 +138,17 @@ export function playMedia(
 
 export const queueCommand = (connection: MaConnection, queueId: string, command: QueueCommand) =>
   connection.command<void>(`player_queues/${command}`, { queue_id: queueId });
+
+/** Shuffles what is still to play, or restores its order. */
+export const setShuffle = (connection: MaConnection, queueId: string, enabled: boolean) =>
+  connection.command<void>('player_queues/shuffle', {
+    queue_id: queueId,
+    shuffle_enabled: enabled,
+  });
+
+/** Repeats nothing, the current item, or the whole queue. */
+export const setRepeat = (connection: MaConnection, queueId: string, mode: RepeatMode) =>
+  connection.command<void>('player_queues/repeat', { queue_id: queueId, repeat_mode: mode });
 
 /** Absolute position in seconds. */
 export const seek = (connection: MaConnection, queueId: string, seconds: number) =>

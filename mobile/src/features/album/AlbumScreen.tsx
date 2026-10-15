@@ -73,6 +73,7 @@ export function AlbumScreen({
                   : ''
               }
               onPlay={() => uri && playback.play(uri)}
+              onShuffle={() => uri && playback.shufflePlay(uri)}
             />
             {error ? <InlineError message={describeError(error)} /> : null}
           </>
