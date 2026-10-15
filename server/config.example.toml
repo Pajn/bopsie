@@ -44,6 +44,15 @@ enabled = true
 # the certificate and its key.
 # certificate = "/etc/bopsie/linkplay-client.pem"
 
+[cast]
+# Google Cast devices on the network are found by mDNS and played through the Sendspin receiver,
+# a Cast app launched on a device when it is played to. It connects back to [sendspin]'s
+# listener, so that port must be reachable from the devices. A device whose own protocol also
+# plays, such as a WiiM's LinkPlay, keeps to that unless the receiver serves more of a group.
+enabled = true
+# The receiver's Cast app id, when not the published one.
+# app_id = "FAB7FE2B"
+
 [spotify]
 # Each speaker shows in the Spotify app as a Spotify Connect device; picking one plays Spotify to
 # the speaker's group through the server. A speaker's settings can turn it off for that speaker.

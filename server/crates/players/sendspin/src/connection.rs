@@ -1,6 +1,7 @@
 //! One Sendspin client: the handshake, its state, time replies, and the endpoint that streams
 //! to it.
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ use bopsie_players::{
 };
 use futures::{SinkExt, StreamExt};
 use tokio::runtime::Handle;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::sink::SendspinSink;
 use crate::wire::{self, ClientHello, ClientMessage, Codec, Metadata, Progress};
@@ -178,6 +179,7 @@ impl Endpoint for SendspinEndpoint {
                 mute: commands.iter().any(|c| c == "mute"),
                 pairing: Pairing::None,
                 native_group: None,
+                launched: false,
                 withdrawn: Vec::new(),
             },
             quirks: Default::default(),
@@ -254,6 +256,40 @@ impl Endpoint for SendspinEndpoint {
     }
 }
 
+/// The client of a hosted player, while it is connected or since it last was.
+pub type HostedClient = watch::Receiver<Option<Arc<SendspinEndpoint>>>;
+type Host = watch::Sender<Option<Arc<SendspinEndpoint>>>;
+
+/// Players another provider hosts, by client id: a Cast receiver that provider launched
+/// connects as a Sendspin client, and plays through that provider's endpoint rather than as a
+/// player of its own.
+#[derive(Clone, Default)]
+pub struct Hosted(Arc<Mutex<HashMap<String, Host>>>);
+
+impl Hosted {
+    /// Hosts the client that says hello as `id`: its endpoint arrives on the receiver each time
+    /// it connects.
+    pub fn host(&self, id: &str) -> HostedClient {
+        self.0
+            .lock()
+            .unwrap()
+            .entry(id.to_owned())
+            .or_insert_with(|| watch::channel(None).0)
+            .subscribe()
+    }
+
+    /// Hands `endpoint` to its host, if it has one.
+    fn adopt(&self, id: &str, endpoint: &Arc<SendspinEndpoint>) -> bool {
+        match self.0.lock().unwrap().get(id) {
+            Some(host) => {
+                host.send_replace(Some(endpoint.clone()));
+                true
+            }
+            None => false,
+        }
+    }
+}
+
 /// The Sendspin server role: answers clients and registers them as players.
 #[derive(Clone)]
 pub struct SendspinServer {
@@ -262,6 +298,8 @@ pub struct SendspinServer {
     pub name: String,
     /// How long a client may say nothing before it is taken as gone: [`SILENCE_LIMIT`].
     pub silence_limit: Duration,
+    /// Clients that play through another provider's endpoint.
+    pub hosted: Hosted,
 }
 
 impl SendspinServer {
@@ -431,9 +469,14 @@ impl SendspinServer {
                         self.players.changed(&id);
                     } else {
                         registered = true;
-                        self.players.register(Arc::new(SendspinEndpoint {
+                        let endpoint = Arc::new(SendspinEndpoint {
                             shared: shared.clone(),
-                        }));
+                        });
+                        if self.hosted.adopt(&id, &endpoint) {
+                            self.players.changed(&id);
+                        } else {
+                            self.players.register(endpoint);
+                        }
                     }
                 }
                 ClientMessage::Goodbye { reason } => {

@@ -40,6 +40,7 @@ async fn start_listening(players: Players, silence_limit: Duration) -> (SocketAd
         server_id: "server-1".to_owned(),
         name: "Test server".to_owned(),
         silence_limit,
+        hosted: Default::default(),
     };
     let app = Router::new()
         .route("/sendspin", get(serve))

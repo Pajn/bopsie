@@ -162,6 +162,7 @@ impl Endpoint for Speaker {
                 mute: true,
                 pairing: Default::default(),
                 native_group: None,
+                launched: false,
                 withdrawn: Vec::new(),
             },
             quirks: Default::default(),

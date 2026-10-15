@@ -101,6 +101,7 @@ impl Api {
             server_id: server_id.clone(),
             name: config.server.name.clone(),
             silence_limit: bopsie_players_sendspin::SILENCE_LIMIT,
+            hosted: Default::default(),
         };
         Ok(Arc::new(Self {
             auth: Auth::open(db).await?,

@@ -14,6 +14,7 @@ time, and how they recover.
 - A phone with Bopsie, signed in to the server.
 - Two LinkPlay speakers, such as a WiiM and an Audio Pro, for the LinkPlay checks. Note the
   input each is on and its volume first, to put back afterwards.
+- A Cast speaker, for the Cast checks; a WiiM is a LinkPlay and a Cast speaker in one.
 - The Spotify app, signed in to a Premium account, for the Spotify Connect checks.
 - The server's log at `info`, with `RUST_LOG=info,bopsie_players_airplay=debug` for the AirPlay
   checks, to read the lines quoted below.
@@ -171,3 +172,17 @@ Each line says what to do, what to hear, and what the log shows when it went rig
     how many were matched and suggested, and no `MusicBrainz stayed busy`. An album without art
     has a cover; an album's raw JSON on its page has `musicbrainz_albumid` among its
     `external_ids` and `genres` in its `metadata`.
+
+### Cast
+
+48. **Cast solo.** Play to a Cast speaker that is nothing else. Log at info: `launching the Cast
+    receiver`, then `Sendspin client connected` with the speaker's name, within a few seconds;
+    it is audible soon after. Its volume in Bopsie moves the speaker's own.
+49. **Cast in a group.** Group a WiiM with a Sendspin player, such as Bopsie on a phone. The WiiM
+    plays through the Cast receiver, in step with the phone. Alone again, it plays over
+    LinkPlay.
+50. **Released.** Five minutes after the speaker stops, the log says `stopping the Cast
+    receiver`, and the speaker shows its own idle screen or input again.
+51. **Another app.** Cast to the speaker from another app while Bopsie plays to it: the other app
+    plays, and the log says `the Cast receiver stopped`. Bopsie does not take the speaker back
+    until it is played to again.

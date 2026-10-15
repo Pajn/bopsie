@@ -17,6 +17,8 @@ unchanged. The design and the milestones are in
 | `bopsie-players` | `crates/players` | Player traits, devices, linking, quirks, the group planner, health |
 | `bopsie-players-airplay` | `crates/players/airplay` | AirPlay through `cliairplay` |
 | `bopsie-players-sendspin` | `crates/players/sendspin` | The Sendspin server role |
+| `bopsie-players-linkplay` | `crates/players/linkplay` | LinkPlay speakers, over their HTTP API |
+| `bopsie-players-cast` | `crates/players/cast` | Cast devices, through the Sendspin receiver |
 | `bopsie-queues` | `crates/queues` | The queue state machine |
 | `bopsie-api` | `crates/api` | The Music Assistant compatible API |
 | `bopsie-server` | `crates/server` | The binary that wires it all together |
@@ -67,6 +69,16 @@ own multiroom: the server streams to the leader, and the leader carries the rest
 switches it to its network input, as it would for any app, and leaves it there. Devices that
 ask for a client certificate, as Audio Pro's do, are shown LinkPlay's; see
 [`crates/players/linkplay/NOTICE`](crates/players/linkplay/NOTICE).
+
+Cast devices, such as Chromecasts, Nest speakers and WiiM's, are found by mDNS and played
+through the [Sendspin receiver](https://github.com/Sendspin/cast), a Cast app the server
+launches on a device when it is played to. The receiver connects back to the Sendspin listener
+on port 8927, so that port must be reachable from the devices, and plays in step with other
+Sendspin players. A Cast app stops once no sender is connected to it, so the server keeps a
+channel open to each device, and stops the receiver itself once it has been idle for five
+minutes. Launching takes a few seconds, so a device that also plays over another protocol, as a
+WiiM does over LinkPlay, plays over that one unless the receiver serves more of a group. Another
+app cast to a device takes it; the server does not take it back until it is played to again.
 
 A speaker's own controls act on the group it plays in, as the app would: pause pressed on
 one speaker pauses all of them, and play, next, previous and its volume buttons work the same

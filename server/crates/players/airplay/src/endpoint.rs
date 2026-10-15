@@ -344,6 +344,7 @@ impl Shared {
                 mute: true,
                 pairing: state.speaker.pairing(),
                 native_group: None,
+                launched: false,
                 withdrawn: Vec::new(),
             },
             quirks: Default::default(),

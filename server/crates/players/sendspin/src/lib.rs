@@ -6,4 +6,4 @@ pub mod pacer;
 mod sink;
 pub mod wire;
 
-pub use connection::{SILENCE_LIMIT, SendspinEndpoint, SendspinServer};
+pub use connection::{Hosted, HostedClient, SILENCE_LIMIT, SendspinEndpoint, SendspinServer};

@@ -26,9 +26,11 @@ use bopsie_metadata::wikimedia::{self, Wikimedia};
 use bopsie_players::planner::Policy;
 use bopsie_players::{Devices, Players};
 use bopsie_players_airplay::{AirplayProvider, Config as AirplayConfig};
+use bopsie_players_cast::{CastProvider, Settings as CastSettings};
 use bopsie_players_linkplay::{
     Config as LinkplayConfig, LinkplayProvider, ServerAddress as LinkplayServer,
 };
+use bopsie_players_sendspin::SendspinServer;
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use bopsie_sources::Sources;
@@ -193,6 +195,8 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         )
     });
 
+    let cast = start_cast(&config, &api.sendspin);
+
     // Sendspin clients that connect directly, without a token.
     let sendspin = api.sendspin.clone();
     let direct = Router::new().route(
@@ -325,6 +329,9 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(linkplay) = linkplay {
             let _ = tokio::task::spawn_blocking(move || linkplay.shutdown()).await;
         }
+        if let Some(cast) = cast {
+            let _ = tokio::task::spawn_blocking(move || cast.shutdown()).await;
+        }
         let _ = closing.send(true);
         let _ = direct_server.await;
         server.await
@@ -406,6 +413,34 @@ fn start_linkplay(config: &Config, players: Players) -> Option<LinkplayProvider>
     };
     if let Err(error) = provider.discover() {
         tracing::error!(%error, "LinkPlay discovery could not start");
+    }
+    Some(provider)
+}
+
+/// Cast, unless the config file turns it off. Its receivers connect to the direct Sendspin
+/// listener, as clients `sendspin` hosts.
+fn start_cast(config: &Config, sendspin: &SendspinServer) -> Option<CastProvider> {
+    if !config.cast.enabled {
+        return None;
+    }
+    let bind = config.sendspin.bind;
+    let provider = CastProvider::new(
+        sendspin.players.clone(),
+        sendspin.hosted.clone(),
+        CastSettings {
+            app_id: config
+                .cast
+                .app_id
+                .clone()
+                .unwrap_or_else(|| bopsie_players_cast::RECEIVER_APP_ID.to_owned()),
+            sendspin_port: bind.port(),
+            sendspin_host: (!bind.ip().is_unspecified()).then(|| bind.ip()),
+            release_after: Duration::from_secs(5 * 60),
+            launch_timeout: Duration::from_secs(20),
+        },
+    );
+    if let Err(error) = provider.discover() {
+        tracing::error!(%error, "Cast discovery could not start");
     }
     Some(provider)
 }

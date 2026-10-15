@@ -103,7 +103,8 @@ pub struct Devices {
     inner: Arc<Inner>,
 }
 
-/// Where `provider` comes in [`PROTOCOLS`].
+/// Where `provider` comes in [`PROTOCOLS`]. An endpoint that has to be launched comes after all
+/// that do not, whatever its protocol.
 fn rank(provider: &str) -> usize {
     PROTOCOLS
         .iter()
@@ -180,8 +181,13 @@ impl Devices {
                 }
             })
             .collect();
-        endpoints
-            .sort_by(|a, b| (rank(a.state.provider), &a.id).cmp(&(rank(b.state.provider), &b.id)));
+        endpoints.sort_by_key(|e| {
+            (
+                e.state.capabilities.launched,
+                rank(e.state.provider),
+                e.id.clone(),
+            )
+        });
         let states: Vec<&EndpointState> = endpoints.iter().map(|m| &m.state).collect();
         let groups: Vec<Vec<String>> = link(&states)
             .into_iter()

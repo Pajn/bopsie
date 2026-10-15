@@ -45,6 +45,7 @@ impl Fake {
                     mute: true,
                     pairing: Default::default(),
                     native_group: None,
+                    launched: false,
                     withdrawn: Vec::new(),
                 },
                 quirks: Default::default(),
@@ -145,6 +146,41 @@ async fn a_speaker_over_two_protocols_is_one_device_whose_id_outlives_a_restart(
     .unwrap();
     players.register(Fake::new("apaabbcc001122", "airplay", mac("aabbcc001122")));
     assert_eq!(ids(&devices), owned(&[("speaker", &["apaabbcc001122"])]));
+}
+
+#[tokio::test]
+async fn a_receiver_that_has_to_be_launched_is_a_devices_last_resort() {
+    let players = Players::default();
+    let devices = Devices::new(
+        players.clone(),
+        Database::open_in_memory(&[MIGRATIONS]).unwrap(),
+    )
+    .await
+    .unwrap();
+    let address = Facts {
+        address: Some("10.0.0.4".parse().unwrap()),
+        ..Facts::default()
+    };
+    // A WiiM: a LinkPlay speaker, and a Cast device whose Sendspin receiver is launched.
+    let cast = Fake::new("cast1", "sendspin", address.clone());
+    cast.state.lock().unwrap().capabilities.launched = true;
+    players.register(cast);
+    players.register(Fake::new("lp1", "linkplay", address));
+    settle().await;
+    let device = devices.all().into_iter().next().unwrap();
+    assert_eq!(
+        device
+            .members
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        ["lp1", "cast1"]
+    );
+    assert_eq!(
+        device.primary().id,
+        "lp1",
+        "it is shown, and its volume set, over LinkPlay"
+    );
 }
 
 #[tokio::test]

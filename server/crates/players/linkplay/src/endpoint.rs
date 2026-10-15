@@ -263,6 +263,7 @@ impl Shared {
                         family: "linkplay",
                         version,
                     }),
+                launched: false,
                 // A follower withdraws its AirPlay until it leaves the group.
                 withdrawn: if status.is_some_and(|s| s.follower && s.airplay()) {
                     vec!["airplay"]

@@ -517,6 +517,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "bopsie-players-cast"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bopsie-audio",
+ "bopsie-core",
+ "bopsie-players",
+ "bopsie-players-sendspin",
+ "futures",
+ "mdns-sd",
+ "rand 0.10.3",
+ "rcgen",
+ "rustls 0.23.46",
+ "serde_json",
+ "tokio",
+ "tokio-rustls 0.26.6",
+ "tokio-tungstenite 0.30.0",
+ "tracing",
+]
+
+[[package]]
 name = "bopsie-players-linkplay"
 version = "0.1.0"
 dependencies = [
@@ -614,6 +635,7 @@ dependencies = [
  "bopsie-metadata",
  "bopsie-players",
  "bopsie-players-airplay",
+ "bopsie-players-cast",
  "bopsie-players-linkplay",
  "bopsie-players-sendspin",
  "bopsie-providers-filesystem",

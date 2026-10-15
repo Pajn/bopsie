@@ -19,6 +19,7 @@ pub struct Config {
     pub audio: AudioConfig,
     pub airplay: AirplayConfig,
     pub linkplay: LinkplayConfig,
+    pub cast: CastConfig,
     pub spotify: SpotifyConfig,
     pub web: WebConfig,
     pub metadata: MetadataConfig,
@@ -162,6 +163,25 @@ impl Default for LinkplayConfig {
         Self {
             enabled: true,
             certificate: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CastConfig {
+    /// Find Google Cast devices and play to them through the Sendspin receiver, a Cast app
+    /// launched on a device when it is played to.
+    pub enabled: bool,
+    /// The receiver's Cast app id, when not the published one.
+    pub app_id: Option<String>,
+}
+
+impl Default for CastConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            app_id: None,
         }
     }
 }

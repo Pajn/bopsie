@@ -38,6 +38,9 @@ pub struct Capabilities {
     pub pairing: Pairing,
     /// The vendor multiroom it can group by, where the devices themselves carry the audio.
     pub native_group: Option<NativeGroup>,
+    /// It is started only when played to, which takes seconds: a Cast receiver, launched on
+    /// the device. The planner plays another way when one serves as many.
+    pub launched: bool,
     /// Protocols the device has but withdraws while it follows another natively, as a LinkPlay
     /// follower withdraws AirPlay: they come back when it leaves the group.
     pub withdrawn: Vec<&'static str>,

@@ -60,6 +60,7 @@ struct Spec {
     lead_ms: i64,
     /// Its LinkPlay multiroom version, for a LinkPlay endpoint.
     native: Option<u32>,
+    launched: bool,
 }
 
 fn airplay(id: &'static str) -> Spec {
@@ -73,6 +74,7 @@ fn airplay(id: &'static str) -> Spec {
         max_group_size: Some(8),
         lead_ms: 2_500,
         native: None,
+        launched: false,
     }
 }
 
@@ -87,6 +89,7 @@ fn linkplay(id: &'static str, version: u32) -> Spec {
         max_group_size: None,
         lead_ms: 3_500,
         native: Some(version),
+        launched: false,
     }
 }
 
@@ -101,6 +104,7 @@ fn sendspin(id: &'static str) -> Spec {
         max_group_size: None,
         lead_ms: 300,
         native: None,
+        launched: false,
     }
 }
 
@@ -115,6 +119,10 @@ impl Spec {
     }
     fn unavailable(mut self) -> Self {
         self.available = false;
+        self
+    }
+    fn launched(mut self) -> Self {
+        self.launched = true;
         self
     }
     fn quirks(mut self, quirks: Quirks) -> Self {
@@ -154,6 +162,7 @@ impl Spec {
                         family: "linkplay",
                         version,
                     }),
+                    launched: self.launched,
                     withdrawn: Vec::new(),
                 },
                 quirks: resolved,
@@ -435,6 +444,38 @@ fn linkplay_devices_group_natively() {
     let plan = plan_for(&amp, &[]);
     assert_eq!(plan.strategy, Strategy::Native);
     assert_eq!(plan.sample_rate, 44_100);
+}
+
+#[test]
+fn a_receiver_that_has_to_be_launched_plays_only_when_it_serves_more() {
+    // A WiiM is a LinkPlay speaker and a Cast device, whose Sendspin receiver is launched.
+    let amp = device("amp", &[linkplay("lp1", 4), sendspin("cast1").launched()]);
+    let plan = plan_for(&amp, &[]);
+    assert_eq!(
+        plan.strategy,
+        Strategy::Native,
+        "alone, it plays as it always has"
+    );
+
+    let speaker = device("speaker", &[linkplay("lp2", 4)]);
+    let plan = plan_for(&amp, std::slice::from_ref(&speaker));
+    assert_eq!(plan.strategy, Strategy::Native);
+
+    // With a Sendspin player, which its own multiroom cannot carry, the receiver serves both.
+    let phone = device("phone", &[sendspin("ss1")]);
+    let plan = plan_for(&amp, std::slice::from_ref(&phone));
+    assert_eq!(plan.strategy, Strategy::SendspinDirect);
+    assert_eq!(
+        native_carriers(&plan),
+        [
+            ("amp".to_owned(), "cast1".to_owned(), false),
+            ("phone".to_owned(), "ss1".to_owned(), false)
+        ]
+    );
+
+    // Once it plays that way, it keeps to it while that serves as many.
+    let plan = make_plan(&amp, &[], &policy(), Some(Strategy::SendspinDirect)).unwrap();
+    assert_eq!(plan.strategy, Strategy::SendspinDirect);
 }
 
 #[test]

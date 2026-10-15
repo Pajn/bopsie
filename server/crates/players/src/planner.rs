@@ -211,8 +211,9 @@ fn lead(member: &Member) -> Micros {
 }
 
 /// How `leader` and `members` play together, preferring `current`'s strategy when it serves
-/// as many: the strategy that serves the most members, earliest in `policy` among equals, and
-/// the leader's own multiroom after those. `None` when the leader cannot play at all.
+/// as many: the strategy that serves the most members, then the one that launches the fewest
+/// endpoints, earliest in `policy` among equals, and the leader's own multiroom after those.
+/// `None` when the leader cannot play at all.
 pub fn plan(
     leader: &Device,
     members: &[Device],
@@ -241,8 +242,13 @@ pub fn plan(
             Some(best) => {
                 candidate.carriers.len() > best.carriers.len()
                     || (candidate.carriers.len() == best.carriers.len()
-                        && current == Some(strategy)
-                        && best.strategy != strategy)
+                        && if current == Some(strategy) {
+                            best.strategy != strategy
+                        } else {
+                            current != Some(best.strategy)
+                                && launches(&candidate, leader, members)
+                                    < launches(best, leader, members)
+                        })
             }
         };
         if better {
@@ -250,6 +256,19 @@ pub fn plan(
         }
     }
     best
+}
+
+/// How many of the endpoints `plan` streams to have to be launched first.
+fn launches(plan: &Plan, leader: &Device, members: &[Device]) -> usize {
+    plan.streamed()
+        .filter(|carrier| {
+            std::iter::once(leader)
+                .chain(members)
+                .find(|device| device.id == carrier.device)
+                .and_then(|device| device.member(&carrier.endpoint))
+                .is_some_and(|member| member.state.capabilities.launched)
+        })
+        .count()
 }
 
 fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<Plan> {

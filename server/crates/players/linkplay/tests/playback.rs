@@ -100,6 +100,7 @@ impl Endpoint for Airplay {
                 mute: true,
                 pairing: Default::default(),
                 native_group: None,
+                launched: false,
                 withdrawn: Vec::new(),
             },
             quirks: Default::default(),
