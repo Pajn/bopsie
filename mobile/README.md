@@ -20,8 +20,8 @@ players: set each member's volume or the group's, remove members, and for any ot
 to join it to the group, move the queue to it, or control it instead. On iOS this is how music
 plays.
 
-The full player opens the group's queue: play any track in it, drag tracks into a new order, move
-one up to play next, or remove it. The track playing, and the next one once the player has it, stay
+The bar at the foot of the full player says what plays next and opens the group's queue: play
+any track in it, drag tracks into a new order, move one up to play next, or remove it. The track playing, and the next one once the player has it, stay
 where they are, as Music Assistant requires.
 
 Press and hold a track, album, artist or playlist, or use its more button, to play it next, add it
