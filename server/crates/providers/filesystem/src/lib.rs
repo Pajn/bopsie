@@ -254,6 +254,10 @@ impl MusicProvider for FilesystemProvider {
         })
     }
 
+    fn priority(&self) -> i64 {
+        2
+    }
+
     fn read_track(&self, id: &str) -> Result<ScannedTrack, ProviderError> {
         let path = self.resolve(id)?;
         let file = lofty::read_from_path(&path)

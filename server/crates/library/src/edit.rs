@@ -188,12 +188,27 @@ fn artist_ids(
     Ok(ids)
 }
 
+/// The provider a track's album keeps its albums apart for, from the album's key: a track of
+/// a streaming service's album moved by name goes to that service's album of the name.
+fn album_scope(conn: &Connection, track: i64) -> DbResult<Option<String>> {
+    let key: Option<String> = conn
+        .query_row(
+            "SELECT albums.match_key FROM tracks JOIN albums ON albums.id = tracks.album_id
+             WHERE tracks.id = ?1",
+            [track],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(key.and_then(|key| Some(key.split_once('\u{1d}')?.0.to_owned())))
+}
+
 /// An album given as `{"id": n}`, or `{"name": "...", "artists": [...]}`: the album with that
 /// name and those album artists, else a new one.
 fn album_id(
     conn: &Connection,
     value: &Value,
     track_artists: &[i64],
+    scope: Option<&str>,
     now: i64,
     changes: &mut Changes,
 ) -> Result<i64> {
@@ -215,6 +230,10 @@ fn album_id(
     };
     let names = artist_names(conn, &artists)?;
     let key = album_key(&names, name);
+    let key = match scope {
+        Some(scope) => format!("{scope}\u{1d}{key}"),
+        None => key,
+    };
     if let Some(id) = conn
         .query_row(
             "SELECT id FROM albums WHERE match_key = ?1",
@@ -290,7 +309,15 @@ fn resolve(
         "artists" => json!(artist_ids(conn, value, now, changes)?),
         "album" => {
             let artists = credited(conn, "track_artists", "track_id", id)?;
-            json!(album_id(conn, value, &artists, now, changes)?)
+            let scope = album_scope(conn, id)?;
+            json!(album_id(
+                conn,
+                value,
+                &artists,
+                scope.as_deref(),
+                now,
+                changes
+            )?)
         }
         "image" => {
             let proxy_id = text(value)?;

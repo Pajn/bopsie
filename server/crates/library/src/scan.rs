@@ -18,6 +18,8 @@ pub struct Source {
     pub instance: String,
     /// Its albums stay its own rather than merge with another provider's of the same name.
     pub separate_albums: bool,
+    /// Which provider's copy comes first: see [`crate::provider::MusicProvider::priority`].
+    pub priority: i64,
 }
 
 /// Items a scan added, changed or removed.
@@ -154,14 +156,15 @@ fn map(
 ) -> Result<()> {
     tx.execute(
         "INSERT OR IGNORE INTO provider_mappings
-             (media_type, item_id, provider_domain, provider_instance, provider_item_id)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+             (media_type, item_id, provider_domain, provider_instance, provider_item_id, priority)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             media_type.as_str(),
             item_id,
             source.domain,
             source.instance,
-            provider_item_id
+            provider_item_id,
+            source.priority
         ],
     )?;
     Ok(())
@@ -360,13 +363,36 @@ fn album(
     } else {
         key
     };
-    let existing: Option<(i64, Option<i32>, Option<String>)> = tx
-        .query_row(
-            "SELECT id, year, image FROM albums WHERE match_key = ?1",
-            [&key],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    let provider_album = track.album_id.as_deref().unwrap_or(name);
+    // A service's album id is the album, wherever it was merged to; a folder is not, since its
+    // files may be retagged as another album.
+    let mapped: Option<i64> = if source.separate_albums {
+        tx.query_row(
+            "SELECT item_id FROM provider_mappings
+             WHERE provider_instance = ?1 AND media_type = 'album' AND provider_item_id = ?2",
+            [&source.instance, provider_album],
+            |row| row.get(0),
         )
-        .optional()?;
+        .optional()?
+    } else {
+        None
+    };
+    let existing: Option<(i64, Option<i32>, Option<String>)> = match mapped {
+        Some(id) => tx
+            .query_row(
+                "SELECT id, year, image FROM albums WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?,
+        None => tx
+            .query_row(
+                "SELECT id, year, image FROM albums WHERE match_key = ?1",
+                [&key],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?,
+    };
     let id = match existing {
         Some((id, year, current_image)) => {
             // The first track to know the year or have art fills it in.
@@ -403,13 +429,7 @@ fn album(
             id
         }
     };
-    map(
-        tx,
-        source,
-        MediaType::Album,
-        id,
-        track.album_id.as_deref().unwrap_or(name),
-    )?;
+    map(tx, source, MediaType::Album, id, provider_album)?;
     // Each track says what its album is; one that says nothing leaves what the others said.
     if !track.album_ids.is_empty() {
         set_ids(tx, source, MediaType::Album, id, &track.album_ids)?;
@@ -460,7 +480,38 @@ pub fn upsert_track(
             |row| row.get(0),
         )
         .optional()?;
+    // A provider that comes after another holding the track only fills in what it lacks.
+    let outranked = match existing {
+        Some(id) => tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM provider_mappings
+                 WHERE media_type = 'track' AND item_id = ?1 AND provider_instance != ?2
+                     AND priority > ?3)",
+            params![id, source.instance, source.priority],
+            |row| row.get::<_, bool>(0),
+        )?,
+        None => false,
+    };
     let id = match existing {
+        Some(id) if outranked => {
+            tx.execute(
+                "UPDATE tracks SET
+                     duration = CASE WHEN duration = 0 THEN ?2 ELSE duration END,
+                     album_id = coalesce(album_id, ?3),
+                     disc_number = coalesce(disc_number, ?4),
+                     track_number = coalesce(track_number, ?5),
+                     image = coalesce(image, ?6)
+                 WHERE id = ?1",
+                params![
+                    id,
+                    track.duration_secs,
+                    album_id,
+                    track.disc_number,
+                    track.track_number,
+                    image
+                ],
+            )?;
+            id
+        }
         Some(id) => {
             tx.execute(
                 "UPDATE tracks SET name = ?2, sort_name = ?3, duration = ?4, album_id = ?5,
@@ -512,9 +563,11 @@ pub fn upsert_track(
             encode_format(&track.audio_format)
         ],
     )?;
-    credit(tx, "track_artists", "track_id", id, &artist_ids)?;
     set_ids(tx, source, MediaType::Track, id, &track.ids)?;
-    index(tx, MediaType::Track, id, title)?;
+    if !outranked {
+        credit(tx, "track_artists", "track_id", id, &artist_ids)?;
+        index(tx, MediaType::Track, id, title)?;
+    }
     Ok(id)
 }
 

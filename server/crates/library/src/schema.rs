@@ -141,5 +141,11 @@ pub const MIGRATIONS: Migrations = Migrations {
         -- Every track is read again once, for the ids it carries.
         UPDATE provider_mappings SET stamp = NULL WHERE media_type = 'track';
     ",
+        "
+        -- Which provider's copy of an item comes first, for its metadata and for playing:
+        -- files before a streaming service's.
+        ALTER TABLE provider_mappings ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
+        UPDATE provider_mappings SET priority = 2 WHERE provider_domain = 'filesystem_local';
+    ",
     ],
 };

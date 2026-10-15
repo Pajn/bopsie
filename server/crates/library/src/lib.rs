@@ -152,7 +152,7 @@ impl Library {
             .read(move |conn| {
                 let mut statement = conn.prepare(
                     "SELECT provider_instance, provider_item_id FROM provider_mappings
-                     WHERE media_type = ?1 AND item_id = ?2",
+                     WHERE media_type = ?1 AND item_id = ?2 ORDER BY priority DESC",
                 )?;
                 statement
                     .query_map((media_type.as_str(), id), |row| {
@@ -178,17 +178,26 @@ impl Library {
 
     /// What the track plays from: the first of its providers that can play it.
     pub async fn track_media(&self, track_id: i64) -> Result<Option<Input>> {
-        let mappings: Vec<(String, String)> = self
-            .read(move |conn| {
-                let mut statement = conn.prepare(
-                    "SELECT provider_instance, provider_item_id FROM provider_mappings
-                     WHERE media_type = 'track' AND item_id = ?1",
-                )?;
-                statement
-                    .query_map([track_id], |row| Ok((row.get(0)?, row.get(1)?)))?
-                    .collect()
-            })
-            .await?;
+        let mappings = self.track_sources(track_id).await?;
+        self.media_from(mappings).await
+    }
+
+    /// The providers holding a track and its id with each, the preferred first.
+    async fn track_sources(&self, track_id: i64) -> Result<Vec<(String, String)>> {
+        self.read(move |conn| {
+            let mut statement = conn.prepare(
+                "SELECT provider_instance, provider_item_id FROM provider_mappings
+                 WHERE media_type = 'track' AND item_id = ?1 ORDER BY priority DESC",
+            )?;
+            statement
+                .query_map([track_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect()
+        })
+        .await
+    }
+
+    /// What the first of `mappings` that can play its item plays.
+    async fn media_from(&self, mappings: Vec<(String, String)>) -> Result<Option<Input>> {
         let providers = self.providers.clone();
         let catalogs = self.catalogs.clone();
         blocking(move || {
@@ -272,12 +281,39 @@ impl Library {
             MediaType::Artist => self.artist_tracks(id).await?,
             MediaType::Playlist => self.playlist_tracks(id).await?,
         };
-        let mut playable = Vec::with_capacity(tracks.len());
-        for track in tracks {
-            // A catalog's playlist holds the catalog's own tracks.
-            let media = match track.fields.item_id.parse() {
+        let mut sources = Vec::with_capacity(tracks.len());
+        for track in &tracks {
+            sources.push(match track.fields.item_id.parse() {
                 Ok(track_id) if track.fields.provider == bopsie_core::media::LIBRARY => {
-                    self.track_media(track_id).await?
+                    Some(self.track_sources(track_id).await?)
+                }
+                _ => None,
+            });
+        }
+        // An album plays from one source when one holds every track, so that it stays gapless
+        // and evenly loud; the preferred such source wins.
+        let shared: Option<String> = sources
+            .iter()
+            .flatten()
+            .next()
+            .and_then(|first| {
+                first.iter().map(|(instance, _)| instance).find(|instance| {
+                    sources
+                        .iter()
+                        .flatten()
+                        .all(|mappings| mappings.iter().any(|(i, _)| i == *instance))
+                })
+            })
+            .cloned();
+        let mut playable = Vec::with_capacity(tracks.len());
+        for (track, mappings) in tracks.into_iter().zip(sources) {
+            // A catalog's playlist holds the catalog's own tracks.
+            let media = match mappings {
+                Some(mut mappings) => {
+                    if let Some(shared) = &shared {
+                        mappings.sort_by_key(|(instance, _)| instance != shared);
+                    }
+                    self.media_from(mappings).await?
                 }
                 _ => self
                     .catalogs
@@ -473,6 +509,7 @@ impl Library {
             domain: provider.domain(),
             instance: provider.instance_id().to_owned(),
             separate_albums: provider.separate_albums(),
+            priority: provider.priority(),
         };
         let lister = provider.clone();
         let listing = blocking(move || lister.list()).await?.map_err(|error| {

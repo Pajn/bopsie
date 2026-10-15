@@ -937,3 +937,193 @@ async fn a_tracks_ids_are_read_from_its_tags_and_served() {
         .remove(0);
     assert!(track.fields().external_ids.is_empty());
 }
+
+/// A streaming service holding the fixture's First Album too, tagged a little differently, each
+/// track playing from a file of its own.
+struct Holding {
+    streams: std::path::PathBuf,
+    stamp: std::sync::atomic::AtomicU32,
+}
+
+const HELD: [&str; 3] = ["Opening", "Middle", "Closing"];
+
+impl bopsie_library::provider::MusicProvider for Holding {
+    fn domain(&self) -> &'static str {
+        "streamed"
+    }
+    fn instance_id(&self) -> &str {
+        "streamed"
+    }
+    fn list(
+        &self,
+    ) -> Result<bopsie_library::provider::Listing, bopsie_library::provider::ProviderError> {
+        use bopsie_library::provider::{Entry, EntryKind, Listing};
+        let stamp = self.stamp.load(std::sync::atomic::Ordering::SeqCst);
+        Ok(Listing {
+            entries: HELD
+                .iter()
+                .map(|title| Entry {
+                    id: format!("s-{title}"),
+                    kind: EntryKind::Track,
+                    stamp: stamp.to_string(),
+                })
+                .collect(),
+            unreadable: Vec::new(),
+        })
+    }
+    fn read_track(
+        &self,
+        id: &str,
+    ) -> Result<bopsie_library::provider::ScannedTrack, bopsie_library::provider::ProviderError>
+    {
+        let title = id.strip_prefix("s-").unwrap();
+        Ok(bopsie_library::provider::ScannedTrack {
+            title: title.to_uppercase(),
+            artists: vec!["Test Artist".to_owned()],
+            album: Some("First Album".to_owned()),
+            album_artists: vec!["Test Artist".to_owned()],
+            track_number: Some(HELD.iter().position(|t| *t == title).unwrap() as u32 + 1),
+            disc_number: Some(1),
+            duration_secs: 7,
+            audio_format: bopsie_core::media::AudioFormat::unknown(),
+            album_id: Some("held-album".to_owned()),
+            ..Default::default()
+        })
+    }
+    fn read_playlist(
+        &self,
+        id: &str,
+    ) -> Result<bopsie_library::provider::ScannedPlaylist, bopsie_library::provider::ProviderError>
+    {
+        Err(bopsie_library::provider::ProviderError::Unreadable(
+            id.to_owned(),
+        ))
+    }
+    fn image(&self, path: &str) -> Result<Vec<u8>, bopsie_library::provider::ProviderError> {
+        Err(bopsie_library::provider::ProviderError::Unreadable(
+            path.to_owned(),
+        ))
+    }
+    fn file(&self, id: &str) -> Option<std::path::PathBuf> {
+        Some(self.streams.join(id))
+    }
+    fn separate_albums(&self) -> bool {
+        true
+    }
+}
+
+/// Merges the streaming service's First Album into the local one, as reconciling would.
+async fn merge_held(db: &Database) {
+    db.call(|conn| {
+        let tx = conn.transaction()?;
+        let local_album: i64 = tx.query_row(
+            "SELECT albums.id FROM albums JOIN provider_mappings
+                 ON media_type = 'album' AND item_id = albums.id
+             WHERE name = 'First Album' AND provider_instance != 'streamed'",
+            [],
+            |row| row.get(0),
+        )?;
+        for title in HELD {
+            let local: i64 =
+                tx.query_row("SELECT id FROM tracks WHERE name = ?1", [title], |row| {
+                    row.get(0)
+                })?;
+            let held: i64 = tx.query_row(
+                "SELECT item_id FROM provider_mappings
+                 WHERE media_type = 'track' AND provider_item_id = ?1",
+                [format!("s-{title}")],
+                |row| row.get(0),
+            )?;
+            tx.execute(
+                "UPDATE provider_mappings SET item_id = ?1
+                 WHERE media_type = 'track' AND item_id = ?2",
+                [local, held],
+            )?;
+            tx.execute("DELETE FROM track_artists WHERE track_id = ?1", [held])?;
+            tx.execute("DELETE FROM tracks WHERE id = ?1", [held])?;
+        }
+        tx.execute(
+            "UPDATE provider_mappings SET item_id = ?1
+             WHERE media_type = 'album' AND provider_instance = 'streamed'",
+            [local_album],
+        )?;
+        tx.commit()?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+}
+
+async fn played_from(library: &Library, album: i64) -> Vec<std::path::PathBuf> {
+    library
+        .playable(&format!("library://album/{album}"))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|(_, input)| match input {
+            bopsie_audio::engine::Input::File(path) => path,
+            _ => panic!("not a file"),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_merged_album_keeps_the_files_tags_and_plays_from_one_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    let streams = dir.path().join("streams");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    let db = Database::open_in_memory(&[bopsie_library::MIGRATIONS]).unwrap();
+    let holding = Arc::new(Holding {
+        streams: streams.clone(),
+        stamp: 1.into(),
+    });
+    let library = Library::new(
+        db.clone(),
+        EventBus::default(),
+        vec![
+            Arc::new(FilesystemProvider::new(music.clone())),
+            holding.clone(),
+        ],
+        dir.path().join("artwork"),
+    );
+    library.sync().await.unwrap();
+    merge_held(&db).await;
+
+    // The service syncing again changes neither the tracks' tags nor the albums.
+    holding.stamp.store(2, std::sync::atomic::Ordering::SeqCst);
+    library.sync().await.unwrap();
+    let albums = list(&library, MediaType::Album).await;
+    assert_eq!(albums, ["First Album", "Second Album"]);
+    let album = id(&library, MediaType::Album, "First Album").await;
+    let tracks = library.album_tracks(album).await.unwrap();
+    assert_eq!(names_of(&tracks), HELD);
+    assert!(
+        tracks.iter().all(|track| track.duration == 1),
+        "the files' durations"
+    );
+
+    // It plays from the files while they hold every track.
+    let played = played_from(&library, album).await;
+    assert!(
+        played.iter().all(|path| path.starts_with(&music)),
+        "{played:?}"
+    );
+
+    // Once they lack one, the whole album plays from the service.
+    fs::remove_file(music.join("Test Artist/First Album/02 - Middle.wav")).unwrap();
+    library.sync().await.unwrap();
+    let played = played_from(&library, album).await;
+    assert_eq!(played.len(), 3);
+    assert!(
+        played.iter().all(|path| path.starts_with(&streams)),
+        "{played:?}"
+    );
+}
+
+fn names_of(tracks: &[bopsie_core::media::Track]) -> Vec<String> {
+    tracks
+        .iter()
+        .map(|track| track.fields.name.clone())
+        .collect()
+}

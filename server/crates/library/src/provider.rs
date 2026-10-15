@@ -106,6 +106,11 @@ pub trait MusicProvider: Send + Sync + 'static {
     fn image(&self, path: &str) -> Result<Vec<u8>, ProviderError>;
     /// The local file a track plays from, if the provider has one.
     fn file(&self, id: &str) -> Option<std::path::PathBuf>;
+    /// Which provider's copy of an item comes first, for its metadata and for playing: files
+    /// before a streaming service's.
+    fn priority(&self) -> i64 {
+        0
+    }
     /// Whether its albums stay its own rather than merge with another provider's of the same
     /// name and artists, as a streaming service's do beside local files.
     fn separate_albums(&self) -> bool {
