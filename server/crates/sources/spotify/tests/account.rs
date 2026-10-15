@@ -22,6 +22,8 @@ struct Spotify {
     issued: Vec<String>,
     /// Calls refused for the rate limit so far.
     limited: usize,
+    /// Calls failed on Spotify's side so far.
+    failed: usize,
     base: String,
 }
 
@@ -89,6 +91,10 @@ async fn albums(
     if spotify.limited == 0 {
         spotify.limited += 1;
         return (StatusCode::TOO_MANY_REQUESTS, [("retry-after", "1")]).into_response();
+    }
+    if spotify.failed == 0 {
+        spotify.failed += 1;
+        return StatusCode::BAD_GATEWAY.into_response();
     }
     let offset: usize = query.get("offset").map_or(0, |o| o.parse().unwrap());
     let all = ["a", "b", "c"];
@@ -186,6 +192,7 @@ async fn a_web_api_login_is_kept_and_its_calls_paged_paced_and_refreshed() {
         started.elapsed() >= Duration::from_secs(1),
         "waited out the rate limit"
     );
+    assert_eq!(spotify.lock().unwrap().failed, 1, "tried again after a 502");
     assert_eq!(spotify.lock().unwrap().issued.len(), 2, "refreshed once");
 
     // Signing out forgets it.

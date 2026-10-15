@@ -36,6 +36,9 @@ const BURST: f64 = 5.0;
 const PACE: Duration = Duration::from_secs(1);
 /// The longest a rate-limited call waits before it gives up.
 const LONGEST_WAIT: Duration = Duration::from_secs(120);
+/// How often a call Spotify fails on its side is tried again, waiting a second, then two, then
+/// four.
+const SERVER_RETRIES: u32 = 3;
 
 /// Where Spotify is, so that tests can stand in for it.
 #[derive(Debug, Clone)]
@@ -413,6 +416,7 @@ impl SpotifyAccount {
         };
         let mut waited = Duration::ZERO;
         let mut refreshed = false;
+        let mut retried = 0;
         loop {
             let wait = self.inner.throttle.lock().await.take(Instant::now());
             tokio::time::sleep(wait).await;
@@ -448,6 +452,16 @@ impl SpotifyAccount {
                     }
                     tracing::debug!(?after, url, "Spotify's rate limit; waiting");
                     waited += after;
+                    tokio::time::sleep(after).await;
+                }
+                500 | 502 | 503 | 504 if retried < SERVER_RETRIES => {
+                    let after = Duration::from_secs(1 << retried);
+                    retried += 1;
+                    tracing::debug!(
+                        status = response.status().as_u16(),
+                        url,
+                        "Spotify failed; trying again"
+                    );
                     tokio::time::sleep(after).await;
                 }
                 status => {
