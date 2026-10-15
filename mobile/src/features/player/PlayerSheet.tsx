@@ -11,7 +11,7 @@ import Animated, {
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { CoverPlacesProvider, FlyingCover, useCoverPlaces } from './FlyingCover';
 import { MiniPlayer } from './MiniPlayer';
-import { nowPlaying } from './nowPlaying';
+import { NOTHING_PLAYING, nowPlaying } from './nowPlaying';
 import { PlayerBody } from './PlayerBody';
 import {
   collapsePlayer,
@@ -37,10 +37,7 @@ const OVER_PLAYER = new Set(['player-menu']);
 export function PlayerSheet() {
   const { height } = useWindowDimensions();
   const queue = useQueue().data;
-  // Known to have nothing loaded: a queue still loading, as after choosing another group to
-  // control, may well have something.
   const current = queue ? nowPlaying(queue) : null;
-  const empty = queue === null || (queue !== undefined && current === null);
   const frame = useRef<View>(null);
   const covers = useCoverPlaces(frame);
   const tint = useCoverTint(current?.artwork ?? null);
@@ -73,8 +70,8 @@ export function PlayerSheet() {
   const onTop = segments.includes('(tabs)');
   const covered = !onTop && !OVER_PLAYER.has(segments.at(-1) ?? '');
   useEffect(() => {
-    if (covered || empty) collapsePlayer();
-  }, [covered, empty]);
+    if (covered) collapsePlayer();
+  }, [covered]);
 
   // Android's back button is the way down from a screen, and the player stands in for one,
   // while nothing is open over it: a sheet over the player, such as its menu, closes first.
@@ -130,9 +127,9 @@ export function PlayerSheet() {
             >
               <MiniPlayer travel={travel} />
             </Animated.View>
-            {current && covers.places.mini && covers.places.full ? (
+            {covers.places.mini && covers.places.full ? (
               <FlyingCover
-                artwork={current.artwork}
+                artwork={current?.artwork ?? NOTHING_PLAYING.artwork}
                 mini={covers.places.mini}
                 full={covers.places.full}
               />

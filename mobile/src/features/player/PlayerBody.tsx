@@ -5,6 +5,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { useActiveGroup } from '@/features/outputs/ActiveGroupProvider';
 import { useOutputs } from '@/features/outputs/useOutputs';
 import { formatDuration, queuePosition } from '@/player/progress';
 import { haptics } from '@/ui/haptics';
@@ -12,7 +13,7 @@ import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { FULL_COVER, useCoverSlot } from './FlyingCover';
 import type { Frame } from './MorphPanel';
-import { itemLinks, nowPlaying } from './nowPlaying';
+import { emptyQueue, itemLinks, NOTHING_PLAYING, nowPlaying } from './nowPlaying';
 import { OutputsPanel, PILL_CHEVRON, PillContent } from './OutputsPanel';
 import { QUEUE_BAR_HEIGHT, QueuePanel } from './QueuePanel';
 import { nextRepeatMode } from './repeat';
@@ -29,7 +30,10 @@ import { useSkipSwipe } from './useSkipSwipe';
  * `travel` is how far the sheet moves, for its header and artwork to drag it down by.
  */
 export function PlayerBody({ open, travel }: { open: boolean; travel: number }) {
-  const queue = useQueue().data;
+  const { activeId } = useActiveGroup();
+  const loaded = useQueue().data;
+  // With nothing loaded the player keeps its layout, empty, so where to play stays at hand.
+  const queue = loaded ?? emptyQueue(activeId ?? 'none');
   const playback = usePlaybackActions();
   const colors = usePlayerColors();
   const playing = queue?.state === 'playing';
@@ -41,7 +45,8 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
   const skip = useCallback((to: 'next' | 'previous') => playback.command(to), [playback]);
   const artworkSwipe = useSkipSwipe(coverSwipe, FULL_COVER, skip);
   const [dragging, setDragging] = useState<number | null>(null);
-  const current = queue ? nowPlaying(queue) : null;
+  const idle = nowPlaying(queue) === null;
+  const current = nowPlaying(queue) ?? NOTHING_PLAYING;
   const router = useRouter();
   const active = useOutputs()?.active;
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -63,19 +68,6 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
     );
   });
 
-  if (!queue || !current) {
-    return (
-      <View style={styles.screen}>
-        <Header grip={grip} />
-        <View style={styles.main}>
-          <Text muted style={styles.center}>
-            Nothing is playing.
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
   const position = dragging ?? queuePosition(queue, now);
   const duration = current.duration;
   const hasLinks = queue.current_item ? itemLinks(queue.current_item).length > 0 : false;
@@ -89,7 +81,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
     >
       <Header grip={grip} {...(hasLinks && { onMore: () => router.push('/player-menu') })} />
       <View style={styles.main}>
-        <GestureDetector gesture={Gesture.Race(artworkGrip, artworkSwipe)}>
+        <GestureDetector gesture={idle ? artworkGrip : Gesture.Race(artworkGrip, artworkSwipe)}>
           <View style={styles.artwork}>
             {/* The artwork is drawn over this, by the sheet, having flown in from the mini player. */}
             <View ref={cover.ref} onLayout={cover.onLayout} style={styles.cover} />
@@ -115,7 +107,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
             </View>
           </View>
         </View>
-        <View>
+        <View style={idle && styles.disabled} pointerEvents={idle ? 'none' : 'auto'}>
           <Slider
             minimumValue={0}
             maximumValue={duration ?? 1}
@@ -134,7 +126,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
           />
           <View style={styles.times}>
             <Text variant="caption" muted testID="player-position">
-              {formatDuration(position)}
+              {idle ? '' : formatDuration(position)}
             </Text>
             <Text variant="caption" muted>
               {duration ? formatDuration(duration) : ''}
@@ -146,25 +138,32 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
             icon="shuffle"
             label="Shuffle"
             on={queue.shuffle_enabled}
-            hidden={queue.source !== null}
+            hidden={queue.source !== null || idle}
             onPress={() => {
               haptics.toggle(!queue.shuffle_enabled);
               playback.shuffle(!queue.shuffle_enabled);
             }}
             testID="player-shuffle"
           />
-          <Control icon="skip-back" label="Previous" onPress={() => playback.command('previous')} />
+          <Control
+            icon="skip-back"
+            label="Previous"
+            onPress={() => playback.command('previous')}
+            disabled={idle}
+          />
           <Control
             icon={playing ? 'pause' : 'play'}
             label={playing ? 'Pause' : 'Play'}
             onPress={() => playback.command('play_pause')}
             large
+            disabled={idle}
             testID="player-toggle"
           />
           <Control
             icon="skip-forward"
             label="Next"
             onPress={() => playback.command('next')}
+            disabled={idle}
             testID="player-next"
           />
           <Toggle
@@ -172,7 +171,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
             label={REPEAT_LABELS[queue.repeat_mode]}
             on={queue.repeat_mode !== 'off'}
             badge={queue.repeat_mode === 'one' ? '1' : undefined}
-            hidden={queue.source !== null}
+            hidden={queue.source !== null || idle}
             onPress={() => {
               const mode = nextRepeatMode(queue.repeat_mode);
               haptics.toggle(mode !== 'off');
@@ -278,12 +277,15 @@ function Control({
   label,
   onPress,
   large,
+  disabled,
   testID,
 }: {
   icon: IconName;
   label: string;
   onPress: () => void;
   large?: boolean;
+  /** Shown faded and taking no presses, as with nothing to play. */
+  disabled?: boolean;
   testID?: string;
 }) {
   const size = large ? 36 : 28;
@@ -291,13 +293,16 @@ function Control({
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       hitSlop={12}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: disabled ?? false }}
       style={({ pressed }) => [
         large && styles.large,
         large && { backgroundColor: colors.surface },
         pressed && styles.pressed,
+        disabled && styles.disabled,
       ]}
       {...(testID && { testID })}
     >
@@ -365,4 +370,5 @@ const styles = StyleSheet.create((theme, rt) => ({
   },
   pillChevron: { width: PILL_CHEVRON, height: PILL_CHEVRON },
   pressed: { opacity: 0.6 },
+  disabled: { opacity: 0.35 },
 }));

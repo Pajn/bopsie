@@ -1,5 +1,10 @@
 import type { WithImages } from '@bopsie/client/api/schemas/media';
-import type { Player, PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
+import {
+  type Player,
+  type PlayerQueue,
+  playerQueue,
+  type QueueItem,
+} from '@bopsie/client/api/schemas/player';
 import { type ItemLink, mediaLinks } from '@/features/library/links';
 
 export type { ItemLink } from '@/features/library/links';
@@ -66,6 +71,19 @@ export function asHeard(queue: PlayerQueue, player: Player | undefined): HeardQu
     },
   };
 }
+
+/** A queue with nothing in it, for a group whose queue is empty, still loading, or not chosen. */
+export function emptyQueue(queueId: string): HeardQueue {
+  return { ...playerQueue.parse({ queue_id: queueId }), source: null };
+}
+
+/** What the player shows while nothing is loaded. */
+export const NOTHING_PLAYING: NowPlaying = {
+  title: 'Nothing playing',
+  subtitle: 'Play something from your library or a search.',
+  artwork: { image: null },
+  duration: null,
+};
 
 /** Display fields for the queue's current item, or null when nothing is loaded. */
 export function nowPlaying(queue: PlayerQueue | HeardQueue): NowPlaying | null {

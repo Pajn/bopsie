@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useLayoutEffect } from 'react';
+import { useCallback } from 'react';
 import { Pressable, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
@@ -9,7 +9,7 @@ import { useOutputs } from '@/features/outputs/useOutputs';
 import { Icon } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { MINI_COVER, useCoverSlot } from './FlyingCover';
-import { nowPlaying } from './nowPlaying';
+import { NOTHING_PLAYING, nowPlaying } from './nowPlaying';
 import { ProgressLine } from './ProgressLine';
 import { expandPlayer, setDockHeight } from './sheetStore';
 import { usePlaybackActions, useQueue } from './usePlayback';
@@ -20,7 +20,8 @@ import { useSkipSwipe } from './useSkipSwipe';
 /**
  * What the active group is playing, above the tab bar: the player sheet docked. A tap opens
  * the full player, and a pull up draws it up the screen; the speaker button opens Play on.
- * Names the group unless it is the phone. `travel` is how far the sheet climbs.
+ * Names the group unless it is the phone. With nothing playing it stays, saying so and where
+ * music would play, so choosing a player is always at hand. `travel` is how far the sheet climbs.
  */
 export function MiniPlayer({ travel }: { travel: number }) {
   const router = useRouter();
@@ -29,6 +30,7 @@ export function MiniPlayer({ travel }: { travel: number }) {
   const { queueId: phoneId } = useConnection();
   const active = useOutputs()?.active;
   const current = queue ? nowPlaying(queue) : null;
+  const shown = current ?? NOTHING_PLAYING;
   const pull = useSheetDrag(travel, 'up');
   const cover = useCoverSlot('mini');
   const { width } = useWindowDimensions();
@@ -40,38 +42,37 @@ export function MiniPlayer({ travel }: { travel: number }) {
     transform: [{ translateX: swiped.value }],
   }));
   const measure = useReportedHeight(setDockHeight);
-  // With nothing docked the tab bar leaves no gap; a dock that has gone never lays out again
-  // to say so.
-  const docked = current !== null;
-  useLayoutEffect(() => {
-    if (!docked) setDockHeight(0);
-  }, [docked]);
-  if (!queue || !current) return null;
-  const playing = queue.state === 'playing';
-  const where = active && active.id !== phoneId ? `on ${active.name}` : null;
+  const playing = queue?.state === 'playing';
+  const where = !active
+    ? 'Choose where to play'
+    : active.id !== phoneId
+      ? `on ${active.name}`
+      : current
+        ? null
+        : 'on this phone';
 
   return (
     // A pull up opens the player; a swipe sideways skips.
-    <GestureDetector gesture={Gesture.Race(pull, swipe)}>
+    <GestureDetector gesture={current ? Gesture.Race(pull, swipe) : pull}>
       <Pressable
         ref={measure.ref}
         onLayout={measure.onLayout}
         onPress={expandPlayer}
         style={styles.bar}
         accessibilityRole="button"
-        accessibilityLabel={`Now playing: ${current.title}`}
+        accessibilityLabel={current ? `Now playing: ${current.title}` : 'Nothing playing'}
         testID="mini-player"
       >
-        <ProgressLine queue={queue} />
+        {queue && current ? <ProgressLine queue={queue} /> : null}
         {/* The artwork is drawn over this, by the sheet, to carry it into the full player. */}
         <View ref={cover.ref} onLayout={cover.onLayout} style={styles.cover} />
         <Animated.View style={[styles.text, textStyle]}>
           <Text numberOfLines={1} testID="mini-player-title">
-            {current.title}
+            {shown.title}
           </Text>
-          {where || current.subtitle ? (
+          {where || current?.subtitle ? (
             <Text variant="caption" muted numberOfLines={1} testID="mini-player-subtitle">
-              {where ?? current.subtitle}
+              {where ?? current?.subtitle}
             </Text>
           ) : null}
         </Animated.View>
@@ -84,15 +85,17 @@ export function MiniPlayer({ travel }: { travel: number }) {
         >
           <Icon name="speaker" size={22} />
         </Pressable>
-        <Pressable
-          onPress={() => playback.command('play_pause')}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={playing ? 'Pause' : 'Play'}
-          testID="mini-player-toggle"
-        >
-          <Icon name={playing ? 'pause' : 'play'} size={26} />
-        </Pressable>
+        {current ? (
+          <Pressable
+            onPress={() => playback.command('play_pause')}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? 'Pause' : 'Play'}
+            testID="mini-player-toggle"
+          >
+            <Icon name={playing ? 'pause' : 'play'} size={26} />
+          </Pressable>
+        ) : null}
       </Pressable>
     </GestureDetector>
   );
