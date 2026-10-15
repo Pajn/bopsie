@@ -389,7 +389,11 @@ impl SendspinServer {
             let received = clock::now();
             let Message::Text(text) = message else {
                 if let Message::Close(frame) = message {
-                    tracing::debug!(client = id, ?frame, "a Sendspin client closed its connection");
+                    tracing::debug!(
+                        client = id,
+                        ?frame,
+                        "a Sendspin client closed its connection"
+                    );
                     break;
                 }
                 continue;
