@@ -215,6 +215,25 @@ fn artists_overlap(a: &[String], b: &[String]) -> bool {
     !credited_artists(a).is_disjoint(&credited_artists(b))
 }
 
+/// Whether a name is written in Latin letters only, or has letters of another script only:
+/// `None` for one with both, or no letters at all.
+fn latin(name: &str) -> Option<bool> {
+    let letters = || name.chars().filter(|c| c.is_alphabetic());
+    // Latin, with its accented letters, ends at U+024F.
+    let is_latin = |c: char| (c as u32) <= 0x24f;
+    match (letters().any(is_latin), letters().any(|c| !is_latin(c))) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
+}
+
+/// Whether two names are in different scripts, as a Japanese title and its romanization are,
+/// so that they cannot be compared as text.
+fn different_scripts(a: &str, b: &str) -> bool {
+    matches!((latin(a), latin(b)), (Some(x), Some(y)) if x != y)
+}
+
 /// Whether two tracks are the same recording. `same_album` says they are on albums already
 /// known to be the same, where their positions count.
 pub fn compare_track(a: &TrackFacts, b: &TrackFacts, same_album: bool) -> Evidence {
@@ -230,6 +249,20 @@ pub fn compare_track(a: &TrackFacts, b: &TrackFacts, same_album: bool) -> Eviden
     let close = |seconds: u32| a.duration_secs.abs_diff(b.duration_secs) <= seconds;
     if shared(&a.ids, &b.ids, IdKind::Isrc) == Some(true) && close(8) {
         return Evidence::Match;
+    }
+    // On the same album, at the same place and as long, a title in another script is the same
+    // song: services write Japanese titles in Japanese where files have them romanized.
+    if same_album
+        && a.position().is_some()
+        && a.position() == b.position()
+        && different_scripts(&a.name, &b.name)
+        && artists_overlap(&a.artists, &b.artists)
+    {
+        return if close(5) {
+            Evidence::Match
+        } else {
+            Evidence::NoMatch
+        };
     }
     if va.base != vb.base || !artists_overlap(&a.artists, &b.artists) {
         return Evidence::NoMatch;
@@ -473,6 +506,43 @@ mod tests {
             ],
         );
         assert_eq!(compare_album(&files, &longer), Evidence::Insufficient);
+    }
+
+    #[test]
+    fn titles_in_another_script_match_by_place_and_length() {
+        let romanized = album(
+            "BABYMETAL",
+            &[("Megitsune", 249), ("Iine!", 251), ("Akatsuki", 328)],
+        );
+        let japanese = album(
+            "BABYMETAL",
+            &[
+                ("メギツネ", 248),
+                ("いいね！", 251),
+                ("紅月-アカツキ-", 324),
+            ],
+        );
+        assert_eq!(compare_album(&romanized, &japanese), Evidence::Match);
+        // Not as long, not the same song.
+        let other = album(
+            "BABYMETAL",
+            &[
+                ("メギツネ", 248),
+                ("いいね！", 190),
+                ("紅月-アカツキ-", 324),
+            ],
+        );
+        assert_eq!(compare_album(&romanized, &other), Evidence::NoMatch);
+        // Nor anywhere but on one album, where places mean nothing.
+        assert_eq!(
+            compare_track(&romanized.tracks[0], &japanese.tracks[0], false),
+            Evidence::NoMatch
+        );
+        assert!(!different_scripts(
+            "Catch Me If You Can",
+            "Catch me if you can"
+        ));
+        assert!(different_scripts("Song 4", "４の歌"));
     }
 
     #[test]
