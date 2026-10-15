@@ -151,6 +151,9 @@ class PlayerService : MediaSessionService() {
     listener?.invoke(JSONObject().put("type", "command").put("command", command).apply(build).toString())
   }
 
+  /** When [clientTimeUs], on the monotonic clock, falls on the server's clock: null unless connected and in step. */
+  fun serverTimeOf(clientTimeUs: Long): Long? = client?.serverTimeOf(clientTimeUs)
+
   fun snapshot(): String = JSONObject().put("type", "status").put("status", status.name.lowercase()).toString()
 
   /** Sendspin callbacks, which arrive on the client's threads. */

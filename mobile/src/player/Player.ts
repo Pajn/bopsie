@@ -36,6 +36,16 @@ export interface RemoteNowPlaying {
   volume: number | null;
 }
 
+/** A recording from the phone's microphone, for calibrating speakers. */
+export interface MicRecording {
+  sampleRate: number;
+  /** Mono. */
+  samples: Int16Array;
+  /** When the first sample was heard, in microseconds on the server's clock; null when the
+   * phone's player is not connected and in step with the server. */
+  firstSampleServerUs: number | null;
+}
+
 /** What the media session asks of the player it shows for the app. */
 export type RemoteCommand =
   | { command: 'play' | 'pause' | 'stop' | 'next' | 'previous' }
@@ -59,4 +69,10 @@ export interface LocalPlayer {
   showRemote(state: RemoteNowPlaying | null): void;
   /** Hears what the media session asks of the other player it shows. */
   onRemoteCommand(listener: (command: RemoteCommand) => void): () => void;
+  /** Records the microphone for `durationMs`; null where the phone cannot. Needs the
+   * microphone permission. */
+  recordCalibration(durationMs: number): Promise<MicRecording | null>;
+  /** Now on the server's clock, in microseconds; null unless the phone's player is connected
+   * and in step with the server. */
+  serverNowUs(): Promise<number | null>;
 }

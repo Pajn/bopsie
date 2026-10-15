@@ -107,6 +107,10 @@ class SendspinClient(private val config: Config, private val listener: Listener)
   fun clientTimeOf(serverTimeUs: Long): Long? =
     synchronized(filter) { if (filter.isSynchronized) filter.clientTime(serverTimeUs) else null }
 
+  /** When [clientTimeUs], on the monotonic clock, falls on the server's clock, once the clocks are in step. */
+  fun serverTimeOf(clientTimeUs: Long): Long? =
+    synchronized(filter) { if (filter.isSynchronized) filter.serverTime(clientTimeUs) else null }
+
   fun serverNowUs(): Long? =
     synchronized(filter) { if (filter.isSynchronized) filter.serverTime(monotonicUs()) else null }
 

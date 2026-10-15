@@ -4,6 +4,8 @@ import {
   adminDevice,
   adminGroup,
   adminServer,
+  calibration,
+  calibrationAdjustment,
   duplicateFile,
   librarySuggestion,
   logLine,
@@ -142,6 +144,28 @@ export const reconsiderRelease = (connection: MaConnection, albumId: string) =>
 /** Tracks kept as more than one file, with their files, for a person to clear out. */
 export const duplicateFiles = (connection: MaConnection) =>
   connection.command('admin/library/duplicate_files', {}, { schema: z.array(duplicateFile) });
+
+/**
+ * Pauses `playerId`'s group and plays each of its speakers a chirp in turn, for the phone to
+ * hear. Answers before the chirps play, with when each is due. Admins only.
+ */
+export const startCalibration = (connection: MaConnection, playerId: string) =>
+  connection.command(
+    'admin/calibration/start',
+    { player_id: playerId },
+    { schema: calibration, timeoutMs: 60_000 },
+  );
+
+/**
+ * Sets each endpoint's sync adjustment from how long after it was due its chirp was heard, in
+ * milliseconds, by endpoint id. Admins only.
+ */
+export const applyCalibration = (connection: MaConnection, delaysMs: Record<string, number>) =>
+  connection.command(
+    'admin/calibration/apply',
+    { delays_ms: delaysMs },
+    { schema: z.array(calibrationAdjustment) },
+  );
 
 /** Asks an AirPlay speaker that pairs with a PIN to show one. */
 export const pairStart = (connection: MaConnection, playerId: string) =>

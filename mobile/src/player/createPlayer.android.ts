@@ -1,5 +1,5 @@
 import { requireNativeModule } from 'expo';
-import type { LocalPlayer, PlayerStatus } from './Player';
+import type { LocalPlayer, MicRecording, PlayerStatus } from './Player';
 import { parseRemoteCommand } from './remoteCommand';
 
 interface CratiePlayerModule {
@@ -9,6 +9,12 @@ interface CratiePlayerModule {
   disconnect(): Promise<void>;
   snapshot(): Promise<string>;
   showRemote(json: string | null): Promise<void>;
+  serverNowUs(): Promise<number | null>;
+  recordCalibration(durationMs: number): Promise<{
+    sampleRate: number;
+    firstSampleServerUs: number | null;
+    samples: Uint8Array;
+  }>;
   addListener(event: 'player', listener: (event: { json: string }) => void): { remove(): void };
 }
 
@@ -70,6 +76,21 @@ export function createPlayer(): LocalPlayer {
         if (command) listener(command);
       });
       return () => subscription.remove();
+    },
+    serverNowUs: async () => {
+      await native.setup();
+      return native.serverNowUs();
+    },
+    recordCalibration: async (durationMs): Promise<MicRecording> => {
+      await native.setup();
+      const recording = await native.recordCalibration(Math.round(durationMs));
+      // A copy, so that the samples start on a two-byte boundary.
+      const bytes = recording.samples.slice();
+      return {
+        sampleRate: recording.sampleRate,
+        samples: new Int16Array(bytes.buffer, 0, bytes.byteLength / 2),
+        firstSampleServerUs: recording.firstSampleServerUs,
+      };
     },
   };
 }

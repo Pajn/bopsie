@@ -17,6 +17,7 @@ export default function AppLayout() {
           <Stack.Screen name="player-menu" options={sheetScreenOptions} />
           <Stack.Screen name="item-menu" options={sheetScreenOptions} />
           <Stack.Screen name="library-sort" options={sheetScreenOptions} />
+          <Stack.Screen name="calibrate" options={{ title: 'Speaker sync' }} />
         </Stack>
       </ActiveGroupProvider>
     </ConnectionProvider>

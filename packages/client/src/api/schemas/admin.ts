@@ -215,3 +215,36 @@ export const duplicateFile = z.looseObject({
   files: z.array(z.string()),
 });
 export type DuplicateFile = z.infer<typeof duplicateFile>;
+
+/** The sweep each speaker plays in a calibration: an exponential sine sweep. */
+export const chirp = z.looseObject({
+  from_hz: z.number(),
+  to_hz: z.number(),
+  duration_ms: z.number(),
+  fade_ms: z.number(),
+  amplitude: z.number(),
+});
+export type Chirp = z.infer<typeof chirp>;
+
+/** A calibration as the server scheduled it; times are microseconds on the server's clock. */
+export const calibration = z.looseObject({
+  chirp,
+  chirps: z.array(
+    z.looseObject({
+      player_id: z.string(),
+      name: z.string(),
+      endpoint_id: z.string(),
+      at_us: z.number(),
+    }),
+  ),
+  ends_at_us: z.number(),
+  skipped: z.array(z.string()),
+});
+export type Calibration = z.infer<typeof calibration>;
+
+export const calibrationAdjustment = z.looseObject({
+  endpoint_id: z.string(),
+  previous_ms: z.number(),
+  sync_adjust_ms: z.number(),
+});
+export type CalibrationAdjustment = z.infer<typeof calibrationAdjustment>;

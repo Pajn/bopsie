@@ -63,6 +63,22 @@ class CratiePlayerModule : Module() {
     /** Shows another player in the media session, as JSON, or stops showing one with null. */
     AsyncFunction("showRemote") { json: String? -> player().showRemote(json) }.runOnQueue(Queues.MAIN)
 
+    /**
+     * Records the microphone for [durationMs], for calibrating speakers: 16-bit mono samples, and when the
+     * first was heard on the server's clock, which is null unless the player is connected and in step.
+     */
+    /** Now on the server's clock, in microseconds: null unless the player is connected and in step. */
+    AsyncFunction("serverNowUs") { service?.serverTimeOf(System.nanoTime() / 1_000)?.toDouble() }
+
+    AsyncFunction("recordCalibration") { durationMs: Int ->
+      val recording = MicRecorder.record(context(), durationMs)
+      mapOf(
+        "sampleRate" to recording.sampleRate,
+        "firstSampleServerUs" to service?.serverTimeOf(recording.firstFrameNanos / 1_000)?.toDouble(),
+        "samples" to recording.bytes(),
+      )
+    }
+
     OnDestroy {
       service?.listener = null
       if (bound) bindingContext?.unbindService(connection)

@@ -37,6 +37,14 @@ to the end of the queue, or go to its album or artists.
 The full player shuffles and repeats the queue, or the track playing. Shuffle beside an album's,
 artist's or playlist's Play button turns shuffle on and plays it.
 
+On Android, the Account tab's Calibrate speaker sync puts the active group's speakers in step,
+for an admin of a Bopsie server. Each speaker plays a short chirp in turn, on the server's clock,
+while the phone records with its microphone, asked for at that moment. The phone finds when each
+chirp arrived, and the server makes the speakers that play early wait for the latest. Only the
+differences between speakers count, so the phone's own microphone latency cancels out; the
+recording is searched on the phone and not kept. The phone must be connected as a player, which
+is how it keeps time with the server.
+
 An artist's page lists the artist's tracks, or for a Spotify artist the most popular, then the
 albums, newest first. A Spotify artist's singles and EPs, and compilations, are listed apart.
 

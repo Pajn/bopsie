@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { Alert } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useAccountActions } from '@/auth/AuthProvider';
@@ -39,6 +40,20 @@ export function AccountScreen() {
           </Text>
           <Text testID="player-status">{PLAYER_STATUS[playerStatus]}</Text>
         </Stack>
+        {playerStatus !== 'unsupported' && (
+          <Stack gap="sm">
+            <Text variant="label" muted>
+              Speakers
+            </Text>
+            <Text muted>Put a group's speakers in step, using this phone's microphone.</Text>
+            <Button
+              title="Calibrate speaker sync"
+              variant="secondary"
+              onPress={() => router.push('/calibrate')}
+              testID="account-calibrate"
+            />
+          </Stack>
+        )}
         <Button
           title="Sign out"
           variant="secondary"

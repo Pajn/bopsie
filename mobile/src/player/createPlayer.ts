@@ -13,5 +13,7 @@ export function createPlayer(): LocalPlayer {
     },
     showRemote: () => {},
     onRemoteCommand: () => () => {},
+    recordCalibration: async () => null,
+    serverNowUs: async () => null,
   };
 }
