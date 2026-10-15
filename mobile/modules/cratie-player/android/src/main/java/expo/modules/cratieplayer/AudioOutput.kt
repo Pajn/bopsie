@@ -159,25 +159,14 @@ class AudioOutput(private val clientTimeOf: (Long) -> Long?) {
     return write(track, format, ByteArray(frames * format.bytesPerFrame), 0, frames * format.bytesPerFrame, gen)
   }
 
-  /**
-   * Writes all of `length` unless the stream is started, cleared or stopped
-   * meanwhile, and says whether it did. Writes do not block: while the output
-   * is full the thread waits on the lock, which releases it, so control calls
-   * are never held up.
-   */
-  private fun write(track: AudioTrack, format: AudioFormat, data: ByteArray, offset: Int, length: Int, gen: Int): Boolean {
-    var position = offset
-    val end = offset + length
-    while (position < end) {
-      if (!running || generation != gen) return false
-      val written = track.write(data, position, end - position, AudioTrack.WRITE_NON_BLOCKING)
-      if (written < 0) return false
-      position += written
-      framesWritten += written / format.bytesPerFrame
-      if (position < end) lock.wait(5)
-    }
-    return true
-  }
+  /** Writes all of `length` unless the stream is started, cleared or stopped meanwhile, and says whether it did. */
+  private fun write(track: AudioTrack, format: AudioFormat, data: ByteArray, offset: Int, length: Int, gen: Int): Boolean =
+    PcmWrite.writeAll(
+      lock, data, offset, length,
+      wanted = { running && generation == gen },
+      write = { bytes, from, count -> track.write(bytes, from, count, AudioTrack.WRITE_NON_BLOCKING) },
+      written = { bytes -> framesWritten += bytes / format.bytesPerFrame },
+    )
 
   companion object {
     /** Less audio than this left in the output counts as running dry. */
