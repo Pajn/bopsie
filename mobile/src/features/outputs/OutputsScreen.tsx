@@ -440,12 +440,8 @@ const styles = StyleSheet.create((theme) => ({
   unavailable: { opacity: 0.45 },
   // Joining or leaving the group, until the server confirms it.
   unconfirmed: { opacity: 0.6 },
-  // Reaches past the row on either side, so its contents stay where they are as it fades in.
-  otherCard: {
-    marginHorizontal: -theme.spacing.sm,
-    marginBottom: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.sm,
-  },
+  // Inset as the active group's card is, so an open row's card has room around what it holds.
+  otherCard: { marginBottom: theme.spacing.xs, paddingHorizontal: theme.spacing.md },
   otherCardBackground: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: theme.colors.surfaceVariant,
