@@ -2,11 +2,21 @@ import type { WithImages } from '@bopsie/client/api/schemas/media';
 import Slider from '@react-native-community/slider';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  FadeOut,
+  FadeOutDown,
+  interpolateColor,
+  LinearTransition,
+  useAnimatedStyle,
+} from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Artwork } from '@/features/library/Artwork';
 import { nowPlaying } from '@/features/player/nowPlaying';
 import { useQueue } from '@/features/player/usePlayback';
+import { Collapsible, useOpenProgress } from '@/ui/Collapsible';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { useActiveGroup } from './ActiveGroupProvider';
@@ -84,7 +94,7 @@ export function OutputsScreen() {
         ))}
       </ScrollView>
       {undo ? (
-        <View style={styles.toast}>
+        <Animated.View entering={FadeInDown} exiting={FadeOutDown} style={styles.toast}>
           <Text style={styles.toastText} numberOfLines={1}>
             Moved to {undo.name}
           </Text>
@@ -99,7 +109,7 @@ export function OutputsScreen() {
           >
             <Text style={styles.toastAction}>Undo</Text>
           </Pressable>
-        </View>
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -118,7 +128,7 @@ function ActiveCard({
   const { unconfirmed } = useActiveGroup();
   const grouped = active.members.length > 1;
   return (
-    <View style={styles.card}>
+    <Animated.View layout={LinearTransition} style={styles.card}>
       <View style={styles.row}>
         <Artwork
           item={artwork ?? { image: null }}
@@ -162,8 +172,11 @@ function ActiveCard({
               <View style={styles.end} />
             );
             return (
-              <View
+              <Animated.View
                 key={member.id}
+                entering={FadeIn}
+                exiting={FadeOut}
+                layout={LinearTransition}
                 style={unconfirmed.has(member.id) && styles.unconfirmed}
                 testID={`member-${member.id}`}
               >
@@ -183,11 +196,11 @@ function ActiveCard({
                     end={remove}
                   />
                 ) : null}
-              </View>
+              </Animated.View>
             );
           })
         : null}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -258,10 +271,24 @@ function OtherRow({
 }) {
   const actions = useOutputActions();
   const { unconfirmed } = useActiveGroup();
-  const icon: IconName = other.isPhone ? 'smartphone' : 'speaker';
+  const progress = useOpenProgress(open);
+  const { theme } = useUnistyles();
+  const tileColor = theme.colors.surfaceVariant;
+  const cardTileColor = theme.colors.background;
+  const icon: IconName = other.isPhone ? 'smartphone' : other.isGroup ? 'layers' : 'speaker';
   const what = other.isGroup ? 'group' : 'player';
+  // Open, the row and its actions share a card, which fades in behind them.
+  const cardStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
+  // On the card, the icon's tile turns light, as the actions' are.
+  const tileStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(progress.value, [0, 1], [tileColor, cardTileColor]),
+  }));
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${progress.value * 180}deg` }],
+  }));
   return (
-    <View style={unconfirmed.has(other.id) && styles.unconfirmed}>
+    <View style={[styles.otherCard, unconfirmed.has(other.id) && styles.unconfirmed]}>
+      <Animated.View style={[styles.otherCardBackground, cardStyle]} />
       <Pressable
         onPress={onToggle}
         disabled={!other.available}
@@ -270,9 +297,9 @@ function OtherRow({
         accessibilityState={{ expanded: open, disabled: !other.available }}
         testID={`output-${other.id}`}
       >
-        <View style={[styles.icon, !other.available && styles.unavailable]}>
+        <Animated.View style={[styles.icon, tileStyle, !other.available && styles.unavailable]}>
           <Icon name={icon} size={16} />
-        </View>
+        </Animated.View>
         <View style={[styles.grow, !other.available && styles.unavailable]}>
           <Text style={open ? styles.strong : undefined} numberOfLines={1}>
             {other.name}
@@ -281,9 +308,13 @@ function OtherRow({
             {other.status}
           </Text>
         </View>
-        {other.available ? <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} /> : null}
+        {other.available ? (
+          <Animated.View style={chevronStyle}>
+            <Icon name="chevron-down" size={18} />
+          </Animated.View>
+        ) : null}
       </Pressable>
-      {open ? (
+      <Collapsible progress={progress} open={open}>
         <View style={styles.actions}>
           {active && other.canJoin ? (
             <Action
@@ -326,7 +357,7 @@ function OtherRow({
             Play, pause and change volume here. Nothing else stops.
           </Action>
         </View>
-      ) : null}
+      </Collapsible>
     </View>
   );
 }
@@ -404,17 +435,20 @@ const styles = StyleSheet.create((theme) => ({
   unavailable: { opacity: 0.45 },
   // Joining or leaving the group, until the server confirms it.
   unconfirmed: { opacity: 0.6 },
-  actions: {
+  // Reaches past the row on either side, so its contents stay where they are as it fades in.
+  otherCard: { marginHorizontal: -theme.spacing.sm, paddingHorizontal: theme.spacing.sm },
+  otherCardBackground: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: theme.colors.surfaceVariant,
     borderRadius: theme.radius.md,
-    padding: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
   },
+  actions: { paddingBottom: theme.spacing.sm },
+  // In line with the row's icon and name above.
   action: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: theme.spacing.md,
-    padding: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
   },
   actionIcon: { backgroundColor: theme.colors.background },
   warning: { color: theme.colors.danger },
