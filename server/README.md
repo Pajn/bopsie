@@ -13,6 +13,7 @@ unchanged. The design and the milestones are in
 | `bopsie-audio` | `crates/audio` | Decoding, the PCM ring, transformers, the stream engine |
 | `bopsie-library` | `crates/library` | SQLite, the scanner, search, artwork, the `MusicProvider` trait |
 | `bopsie-providers-filesystem` | `crates/providers/filesystem` | The local filesystem music provider |
+| `bopsie-metadata` | `crates/metadata` | MusicBrainz, the Cover Art Archive and AcoustID lookups |
 | `bopsie-players` | `crates/players` | Player traits, devices, linking, quirks, the group planner, health |
 | `bopsie-players-airplay` | `crates/players/airplay` | AirPlay through `cliairplay` |
 | `bopsie-players-sendspin` | `crates/players/sendspin` | The Sendspin server role |
@@ -122,11 +123,61 @@ Once both are there, a sync brings in liked songs and saved albums from the Web 
 listener's playlists, with their artwork, from librespot and the Web API. A playlist's tracks are
 not brought into the library: opening or playing it asks Spotify for them, so that a followed
 playlist does not fill the library with albums nobody saved. It runs right after logging in, at every
-start and every six hours. A Spotify album stays apart from a local album of the same name; an
-artist is one, with both. Search covers the library and Spotify, the library's results first, and
+start and every six hours. An album saved on Spotify and kept as files is one album with both
+as sources (see below); an artist is one, with both. Search covers the library and Spotify, the library's results first, and
 a Spotify result the library holds comes back as the library's; `library_only` or `providers` on
 `music/search` narrows it, and Bopsie offers Both, Library or Spotify. Web API calls are paced, at
 most one a second after a burst, and wait out Spotify's rate limit when it answers with one.
+
+### One album from several sources
+
+After each sync, albums from different sources that share a name, but for a version such as
+"(Deluxe)" or "(2011 Remaster)", and an album artist, are compared track by track, as are
+albums tied by a MusicBrainz release or a link to the same Spotify album:
+
+- **The same release** becomes one album: each track that is on both is one track with both
+  sources, and the album keeps edits made to either. Its files' tags win, and the Spotify sync
+  only fills in what they lack. An album plays from its files while they hold every track it
+  plays, and from Spotify throughout otherwise, so that it stays gapless and evenly loud.
+  Songs saved without the rest of their album count as that album.
+- **Another recording** stays apart: a remaster, a live album, or a remix differs from the
+  original even where MusicBrainz calls the recordings the same.
+- **Maybe the same**, such as a deluxe edition of an album, or a shorter album that may be
+  another edition of it, is suggested. The web UI's library page lists suggestions to merge
+  or keep apart; either decision holds at every later sync.
+
+An item's page in the web UI lists its sources, the one it plays from first at the top.
+Separate takes one back out of a merged album, with the tracks only it holds, into an album
+of its own that is not merged again.
+
+### Metadata from MusicBrainz
+
+After each sync, the library's albums are looked up on [MusicBrainz](https://musicbrainz.org),
+those with files first, each again every 90 days. An album is found by the release its files
+are tagged with, by its barcode, or by a search scored as [beets](https://beets.io) scores
+releases. A close match is taken; a near one, such as a release with a track the files lack,
+is suggested on the web UI's library page, to use or reject. What is taken:
+
+- **Ids:** the release, its release group and barcode, the tracks' recordings and ISRCs, and the
+  artists', served as each item's `external_ids`. A release's link to a Spotify album ties
+  the album to the one saved on Spotify, and the two merge.
+- **Art:** an album without any gets its release group's front cover from the
+  [Cover Art Archive](https://coverartarchive.org). Art its own files bring later replaces it.
+- **Genres:** the release group's three most voted, served as the album's and its tracks'
+  `metadata.genres`. An artist's are the most common among its albums'.
+
+MusicBrainz takes one request a second, and the lookups keep to that, so a large library takes
+a while the first time; answers are kept for 30 days. Each request names Bopsie, and
+`contact` under `[metadata]` adds an address MusicBrainz can reach whoever runs the server at,
+as it asks of the software that calls it.
+
+Files tagged too poorly to be found are found by their sound when `acoustid_key` under
+`[metadata]` is set to an application key from [acoustid.org](https://acoustid.org/new-application)
+and `fpcalc` ([Chromaprint](https://acoustid.org/chromaprint)) is on the path: each track of an
+album the search left unmatched is fingerprinted and looked up on AcoustID, and the release
+most of them are on is taken, or suggested when it holds some but not all of them.
+
+Files are never written to. `[metadata]` turns each of these off.
 
 A new server has no users. Create the first, an admin, before signing in:
 
@@ -173,7 +224,7 @@ MA_URL=http://localhost:8095 MA_USERNAME=admin MA_PASSWORD=at-least-8-characters
 
 ### In a container
 
-The image has the server, ffmpeg and `cliairplay`. CI publishes it from `main` as
+The image has the server, ffmpeg, `cliairplay` and `fpcalc`. CI publishes it from `main` as
 `ghcr.io/<owner>/<repository>-server`, tagged `main` and with each commit's short hash. It
 carries the web UI, so it builds from the repository's root. To build it yourself, there:
 

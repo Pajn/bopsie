@@ -151,10 +151,23 @@ Each line says what to do, what to hear, and what the log shows when it went rig
     account twice. Log: `logged in to Spotify's Web API`, `signed in to Spotify for playback`,
     then `library synced`.
 40. **The saved library.** Bopsie's library shows the saved albums and playlists, with artwork;
-    an album saved on Spotify and kept as files shows twice, under one artist.
+    an album saved on Spotify and kept as files shows once. Its page in the web UI lists both
+    sources, the files first, and it plays from the files. Log: `library synced`.
 41. **Search.** Search for something not saved: Both shows the library's results, then
     Spotify's; Library and Spotify show only theirs.
 42. **Playing.** Play a Spotify album found by search on a group: it plays in sync, tracks
     follow without a gap, and a seek plays from there within a few seconds.
 43. **After a restart.** Restart the server with a Spotify album queued: the queue comes back and
     plays on.
+
+### One library
+
+44. **A remaster.** An album kept as files and its remaster saved on Spotify show as two albums.
+45. **Suggestions.** The web UI's library page, Suggestions, lists albums that may be the same,
+    such as a deluxe edition. Merge one and keep another apart; sync: both decisions hold.
+46. **Separate.** On a merged album's page, Separate Spotify: it becomes two albums, and stays
+    two after a sync.
+47. **MusicBrainz.** A while after a sync, the log says `albums looked up on MusicBrainz` with
+    how many were matched and suggested, and no `MusicBrainz stayed busy`. An album without art
+    has a cover; an album's raw JSON on its page has `musicbrainz_albumid` among its
+    `external_ids` and `genres` in its `metadata`.

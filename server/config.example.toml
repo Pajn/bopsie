@@ -58,6 +58,22 @@ enabled = true
 # the speaker's name. A speaker's own Spotify name, from its settings, wins over this.
 name = "{name} (Bopsie)"
 
+[metadata]
+# Look albums up on MusicBrainz after each sync, for their ids and the links between the same
+# album on different services; one request a second, in the background. Files are never
+# written to.
+musicbrainz = true
+# Give an album without artwork its cover from the Cover Art Archive.
+cover_art = true
+# Keep albums' genres from MusicBrainz.
+genres = true
+# An email address or URL MusicBrainz can reach whoever runs this server at, sent with each
+# request as it asks.
+# contact = "admin@example.org"
+# An AcoustID application key, from acoustid.org: albums a search cannot find are then found by
+# their tracks' sound. Needs fpcalc (Chromaprint) on the path.
+# acoustid_key = "…"
+
 [web]
 # The web UI at /, for managing the server, is built into the server. To serve another build of
 # it instead, such as web/dist while working on it, name its directory.
