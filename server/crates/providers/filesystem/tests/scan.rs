@@ -1344,3 +1344,108 @@ async fn art_the_files_bring_replaces_the_cover_art_archives() {
     let provider = provider().await.unwrap();
     assert!(provider.starts_with("filesystem_local"), "{provider}");
 }
+
+async fn album_artists(library: &Library, album: i64) -> Vec<String> {
+    match library.item(MediaType::Album, album).await.unwrap() {
+        Some(MediaItem::Album(album)) => album
+            .artists
+            .iter()
+            .map(|artist| artist.name().to_owned())
+            .collect(),
+        _ => panic!("no album"),
+    }
+}
+
+/// A FLAC file of one second of silence's header and no frames, which is enough to be scanned.
+fn write_flac(path: &std::path::Path) {
+    let mut bytes = b"fLaC".to_vec();
+    // The last metadata block, STREAMINFO, 34 bytes.
+    bytes.extend([0x80, 0x00, 0x00, 0x22]);
+    bytes.extend([0x10, 0x00, 0x10, 0x00]); // block sizes 4096
+    bytes.extend([0x00; 6]); // frame sizes unknown
+    // 44100 Hz, 2 channels, 16 bits, 44100 samples.
+    let packed: u64 = (44_100 << 44) | (1 << 41) | (15 << 36) | 44_100;
+    bytes.extend(packed.to_be_bytes());
+    bytes.extend([0x00; 16]); // MD5 unknown
+    fs::write(path, bytes).unwrap();
+}
+
+#[tokio::test]
+async fn an_album_artist_tagged_twice_is_credited_once() {
+    use lofty::ogg::tag::VorbisComments;
+    let f = fixture();
+    // FLAC files carrying their album artist under both keys taggers write it under.
+    let dir = f.dir.path().join("music/Doubled");
+    fs::create_dir_all(&dir).unwrap();
+    for (number, title) in ["One", "Two"].iter().enumerate() {
+        let path = dir.join(format!("{title}.flac"));
+        write_flac(&path);
+        let mut comments = VorbisComments::default();
+        comments.push("TITLE".to_owned(), (*title).to_owned());
+        comments.push("ARTIST".to_owned(), "Doubled Artist".to_owned());
+        comments.push("ALBUM".to_owned(), "Doubled Album".to_owned());
+        comments.push("ALBUMARTIST".to_owned(), "Doubled Artist".to_owned());
+        comments.push("ALBUM ARTIST".to_owned(), "Doubled Artist".to_owned());
+        comments.push("TRACKNUMBER".to_owned(), (number + 1).to_string());
+        comments
+            .save_to_path(&path, WriteOptions::default())
+            .unwrap();
+    }
+    f.library.sync().await.unwrap();
+    let album = id(&f.library, MediaType::Album, "Doubled Album").await;
+    assert_eq!(album_artists(&f.library, album).await, ["Doubled Artist"]);
+    assert_eq!(f.library.album_tracks(album).await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn an_album_credited_twice_before_is_repaired_and_keeps_its_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    let db = Database::open_in_memory(&[bopsie_library::MIGRATIONS]).unwrap();
+    let library = Library::new(
+        db.clone(),
+        EventBus::default(),
+        vec![Arc::new(FilesystemProvider::new(music.clone()))],
+        dir.path().join("artwork"),
+    );
+    library.sync().await.unwrap();
+    let album = id(&library, MediaType::Album, "Second Album").await;
+    // As an earlier scan left it: the artist twice, in its credits and its key.
+    db.call(move |conn| {
+        conn.execute(
+            "INSERT INTO album_artists (album_id, position, artist_id)
+             SELECT album_id, 1, artist_id FROM album_artists WHERE album_id = ?1",
+            [album],
+        )?;
+        conn.execute(
+            "UPDATE albums SET match_key = 'other artist' || char(31) || match_key WHERE id = ?1",
+            [album],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        album_artists(&library, album).await,
+        ["Other Artist", "Other Artist"]
+    );
+
+    library.sync().await.unwrap();
+    assert_eq!(album_artists(&library, album).await, ["Other Artist"]);
+    // Its files, read again, find it.
+    let path = music.join("Other Artist/Second Album/01 - Alpha.wav");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Alpha".to_owned());
+    tag.set_artist("Other Artist".to_owned());
+    tag.set_album("Second Album".to_owned());
+    tag.insert_text(ItemKey::AlbumArtist, "Other Artist".to_owned());
+    tag.set_track(1);
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    library.sync().await.unwrap();
+    assert_eq!(id(&library, MediaType::Album, "Second Album").await, album);
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+}

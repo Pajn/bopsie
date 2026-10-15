@@ -304,6 +304,12 @@ pub(crate) fn credit(
     artists: &[i64],
 ) -> Result<()> {
     tx.execute(&format!("DELETE FROM {table} WHERE {column} = ?1"), [id])?;
+    let mut seen = BTreeSet::new();
+    let artists: Vec<i64> = artists
+        .iter()
+        .copied()
+        .filter(|a| seen.insert(*a))
+        .collect();
     for (position, artist_id) in artists.iter().enumerate() {
         tx.execute(
             &format!("INSERT INTO {table} ({column}, position, artist_id) VALUES (?1, ?2, ?3)"),
@@ -321,11 +327,13 @@ pub struct PreparedTrack {
 }
 
 /// Names with blanks dropped, or `fallback` when none remain.
+/// Names as given, each once: a file may carry its album artist under two keys.
 fn names(names: &[String], fallback: &str) -> Vec<String> {
+    let mut seen = BTreeSet::new();
     let names: Vec<String> = names
         .iter()
         .map(|name| name.trim().to_owned())
-        .filter(|name| !name.is_empty())
+        .filter(|name| !name.is_empty() && seen.insert(match_key(name)))
         .collect();
     if names.is_empty() {
         vec![fallback.to_owned()]
@@ -650,6 +658,83 @@ pub(crate) fn delete_item(
     unindex(tx, media_type, id)?;
     crate::edit::forget(tx, media_type, id)?;
     changes.delete((media_type, id));
+    Ok(())
+}
+
+/// An album key with each album artist once.
+fn undoubled_key(key: &str) -> String {
+    let (prefix, rest) = match key.split_once('\u{1d}') {
+        Some((prefix, rest)) => (Some(prefix), rest),
+        None => (None, key),
+    };
+    let Some((artists, album)) = rest.split_once('\u{1e}') else {
+        return key.to_owned();
+    };
+    let mut seen = BTreeSet::new();
+    let artists: Vec<&str> = artists
+        .split('\u{1f}')
+        .filter(|a| seen.insert(*a))
+        .collect();
+    let key = format!("{}\u{1e}{album}", artists.join("\u{1f}"));
+    match prefix {
+        Some(prefix) => format!("{prefix}\u{1d}{key}"),
+        None => key,
+    }
+}
+
+/// Credits one artist once on items scanned before names were: files that carry their album
+/// artist under two keys credited it twice. An album's key loses the second name too, keeping
+/// its id, so its files find it again; one whose key is then another album's merges into it.
+pub fn repair_doubled_credits(tx: &Connection, changes: &mut Changes) -> Result<()> {
+    for (media_type, table, column) in [
+        (MediaType::Track, "track_artists", "track_id"),
+        (MediaType::Album, "album_artists", "album_id"),
+    ] {
+        let mut statement = tx.prepare(&format!(
+            "SELECT {column} FROM {table} GROUP BY {column} HAVING count(*) > count(DISTINCT artist_id)"
+        ))?;
+        let doubled = statement
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<Result<Vec<_>>>()?;
+        for id in doubled {
+            let mut statement = tx.prepare(&format!(
+                "SELECT artist_id FROM {table} WHERE {column} = ?1 ORDER BY position"
+            ))?;
+            let artists = statement
+                .query_map([id], |row| row.get::<_, i64>(0))?
+                .collect::<Result<Vec<_>>>()?;
+            credit(tx, table, column, id, &artists)?;
+            changes.update((media_type, id));
+        }
+    }
+    let mut statement = tx.prepare("SELECT id, match_key FROM albums")?;
+    let keys = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>>>()?;
+    for (id, key) in keys {
+        let fixed = undoubled_key(&key);
+        if fixed == key {
+            continue;
+        }
+        let other: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM albums WHERE match_key = ?1",
+                [&fixed],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match other {
+            Some(other) => crate::reconcile::merge_albums(tx, id, other, changes)?,
+            None => {
+                tx.execute(
+                    "UPDATE albums SET match_key = ?2 WHERE id = ?1",
+                    params![id, fixed],
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 

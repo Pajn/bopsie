@@ -381,6 +381,7 @@ impl Library {
             .call(|conn| {
                 let tx = conn.transaction()?;
                 let mut pruned = Changes::default();
+                scan::repair_doubled_credits(&tx, &mut pruned)?;
                 // One release from several providers becomes one album.
                 reconcile::reconcile(&tx, now(), &mut pruned)?;
                 // What was edited by hand is written again over what was scanned.
