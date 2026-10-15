@@ -50,6 +50,9 @@ enabled = true
 # It needs Spotify Premium. The credentials of whoever picks a device are kept in the data
 # directory, under spotify/.
 enabled = true
+# The addresses the devices are announced at. Unset, the address the server reaches the network
+# from; a host with container or VPN networks has other addresses that phones cannot reach.
+# addresses = ["192.168.1.10"]
 
 [web]
 # The web UI at /, for managing the server, is built into the server. To serve another build of

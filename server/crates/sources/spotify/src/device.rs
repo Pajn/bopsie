@@ -6,6 +6,7 @@
 //! [`GroupVolume`] for the volume, which keeps the audio at full scale and tells the group what
 //! the app's slider says instead.
 
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -51,6 +52,8 @@ pub(crate) struct Inner {
     player: String,
     name: String,
     device_id: String,
+    /// Where it is announced; empty for every address.
+    addresses: Vec<IpAddr>,
     cache_dir: PathBuf,
     sources: Sources,
     state: Mutex<SourceState>,
@@ -86,6 +89,7 @@ impl ConnectDevice {
         name: &str,
         volume: u8,
         device_id: String,
+        addresses: Vec<IpAddr>,
         cache_dir: PathBuf,
         sources: &Sources,
     ) -> Arc<Self> {
@@ -94,6 +98,7 @@ impl ConnectDevice {
             player: player.to_owned(),
             name: name.to_owned(),
             device_id,
+            addresses,
             cache_dir,
             sources: sources.clone(),
             state: Mutex::default(),
@@ -231,6 +236,7 @@ async fn run(inner: Weak<Inner>) {
     )
     .name(device.name.clone())
     .device_type(DeviceType::Speaker)
+    .zeroconf_ip(device.addresses.clone())
     .launch()
     {
         Ok(discovery) => discovery,

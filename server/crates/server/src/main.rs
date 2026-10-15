@@ -147,6 +147,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
             SpotifyConfig {
                 data_dir: config.storage.data_dir.clone(),
                 server_id: api.server_id.clone(),
+                addresses: config.spotify.addresses.clone(),
             },
             devices,
             api.sources.clone(),

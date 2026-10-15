@@ -9,6 +9,7 @@ mod device;
 mod events;
 
 use std::collections::BTreeMap;
+use std::net::{IpAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -25,6 +26,8 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Stable across restarts, so each device keeps its identity in the Spotify app.
     pub server_id: String,
+    /// The addresses the devices are announced at; empty for [`local_address`]'s.
+    pub addresses: Vec<IpAddr>,
 }
 
 /// The Spotify Connect devices, one for each speaker that wants one.
@@ -43,7 +46,11 @@ struct Inner {
 impl SpotifyConnect {
     /// Announces a device for each speaker that wants one, and follows them as they come, go
     /// and change. Needs a Tokio runtime.
-    pub fn start(config: Config, devices: Devices, sources: Sources) -> Self {
+    pub fn start(mut config: Config, devices: Devices, sources: Sources) -> Self {
+        if config.addresses.is_empty() {
+            config.addresses.extend(local_address());
+        }
+        tracing::info!(addresses = ?config.addresses, "announcing Spotify Connect devices");
         let connect = Self {
             inner: Arc::new(Inner {
                 config,
@@ -97,6 +104,7 @@ impl SpotifyConnect {
                 &name,
                 volume,
                 device_id(&self.inner.config.server_id, id),
+                self.inner.config.addresses.clone(),
                 self.inner
                     .config
                     .data_dir
@@ -124,6 +132,15 @@ fn wanted(device: &Device) -> Option<(String, u8)> {
         .then(|| (device.name.clone(), primary.state.volume.unwrap_or(50)))
 }
 
+/// The address this host reaches the network from: the one its default route leaves by. Found
+/// by connecting a UDP socket, which sends nothing. `None` without a route, when every address
+/// is announced.
+pub fn local_address() -> Option<IpAddr> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("192.0.2.1:9").ok()?;
+    Some(socket.local_addr().ok()?.ip()).filter(|ip| !ip.is_unspecified())
+}
+
 /// A device id unique to this server and player, and the same across restarts.
 fn device_id(server_id: &str, player: &str) -> String {
     hex::encode(&Sha256::digest(format!("{server_id}/{player}"))[..20])
@@ -148,5 +165,15 @@ mod tests {
             device_id("other", "kitchen")
         );
         assert_eq!(device_id("server", "kitchen").len(), 40);
+    }
+
+    #[test]
+    fn the_local_address_is_a_real_one() {
+        if let Some(address) = local_address() {
+            assert!(
+                !address.is_unspecified() && !address.is_loopback(),
+                "{address}"
+            );
+        }
     }
 }
