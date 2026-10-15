@@ -85,7 +85,10 @@ leader's own multiroom. A group of AirPlay speakers and Sendspin players, includ
 through their receiver, plays each over its own: both protocols play the session's timeline on
 the server's clock, so they keep in step, and AirPlay's group limit counts only its own
 speakers. A speaker that sounds ahead of or behind the rest is moved by its `sync_adjust_ms`
-quirk; see [`config.example.toml`](config.example.toml).
+quirk; see [`config.example.toml`](config.example.toml). Bopsie on Android sets it by ear: with
+`admin/calibration/start` each speaker the group streams to plays a chirp in turn, on the group's
+timeline, and `admin/calibration/apply` takes how late the phone heard each one and makes the
+early speakers wait for the latest. Calibrating pauses the group.
 
 A speaker's own controls act on the group it plays in, as the app would: pause pressed on
 one speaker pauses all of them, and play, next, previous and its volume buttons work the same

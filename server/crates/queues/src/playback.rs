@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{Input, LIVE_AHEAD, QUEUE_AHEAD};
 use bopsie_audio::engine::{Realtime, Settings};
+use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::backoff::{self, Backoff};
 use bopsie_core::clock;
@@ -32,6 +33,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use serde_json::{Value, json};
 
+use crate::calibration::{self, Calibration, Scheduled};
 use crate::model::{self, Grouping, PlayerPlayback, PlayerView, SourceEntry, SourcePlayback};
 use crate::session::{Notice, QueueSession};
 use crate::state::{Effect, PlaybackState, Queue, QueueError, QueueOption, RepeatMode};
@@ -114,6 +116,8 @@ struct Inner {
     closing: AtomicBool,
     /// Devices whose native groups the server is changing or last changed, and when.
     settling: Mutex<BTreeMap<String, Instant>>,
+    /// Groups playing a calibration, by leader: nothing else plays to them meanwhile.
+    calibrating: Mutex<BTreeSet<String>>,
     rng: Mutex<StdRng>,
     /// Sources that play to groups, once [`Playback::follow_sources`] is called.
     sources: OnceLock<Sources>,
@@ -144,6 +148,42 @@ pub enum QueueCommand {
 
 /// How far a speaker's volume buttons move its volume.
 const REMOTE_VOLUME_STEP: u8 = 5;
+
+/// How long after its speakers are ready a calibration starts.
+const CALIBRATION_MARGIN: Micros = 500_000;
+
+fn calibrating() -> Error {
+    Error::new(
+        ErrorCode::UnsupportedFeature,
+        "The group is calibrating; it plays again once that is done",
+    )
+}
+
+/// Writes one speaker's part of a calibration, and holds its output until the calibration
+/// ends, so that a sink that stops when finished plays it all.
+fn play_calibration(mut sink: Box<dyn Sink>, index: usize, count: usize, ends_at: Micros) {
+    let format = sink.format();
+    let samples = calibration::track(index, count, format.sample_rate, format.channels);
+    let channels = usize::from(format.channels);
+    // Twenty milliseconds at a time, as the engine writes.
+    let block = format.sample_rate as usize / 50 * channels;
+    let mut bytes = Vec::new();
+    for (i, chunk) in samples.chunks(block).enumerate() {
+        bytes.clear();
+        bopsie_audio::pack::pack(chunk, format.bits, &mut bytes);
+        if let Err(error) = sink.write((i * block / channels) as u64, &bytes) {
+            tracing::warn!(%error, "a speaker failed during a calibration");
+            let _ = sink.finish();
+            return;
+        }
+    }
+    let _ = sink.drain();
+    let wait = ends_at - clock::now();
+    if wait > 0 {
+        std::thread::sleep(Duration::from_micros(wait as u64));
+    }
+    let _ = sink.finish();
+}
 
 fn not_found(id: &str) -> Error {
     Error::new(
@@ -192,6 +232,7 @@ impl Playback {
                 last_volumes: Mutex::default(),
                 closing: AtomicBool::new(false),
                 settling: Mutex::default(),
+                calibrating: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
                 sources: OnceLock::new(),
             }),
@@ -1291,6 +1332,9 @@ impl Playback {
         if !self.device(&leader)?.available() {
             return Err(unavailable());
         }
+        if self.inner.calibrating.lock().unwrap().contains(&leader) {
+            return Err(calibrating());
+        }
         let session = self.entry(&leader)?.session;
         let ((), held) = session.update_held(|queue| f(queue, &mut self.inner.rng.lock().unwrap()));
         self.changed(&leader);
@@ -1869,6 +1913,92 @@ impl Playback {
             member.endpoint.set_volume(scaled.min(self.cap(&id)));
         }
         Ok(())
+    }
+
+    /// Plays a calibration on `id`'s group: each speaker the server streams to chirps in turn,
+    /// on the group's timeline, for a phone to hear; see [`calibration`]. What the group
+    /// played is paused, and stays paused. Returns once the chirps are scheduled, before they
+    /// play.
+    pub async fn calibrate(&self, id: &str) -> Result<Calibration> {
+        let leader = self.leader_of(id).ok_or_else(|| not_found(id))?;
+        let entry = self.entry(&leader)?;
+        let plan = self.plan_for(&leader, &entry.members, None)?;
+        let devices = self.inner.devices.all();
+        let mut speakers = Vec::new();
+        for carrier in plan.streamed() {
+            let device =
+                find(&devices, &carrier.device).ok_or_else(|| not_found(&carrier.device))?;
+            let member = device
+                .member(&carrier.endpoint)
+                .ok_or_else(|| not_found(&carrier.endpoint))?;
+            speakers.push((device.clone(), member.clone(), carrier.format));
+        }
+        if speakers.len() < 2 {
+            return Err(Error::new(
+                ErrorCode::UnsupportedFeature,
+                "Calibrating needs a group of at least two speakers the server streams to",
+            ));
+        }
+        let skipped = plan
+            .carriers
+            .iter()
+            .filter(|carrier| carrier.native)
+            .filter_map(|carrier| find(&devices, &carrier.device).map(|d| d.name.clone()))
+            .collect();
+        if !self
+            .inner
+            .calibrating
+            .lock()
+            .unwrap()
+            .insert(leader.clone())
+        {
+            return Err(calibrating());
+        }
+
+        // The engine lets go of the speakers, so that the calibration has them to itself.
+        if entry.session.snapshot().state == PlaybackState::Playing {
+            entry.session.pause();
+        }
+        let session = entry.session.clone();
+        let _ = tokio::task::spawn_blocking(move || session.shutdown()).await;
+        let ready = self.prepare(&leader).await;
+
+        let now = clock::now();
+        let start = (now + plan.lead).max(ready.unwrap_or(now)) + CALIBRATION_MARGIN;
+        let timeline = Timeline::new(plan.sample_rate, start);
+        let count = speakers.len();
+        let ends_at = start + calibration::length(count);
+        let mut chirps = Vec::new();
+        let mut writers = Vec::new();
+        for (index, (device, member, format)) in speakers.into_iter().enumerate() {
+            for round in 0..calibration::ROUNDS {
+                chirps.push(Scheduled {
+                    device: device.id.clone(),
+                    name: device.name.clone(),
+                    endpoint: member.id.clone(),
+                    at: start + calibration::offset(round, index, count),
+                });
+            }
+            let sink = member.endpoint.output(format, timeline);
+            writers.push(tokio::task::spawn_blocking(move || {
+                play_calibration(sink, index, count, ends_at);
+            }));
+        }
+        chirps.sort_by_key(|chirp| chirp.at);
+        tracing::info!(queue = leader, speakers = count, "calibrating");
+        let playback = self.clone();
+        tokio::spawn(async move {
+            for writer in writers {
+                let _ = writer.await;
+            }
+            playback.inner.calibrating.lock().unwrap().remove(&leader);
+        });
+        Ok(Calibration {
+            chirp: calibration::CHIRP,
+            chirps,
+            ends_at,
+            skipped,
+        })
     }
 
     /// Every device, with its endpoints, as playback sees them.

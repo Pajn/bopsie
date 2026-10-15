@@ -53,6 +53,9 @@ Each line says what to do, what to hear, and what the log shows when it went rig
    joins within a few seconds and plays in step with the others: no echo standing between it
    and an AirPlay speaker. The AirPlay speakers play on without a break. If it is audibly ahead
    or behind, note by how much: its `sync_adjust_ms` quirk corrects it.
+   Then calibrate the group from Bopsie's Account tab, standing where you listen: each speaker
+   chirps three times, every one is heard, and saving makes the early ones wait. Play again: no
+   echo. Calibrate again: each speaker's adjustment stays within a couple of milliseconds.
 10. **Transfer.** Move the queue from one speaker to the other. It continues on the new one from
     where it was, and the old one stops.
 

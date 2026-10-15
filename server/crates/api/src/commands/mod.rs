@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod airplay;
 pub mod auth;
+pub mod calibration;
 pub mod music;
 pub mod players;
 pub mod queues;
@@ -92,6 +93,8 @@ pub fn registry() -> Registry {
         .add::<settings::Reconsider>()
         .add::<settings::ReconsiderRelease>()
         .add::<settings::DuplicateFiles>()
+        .add::<calibration::CalibrationStart>()
+        .add::<calibration::CalibrationApply>()
         .add::<spotify::Status>()
         .add::<spotify::SetClientId>()
         .add::<spotify::Login>()

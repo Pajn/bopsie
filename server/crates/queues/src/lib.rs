@@ -4,6 +4,7 @@
 // Music Assistant's player model is wider than `json!` expands by default.
 #![recursion_limit = "256"]
 
+pub mod calibration;
 pub mod model;
 pub mod playback;
 pub mod session;

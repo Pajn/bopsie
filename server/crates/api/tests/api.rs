@@ -464,6 +464,8 @@ async fn info_and_the_command_list_need_no_auth() {
     assert_eq!(
         names,
         [
+            "admin/calibration/apply",
+            "admin/calibration/start",
             "admin/devices",
             "admin/endpoint/update",
             "admin/groups",
