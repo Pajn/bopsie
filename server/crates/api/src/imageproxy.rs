@@ -102,6 +102,7 @@ pub async fn serve(
     if size == 0 {
         let original_type = match image::guess_format(&original) {
             Ok(ImageFormat::Png) => "image/png",
+            Ok(ImageFormat::WebP) => "image/webp",
             _ => "image/jpeg",
         };
         return image(original_type, original);
@@ -128,6 +129,18 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resizes_webp() {
+        let picture = image::RgbImage::from_pixel(300, 300, image::Rgb([200, 100, 50]));
+        let mut webp = Vec::new();
+        picture
+            .write_to(&mut Cursor::new(&mut webp), ImageFormat::WebP)
+            .unwrap();
+        let jpeg = resize(&webp, 160, ImageFormat::Jpeg).unwrap();
+        let resized = image::load_from_memory(&jpeg).unwrap();
+        assert_eq!((resized.width(), resized.height()), (160, 160));
+    }
 
     #[test]
     fn resizes_within_the_bound_and_keeps_aspect() {
