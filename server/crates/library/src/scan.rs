@@ -792,10 +792,12 @@ pub fn prune(tx: &Connection, changes: &mut Changes) -> Result<()> {
     };
     // A provider no longer holding any of an album's tracks no longer holds the album, though
     // others still do.
+    // CROSS JOIN keeps SQLite to the album's own tracks first: left to choose, it walks every
+    // track of the provider for each album, which takes seconds on a large library.
     let mut statement = tx.prepare(
         "DELETE FROM provider_mappings AS album
          WHERE media_type = 'album' AND NOT EXISTS (
-             SELECT 1 FROM tracks JOIN provider_mappings AS track
+             SELECT 1 FROM tracks CROSS JOIN provider_mappings AS track
                  ON track.media_type = 'track' AND track.item_id = tracks.id
              WHERE tracks.album_id = album.item_id
                  AND track.provider_instance = album.provider_instance)

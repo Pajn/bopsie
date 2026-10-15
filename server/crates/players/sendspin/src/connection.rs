@@ -373,7 +373,14 @@ impl SendspinServer {
         loop {
             let message = match tokio::time::timeout(self.silence_limit, stream.next()).await {
                 Ok(Some(Ok(message))) => message,
-                Ok(_) => break,
+                Ok(Some(Err(error))) => {
+                    tracing::info!(client = id, %error, "a Sendspin connection failed");
+                    break;
+                }
+                Ok(None) => {
+                    tracing::debug!(client = id, "a Sendspin connection ended");
+                    break;
+                }
                 Err(_) => {
                     tracing::info!(client = id, "a Sendspin client went silent; dropping it");
                     break;
@@ -381,7 +388,8 @@ impl SendspinServer {
             };
             let received = clock::now();
             let Message::Text(text) = message else {
-                if matches!(message, Message::Close(_)) {
+                if let Message::Close(frame) = message {
+                    tracing::debug!(client = id, ?frame, "a Sendspin client closed its connection");
                     break;
                 }
                 continue;
