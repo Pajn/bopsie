@@ -146,6 +146,10 @@ albums tied by a MusicBrainz release or a link to the same Spotify album:
   another edition of it, is suggested. The web UI's library page lists suggestions to merge
   or keep apart; either decision holds at every later sync.
 
+A track kept as more than one file on its album, as in the album's folder and as a copy in a
+playlist's, is one track with each file as a source. The library page's Duplicate files lists
+them with their paths, to delete the copies not wanted; the server never removes files.
+
 An item's page in the web UI lists its sources, the one it plays from first at the top.
 Separate takes one back out of a merged album, with the tracks only it holds, into an album
 of its own that is not merged again. Suggestions also lists what was decided, Separate

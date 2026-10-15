@@ -392,11 +392,16 @@ fn reconcile_tracks(tx: &Connection, changes: &mut Changes) -> Result<()> {
             instances_of(tx, MediaType::Track, from)?,
             instances_of(tx, MediaType::Track, into)?,
         );
-        // Providers apart; or, on one album, a second copy a provider holds of a track whose
-        // files come first, as a service holding an album twice under two ids does.
+        // Providers apart; or, on one album, a second copy a provider holds of a track: one
+        // whose files come first, as a service holding an album twice under two ids does, or
+        // at the same place, as a file kept twice, in the album's folder and a playlist's.
         let apart = from_instances.is_disjoint(&into_instances);
-        let second_copy =
-            album_a == album_b && pa != pb && from_instances.is_subset(&into_instances);
+        let place = |t: &TrackFacts| (t.disc_number.unwrap_or(1).max(1), t.track_number);
+        let same_place = facts_a.track_number.is_some() && place(&facts_a) == place(&facts_b);
+        let second_copy = album_a.is_some()
+            && album_a == album_b
+            && (pa != pb || same_place)
+            && from_instances.is_subset(&into_instances);
         if !apart && !second_copy {
             continue;
         }

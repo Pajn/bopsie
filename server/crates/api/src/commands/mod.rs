@@ -91,6 +91,7 @@ pub fn registry() -> Registry {
         .add::<settings::RefreshMetadata>()
         .add::<settings::Reconsider>()
         .add::<settings::ReconsiderRelease>()
+        .add::<settings::DuplicateFiles>()
         .add::<spotify::Status>()
         .add::<spotify::SetClientId>()
         .add::<spotify::Login>()

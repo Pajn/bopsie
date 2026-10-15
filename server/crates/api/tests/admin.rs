@@ -639,6 +639,12 @@ async fn suggestions_decisions_and_separating_are_for_admins() {
         )
         .await;
     assert_eq!(code, 2, "no decision on a release");
+    assert_eq!(
+        client
+            .result("admin/library/duplicate_files", json!({}))
+            .await,
+        json!([])
+    );
     let server = client.result("admin/server", json!({})).await;
     assert_eq!(
         server["library"]["metadata"]["albums"],

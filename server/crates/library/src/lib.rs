@@ -820,6 +820,54 @@ impl Library {
         self.publish(&changes, false).await
     }
 
+    /// Tracks kept as more than one file, as one in an album's folder and a copy in a
+    /// playlist's: each track with its files, for a person to clear out the ones they do not
+    /// want. Files are never removed here.
+    pub async fn duplicate_files(&self) -> Result<Vec<(Track, Vec<PathBuf>)>> {
+        let held: Vec<(i64, String, String)> = self
+            .read(|conn| {
+                let mut statement = conn.prepare(
+                    "SELECT item_id, provider_instance, provider_item_id FROM provider_mappings
+                     WHERE media_type = 'track' AND (item_id, provider_instance) IN (
+                         SELECT item_id, provider_instance FROM provider_mappings
+                         WHERE media_type = 'track'
+                         GROUP BY item_id, provider_instance HAVING count(*) > 1)
+                     ORDER BY item_id, provider_item_id",
+                )?;
+                statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                    .collect()
+            })
+            .await?;
+        let providers = self.providers.clone();
+        let files: Vec<(i64, Vec<PathBuf>)> = blocking(move || {
+            let mut files: Vec<(i64, Vec<PathBuf>)> = Vec::new();
+            for (track, instance, item) in held {
+                let Some(path) = providers
+                    .iter()
+                    .find(|p| p.instance_id() == instance)
+                    .and_then(|provider| provider.file(&item))
+                else {
+                    continue;
+                };
+                match files.last_mut() {
+                    Some((last, paths)) if *last == track => paths.push(path),
+                    _ => files.push((track, vec![path])),
+                }
+            }
+            files.retain(|(_, paths)| paths.len() > 1);
+            files
+        })
+        .await?;
+        let mut out = Vec::with_capacity(files.len());
+        for (id, paths) in files {
+            if let Some(MediaItem::Track(track)) = self.item(MediaType::Track, id).await? {
+                out.push((*track, paths));
+            }
+        }
+        Ok(out)
+    }
+
     /// The files album `id`'s tracks play from, by track, with each file's stamp.
     pub async fn track_files(&self, id: i64) -> Result<Vec<(i64, PathBuf, String)>> {
         let mappings: Vec<(i64, String, String, Option<String>)> = self

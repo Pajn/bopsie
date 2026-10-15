@@ -471,3 +471,35 @@ impl Command for ReconsiderRelease {
             .await
     }
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DuplicateFilesArgs {}
+
+/// A track kept as more than one file.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct DuplicateFile {
+    /// The track, as `music/tracks/get` serves it.
+    pub track: Value,
+    /// Its files, as the server reaches them.
+    pub files: Vec<String>,
+}
+
+pub struct DuplicateFiles;
+impl Command for DuplicateFiles {
+    const NAME: &'static str = "admin/library/duplicate_files";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str = "Tracks kept as more than one file, such as an album's and a copy in a playlist's folder, with their files. Nothing is removed.";
+    type Args = DuplicateFilesArgs;
+    type Output = Vec<DuplicateFile>;
+
+    async fn handle(ctx: Context, _: DuplicateFilesArgs) -> Result<Vec<DuplicateFile>> {
+        let mut out = Vec::new();
+        for (track, files) in ctx.api.library.duplicate_files().await? {
+            out.push(DuplicateFile {
+                track: super::music::to_value(track)?,
+                files: files.iter().map(|f| f.display().to_string()).collect(),
+            });
+        }
+        Ok(out)
+    }
+}

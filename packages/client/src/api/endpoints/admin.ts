@@ -4,6 +4,7 @@ import {
   adminDevice,
   adminGroup,
   adminServer,
+  duplicateFile,
   librarySuggestion,
   logLine,
   releaseSuggestion,
@@ -137,6 +138,10 @@ export const reconsider = (connection: MaConnection, id: number) =>
 /** Forgets a decision on the release suggested for an album, and looks it up again at once. */
 export const reconsiderRelease = (connection: MaConnection, albumId: string) =>
   connection.command<void>('admin/library/reconsider_release', { item_id: albumId });
+
+/** Tracks kept as more than one file, with their files, for a person to clear out. */
+export const duplicateFiles = (connection: MaConnection) =>
+  connection.command('admin/library/duplicate_files', {}, { schema: z.array(duplicateFile) });
 
 /** Asks an AirPlay speaker that pairs with a PIN to show one. */
 export const pairStart = (connection: MaConnection, playerId: string) =>

@@ -469,6 +469,7 @@ async fn info_and_the_command_list_need_no_auth() {
             "admin/groups",
             "admin/library/decide",
             "admin/library/decide_release",
+            "admin/library/duplicate_files",
             "admin/library/edits",
             "admin/library/reconsider",
             "admin/library/reconsider_release",

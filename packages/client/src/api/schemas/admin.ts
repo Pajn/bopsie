@@ -1,5 +1,5 @@
 import * as z from 'zod/mini';
-import { album } from './media';
+import { album, track } from './media';
 
 /**
  * What the server's admin commands answer: this server's own, not Music Assistant's. Fields the
@@ -208,3 +208,10 @@ export const releaseSuggestion = z.looseObject({
   decision: z.nullable(z.enum(['accept', 'reject'])),
 });
 export type ReleaseSuggestion = z.infer<typeof releaseSuggestion>;
+
+/** A track kept as more than one file, with its files. */
+export const duplicateFile = z.looseObject({
+  track,
+  files: z.array(z.string()),
+});
+export type DuplicateFile = z.infer<typeof duplicateFile>;

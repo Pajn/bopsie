@@ -1586,3 +1586,43 @@ async fn an_album_a_service_holds_twice_is_one_album_of_the_files_tracks() {
     }
     assert!(library.sync().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn a_track_kept_twice_as_files_is_one_track_listed_with_both() {
+    let f = fixture();
+    let music = f.dir.path().join("music");
+    // A copy in a playlist's folder, as a playlist export leaves one, tagged as the album's.
+    let copy = music.join("Mix Copies/Test Artist/First Album/049 - Test Artist - Closing.wav");
+    fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    fs::copy(
+        music.join("Test Artist/First Album/03 - Closing.wav"),
+        &copy,
+    )
+    .unwrap();
+    f.library.sync().await.unwrap();
+
+    let album = id(&f.library, MediaType::Album, "First Album").await;
+    let tracks = f.library.album_tracks(album).await.unwrap();
+    assert_eq!(names_of(&tracks), ["Opening", "Middle", "Closing"]);
+    let closing: i64 = tracks[2].fields.item_id.parse().unwrap();
+    assert_eq!(
+        sources(&f.library, MediaType::Track, closing).await.len(),
+        2
+    );
+
+    let duplicates = f.library.duplicate_files().await.unwrap();
+    assert_eq!(duplicates.len(), 1);
+    assert_eq!(duplicates[0].0.fields.name, "Closing");
+    assert_eq!(duplicates[0].1.len(), 2);
+    assert!(duplicates[0].1.contains(&copy));
+    assert!(f.library.sync().await.unwrap().is_empty());
+
+    // The copy deleted, the album's file is left.
+    fs::remove_file(&copy).unwrap();
+    f.library.sync().await.unwrap();
+    assert_eq!(
+        sources(&f.library, MediaType::Track, closing).await.len(),
+        1
+    );
+    assert!(f.library.duplicate_files().await.unwrap().is_empty());
+}

@@ -4,6 +4,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ScrollView } from 'react-native';
 import { useConnection } from '@/connection/ConnectionProvider';
+import { DuplicateFiles } from '@/features/library/DuplicateFiles';
 import { ItemRow } from '@/features/library/ItemRow';
 import { PlayButtons, TargetPicker } from '@/features/library/PlayButtons';
 import { Suggestions } from '@/features/library/Suggestions';
@@ -21,8 +22,8 @@ const PAGE = 100;
 
 export default function LibraryScreen() {
   const { account, connection } = useConnection();
-  const [tab, setTab] = useState<LibraryKind | 'suggestions'>('albums');
-  const kind = tab === 'suggestions' ? 'albums' : tab;
+  const [tab, setTab] = useState<LibraryKind | 'suggestions' | 'duplicates'>('albums');
+  const kind = tab === 'suggestions' || tab === 'duplicates' ? 'albums' : tab;
   const [search, setSearch] = useState('');
   const items = useInfiniteQuery({
     queryKey: queryKeys.libraryList(account.id, kind, search),
@@ -31,7 +32,7 @@ export default function LibraryScreen() {
     initialPageParam: 0,
     getNextPageParam: (last, pages) =>
       last.length < PAGE ? undefined : pages.reduce((n, page) => n + page.length, 0),
-    enabled: tab !== 'suggestions',
+    enabled: tab !== 'suggestions' && tab !== 'duplicates',
   });
   const all = items.data?.pages.flat() ?? [];
 
@@ -54,9 +55,16 @@ export default function LibraryScreen() {
             variant={tab === 'suggestions' ? 'primary' : 'secondary'}
             onPress={() => setTab('suggestions')}
           />
+          <Button
+            title="Duplicate files"
+            variant={tab === 'duplicates' ? 'primary' : 'secondary'}
+            onPress={() => setTab('duplicates')}
+          />
         </Stack>
         {tab === 'suggestions' ? (
           <Suggestions />
+        ) : tab === 'duplicates' ? (
+          <DuplicateFiles />
         ) : (
           <>
             <TextField label="Search" value={search} onChangeText={setSearch} autoCorrect={false} />
