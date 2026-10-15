@@ -11,9 +11,12 @@ export default function AppLayout() {
       <ActiveGroupProvider>
         <Stack screenOptions={stackScreenOptions(theme)}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="player" options={{ title: 'Now playing', ...modalScreenOptions }} />
+          {/* The player draws its own header, so its queue can open over all of it. */}
+          <Stack.Screen
+            name="player"
+            options={{ title: 'Now playing', headerShown: false, ...modalScreenOptions }}
+          />
           <Stack.Screen name="outputs" options={{ title: 'Play on', ...modalScreenOptions }} />
-          <Stack.Screen name="queue" options={{ title: 'Queue', ...modalScreenOptions }} />
           <Stack.Screen name="player-menu" options={sheetScreenOptions} />
           <Stack.Screen name="item-menu" options={sheetScreenOptions} />
           <Stack.Screen name="library-sort" options={sheetScreenOptions} />

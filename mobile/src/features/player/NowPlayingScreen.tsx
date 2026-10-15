@@ -1,8 +1,8 @@
 import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import Slider from '@react-native-community/slider';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Artwork } from '@/features/library/Artwork';
 import { useOutputs } from '@/features/outputs/useOutputs';
@@ -10,8 +10,8 @@ import { formatDuration, queuePosition } from '@/player/progress';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { itemLinks, nowPlaying } from './nowPlaying';
+import { type Frame, QUEUE_BAR_HEIGHT, QueuePanel } from './QueuePanel';
 import { nextRepeatMode } from './repeat';
-import { UpNextBar } from './UpNextBar';
 import { useNow } from './useNow';
 import { usePlaybackActions, useQueue } from './usePlayback';
 
@@ -25,13 +25,18 @@ export function NowPlayingScreen() {
   const current = queue ? nowPlaying(queue) : null;
   const router = useRouter();
   const active = useOutputs()?.active;
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [bar, setBar] = useState<Frame | null>(null);
 
   if (!queue || !current) {
     return (
       <View style={styles.screen}>
-        <Text muted style={styles.center}>
-          Nothing is playing.
-        </Text>
+        <Header />
+        <View style={styles.main}>
+          <Text muted style={styles.center}>
+            Nothing is playing.
+          </Text>
+        </View>
       </View>
     );
   }
@@ -41,24 +46,8 @@ export function NowPlayingScreen() {
   const hasLinks = queue.current_item ? itemLinks(queue.current_item).length > 0 : false;
 
   return (
-    <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          headerRight: hasLinks
-            ? () => (
-                <Pressable
-                  onPress={() => router.push('/player-menu')}
-                  hitSlop={12}
-                  accessibilityRole="button"
-                  accessibilityLabel="More"
-                  testID="player-more"
-                >
-                  <Icon name="more-horizontal" size={24} />
-                </Pressable>
-              )
-            : () => null,
-        }}
-      />
+    <View style={styles.screen} onLayout={({ nativeEvent }) => setSize(nativeEvent.layout)}>
+      <Header {...(hasLinks && { onMore: () => router.push('/player-menu') })} />
       <View style={styles.main}>
         <View style={styles.artwork}>
           <Artwork item={current.artwork} size={300} imageSize={1024} />
@@ -146,7 +135,41 @@ export function NowPlayingScreen() {
           />
         </View>
       </View>
-      <UpNextBar queue={queue} />
+      {/* The queue's bar is drawn over this space, from which it opens over the whole player. */}
+      <View style={styles.barSpace} onLayout={({ nativeEvent }) => setBar(nativeEvent.layout)} />
+      {bar && size ? <QueuePanel queue={queue} bar={bar} player={size} /> : null}
+    </View>
+  );
+}
+
+/** Closes the player, and opens its menu where there is one. */
+function Header({ onMore }: { onMore?: () => void }) {
+  const router = useRouter();
+  return (
+    <View style={styles.header}>
+      <Pressable
+        onPress={() => router.back()}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityLabel="Close the player"
+        testID="player-close"
+      >
+        <Icon name="arrow-left" size={24} />
+      </Pressable>
+      <Text variant="heading" style={styles.headerTitle} accessibilityRole="header">
+        Now playing
+      </Text>
+      {onMore ? (
+        <Pressable
+          onPress={onMore}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="More"
+          testID="player-more"
+        >
+          <Icon name="more-horizontal" size={24} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -234,7 +257,18 @@ const styles = StyleSheet.create((theme, rt) => ({
     paddingHorizontal: theme.spacing.xl,
     paddingBottom: theme.spacing.lg + rt.insets.bottom,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xxl,
+    height: 56,
+    // iOS presents the player as a sheet below the status bar; Android draws it edge to edge.
+    marginTop: Platform.OS === 'ios' ? 0 : rt.insets.top,
+    marginHorizontal: theme.spacing.lg - theme.spacing.xl,
+  },
+  headerTitle: { flex: 1 },
   main: { flex: 1, justifyContent: 'center', gap: theme.spacing.xl },
+  barSpace: { height: QUEUE_BAR_HEIGHT },
   artwork: { alignItems: 'center' },
   names: { gap: theme.spacing.xs },
   center: { textAlign: 'center' },

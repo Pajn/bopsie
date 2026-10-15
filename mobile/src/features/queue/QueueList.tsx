@@ -15,18 +15,18 @@ import { useQueueActions, useQueueItems } from './useQueueItems';
 type Actions = ReturnType<typeof useQueueActions>;
 
 /**
- * The active group's queue from the current item on. What the player already
- * holds stays put; everything after it can be played, dragged into a new
+ * The active group's queue from the current item on, as the full player shows it. What the
+ * player already holds stays put; everything after it can be played, dragged into a new
  * order, moved up to play next, or removed.
  */
-export function QueueScreen() {
+export function QueueList() {
   const queue = useQueue().data;
   const items = useQueueItems().data;
   const actions = useQueueActions();
 
   if (!queue || !items) {
     return (
-      <View style={styles.screen}>
+      <View style={styles.list}>
         <Text muted style={styles.notice}>
           {queue === null ? 'Nothing is queued.' : 'Loading the queue…'}
         </Text>
@@ -38,7 +38,7 @@ export function QueueScreen() {
   const currentId = queue.current_item?.queue_item_id;
 
   return (
-    <View style={styles.screen}>
+    <View style={styles.list}>
       <ReorderableList
         data={upNext}
         keyExtractor={(item) => item.queue_item_id}
@@ -179,7 +179,7 @@ function QueueRow({
 }
 
 const styles = StyleSheet.create((theme) => ({
-  screen: { flex: 1, backgroundColor: theme.colors.background },
+  list: { flex: 1, backgroundColor: theme.colors.background },
   content: { paddingVertical: theme.spacing.lg },
   notice: { textAlign: 'center', padding: theme.spacing.lg },
   section: {
