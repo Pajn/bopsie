@@ -82,8 +82,7 @@ repeat and shuffle. A speaker switched to another source leaves its group, which
 Every speaker shows in the Spotify app as a Spotify Connect device, named "Kitchen (Bopsie)" and
 so on, so it is told apart from a speaker's own Spotify Connect. `name` under `[spotify]` sets the
 pattern, where `{name}` is the speaker's name, and a speaker's Spotify name in the web UI wins over
-it. Picking one
-plays Spotify to the group the speaker is in, through the server, in sync across AirPlay,
+it. Picking one plays Spotify to the group the speaker is in, through the server, in sync across AirPlay,
 LinkPlay and Sendspin as anything else plays. The group's queue rests, paused, meanwhile, and
 playing something from Bopsie on the group takes it back from Spotify. Spotify's play, pause,
 skip and seek act on the group, its volume slider moves the group's volume within each speaker's
@@ -101,6 +100,31 @@ account; `cargo run -p bopsie-sources-spotify --example spotify-probe` announces
 logs what it is given, to check an account before relying on it. A speaker's settings in the web
 UI, or `spotify_connect = false` in the config file, turn it off for that speaker; `[spotify]`
 turns it off for all.
+
+### Spotify in Bopsie
+
+Spotify can also be searched, browsed and played from Bopsie, and the listener's saved Spotify
+music synced into the library beside local files. The server signs in to Spotify twice, from the
+Spotify card on the web UI's server page, because Spotify keeps these apart:
+
+- **Playback and playlists.** "Sign in from the Spotify app" announces a "Bopsie sign-in" device;
+  picking it in the Spotify app hands the server a login, kept in the data directory under
+  `spotify/account/`. Tracks play through librespot as Ogg Vorbis at up to 320 kbps, fetched as
+  they play and never stored.
+- **Search and the saved library.** Spotify's Web API is reached through the listener's own
+  developer app: create one at [developer.spotify.com](https://developer.spotify.com/dashboard)
+  with `https://<server>/spotify/callback` as a redirect URI, give its client ID on the card, and
+  log in with Spotify. Its refresh token is kept in the database. librespot's own access to the
+  Web API is shared by every librespot app and is used up. A developer app in development mode
+  serves at most five Spotify users, and its search returns ten results per type.
+
+Once both are there, a sync brings in liked songs and saved albums from the Web API, and the
+listener's playlists, with their tracks, from librespot. It runs right after logging in, at every
+start and every six hours. A Spotify album stays apart from a local album of the same name; an
+artist is one, with both. Search covers the library and Spotify, the library's results first, and
+a Spotify result the library holds comes back as the library's; `library_only` or `providers` on
+`music/search` narrows it, and Bopsie offers Both, Library or Spotify. Web API calls are paced, at
+most one a second after a burst, and wait out Spotify's rate limit when it answers with one.
 
 A new server has no users. Create the first, an admin, before signing in:
 

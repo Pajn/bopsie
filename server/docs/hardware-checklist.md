@@ -143,3 +143,18 @@ Each line says what to do, what to hear, and what the log shows when it went rig
     from the Spotify app's devices. Turn it back on.
 38. **After a restart.** Restart the server, then pick the device in Spotify again: it plays
     without being picked twice or signed in again.
+
+### Spotify in Bopsie
+
+39. **Signing in.** On the web UI's server page, give the Spotify card a developer app's client
+    ID, log in with Spotify, and pick "Bopsie sign-in" in the Spotify app. The card names the
+    account twice. Log: `logged in to Spotify's Web API`, `signed in to Spotify for playback`,
+    then `library synced`.
+40. **The saved library.** Bopsie's library shows the saved albums and playlists, with artwork;
+    an album saved on Spotify and kept as files shows twice, under one artist.
+41. **Search.** Search for something not saved: Both shows the library's results, then
+    Spotify's; Library and Spotify show only theirs.
+42. **Playing.** Play a Spotify album found by search on a group: it plays in sync, tracks
+    follow without a gap, and a seek plays from there within a few seconds.
+43. **After a restart.** Restart the server with a Spotify album queued: the queue comes back and
+    plays on.
