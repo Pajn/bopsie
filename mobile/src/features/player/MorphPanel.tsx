@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
-import { BackHandler, Platform, Pressable, View } from 'react-native';
+import { BackHandler, Pressable, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -14,7 +14,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { scheduleOnRN } from 'react-native-worklets';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
-import { settlesOpen } from './settle';
+import { dragged, settlesOpen } from './settle';
 
 /** Where something sits in the player. */
 export interface Frame {
@@ -77,8 +77,7 @@ export function MorphPanel({
   // Above the player's other panels from opening until it has closed again.
   const [raised, setRaised] = useState(false);
   const progress = useSharedValue(0);
-  // iOS presents the player as a sheet below the status bar; Android draws it edge to edge.
-  const topInset = Platform.OS === 'ios' ? 0 : rt.insets.top;
+  const topInset = rt.insets.top;
   const closedColor = theme.colors.surfaceVariant;
   const openColor = theme.colors.background;
   const openPadding = theme.spacing.lg;
@@ -124,8 +123,7 @@ export function MorphPanel({
       scheduleOnRN(begin);
     })
     .onUpdate((event) => {
-      const next = dragStart.value - event.translationY / travel;
-      progress.value = Math.min(1, Math.max(0, next));
+      progress.value = dragged(dragStart.value, event.translationY, travel);
     })
     .onEnd((event) => {
       scheduleOnRN(toggle, settlesOpen(progress.value, event.velocityY, travel));

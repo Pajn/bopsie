@@ -2,7 +2,8 @@ import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Platform, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Artwork } from '@/features/library/Artwork';
 import { useOutputs } from '@/features/outputs/useOutputs';
@@ -14,15 +15,25 @@ import { itemLinks, nowPlaying } from './nowPlaying';
 import { OutputsPanel, PILL_CHEVRON, PillContent } from './OutputsPanel';
 import { QUEUE_BAR_HEIGHT, QueuePanel } from './QueuePanel';
 import { nextRepeatMode } from './repeat';
+import { collapsePlayer } from './sheetStore';
 import { useNow } from './useNow';
 import { usePlaybackActions, useQueue } from './usePlayback';
+import { useSheetDrag } from './useSheetDrag';
 
-export function NowPlayingScreen() {
+/**
+ * The full player: what plays, where, and its controls, with the queue and Play on growing out
+ * of it. It is the open face of the player sheet; `open` says whether it is showing, and
+ * `travel` is how far the sheet moves, for its header and artwork to drag it down by.
+ */
+export function PlayerBody({ open, travel }: { open: boolean; travel: number }) {
   const queue = useQueue().data;
   const playback = usePlaybackActions();
   const { theme } = useUnistyles();
   const playing = queue?.state === 'playing';
-  const now = useNow(playing);
+  // The position only moves while it can be seen.
+  const now = useNow(playing && open);
+  const grip = useSheetDrag(travel, 'down');
+  const artworkGrip = useSheetDrag(travel, 'down');
   const [dragging, setDragging] = useState<number | null>(null);
   const current = queue ? nowPlaying(queue) : null;
   const router = useRouter();
@@ -49,7 +60,7 @@ export function NowPlayingScreen() {
   if (!queue || !current) {
     return (
       <View style={styles.screen}>
-        <Header />
+        <Header grip={grip} />
         <View style={styles.main}>
           <Text muted style={styles.center}>
             Nothing is playing.
@@ -70,11 +81,13 @@ export function NowPlayingScreen() {
       style={styles.screen}
       onLayout={({ nativeEvent }) => setSize(nativeEvent.layout)}
     >
-      <Header {...(hasLinks && { onMore: () => router.push('/player-menu') })} />
+      <Header grip={grip} {...(hasLinks && { onMore: () => router.push('/player-menu') })} />
       <View style={styles.main}>
-        <View style={styles.artwork}>
-          <Artwork item={current.artwork} size={300} imageSize={1024} />
-        </View>
+        <GestureDetector gesture={artworkGrip}>
+          <View style={styles.artwork}>
+            <Artwork item={current.artwork} size={300} imageSize={1024} />
+          </View>
+        </GestureDetector>
         <View style={styles.names}>
           <Text variant="heading" numberOfLines={2} style={styles.center} testID="player-title">
             {current.title}
@@ -163,35 +176,36 @@ export function NowPlayingScreen() {
   );
 }
 
-/** Closes the player, and opens its menu where there is one. */
-function Header({ onMore }: { onMore?: () => void }) {
-  const router = useRouter();
+/** Closes the player, and opens its menu where there is one; it drags the player down too. */
+function Header({ grip, onMore }: { grip: GestureType; onMore?: () => void }) {
   return (
-    <View style={styles.header}>
-      <Pressable
-        onPress={() => router.back()}
-        hitSlop={12}
-        accessibilityRole="button"
-        accessibilityLabel="Close the player"
-        testID="player-close"
-      >
-        <Icon name="arrow-left" size={24} />
-      </Pressable>
-      <Text variant="heading" style={styles.headerTitle} accessibilityRole="header">
-        Now playing
-      </Text>
-      {onMore ? (
+    <GestureDetector gesture={grip}>
+      <View style={styles.header}>
         <Pressable
-          onPress={onMore}
+          onPress={collapsePlayer}
           hitSlop={12}
           accessibilityRole="button"
-          accessibilityLabel="More"
-          testID="player-more"
+          accessibilityLabel="Close the player"
+          testID="player-close"
         >
-          <Icon name="more-horizontal" size={24} />
+          <Icon name="chevron-down" size={24} />
         </Pressable>
-      ) : null}
-    </View>
+        <Text variant="heading" style={styles.headerTitle} accessibilityRole="header">
+          Now playing
+        </Text>
+        {onMore ? (
+          <Pressable
+            onPress={onMore}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="More"
+            testID="player-more"
+          >
+            <Icon name="more-horizontal" size={24} />
+          </Pressable>
+        ) : null}
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -283,8 +297,7 @@ const styles = StyleSheet.create((theme, rt) => ({
     alignItems: 'center',
     gap: theme.spacing.xxl,
     height: 56,
-    // iOS presents the player as a sheet below the status bar; Android draws it edge to edge.
-    marginTop: Platform.OS === 'ios' ? 0 : rt.insets.top,
+    marginTop: rt.insets.top,
     marginHorizontal: theme.spacing.lg - theme.spacing.xl,
   },
   headerTitle: { flex: 1 },

@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { type ItemLink, linkHref } from '@/features/library/links';
 import { MenuHeader, MenuRow, MenuSheet } from '@/features/library/menu';
 import { itemLinks, nowPlaying } from './nowPlaying';
+import { collapsePlayer } from './sheetStore';
 import { useQueue } from './usePlayback';
 
 /**
@@ -16,8 +17,9 @@ export function PlayerMenu() {
   if (!item || !current) return null;
 
   const open = (link: ItemLink) => {
-    // Back to the tabs, closing this sheet and the player, then on to the page.
-    router.dismissAll();
+    // Closing this sheet and the player, on to the page beneath them.
+    router.back();
+    collapsePlayer();
     router.push(linkHref(link));
   };
 

@@ -11,3 +11,14 @@ export function settlesOpen(progress: number, velocityY: number, travel: number)
   const resting = progress - (velocityY * FLICK_SECONDS) / travel;
   return resting > 0.5;
 }
+
+/**
+ * Where something dragged between closed and open sits, for a finger that took hold of it at
+ * `from` and has moved `translationY`, upward negative, over `travel`. It stops dead at either
+ * end, and stays put before it has been measured.
+ */
+export function dragged(from: number, translationY: number, travel: number): number {
+  'worklet';
+  if (travel <= 0) return from;
+  return Math.min(1, Math.max(0, from - translationY / travel));
+}

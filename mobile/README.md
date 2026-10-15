@@ -20,6 +20,9 @@ the full player's track, which grows into it, opens the list of players: set eac
 to join it to the group, move the queue to it, or control it instead. On iOS this is how music
 plays.
 
+Tap the mini player, or pull it up, to draw the full player up over the screen; drag its header
+or artwork down, or press back, to put it away again.
+
 The bar at the foot of the full player says what plays next, and grows into the group's queue
 over the player when tapped or dragged up; drag its header down, or press back, to close it. In
 the queue, play any track, drag tracks into a new order, move one up to play next, or remove it. The track playing, and the next one once the player has it, stay

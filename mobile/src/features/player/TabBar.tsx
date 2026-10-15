@@ -4,17 +4,26 @@ import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
 import { Text } from '@/ui/primitives';
-import { MiniPlayer } from './MiniPlayer';
+import { setTabBarHeight, useDockHeight } from './sheetStore';
+import { useReportedHeight } from './useReportedHeight';
 
 /** Derived from Expo Router's `Tabs` so no navigation package needs importing directly. */
 export type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
-/** The tab bar, with the mini player docked above it so it shows on every tab. */
+/**
+ * The tab bar, with room above it for the mini player.
+ *
+ * The mini player is drawn by the player sheet, which carries it up the screen and so cannot
+ * sit inside the bar. What is left here is a gap the same size, which keeps a screen's content
+ * clear of it: the navigator insets screens by what this measures.
+ */
 export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
+  const dockHeight = useDockHeight();
+  const measure = useReportedHeight(setTabBarHeight);
   return (
-    <View style={styles.shell}>
-      <MiniPlayer />
+    <View style={styles.shell} ref={measure.ref} onLayout={measure.onLayout}>
+      <View style={{ height: dockHeight }} />
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         {state.routes.map((route, index) => {
           const options = descriptors[route.key]?.options;
