@@ -29,7 +29,9 @@ const OVER_PLAYER = new Set(['player-menu']);
 export function PlayerSheet() {
   const { height } = useWindowDimensions();
   const queue = useQueue().data;
-  const loaded = queue ? nowPlaying(queue) !== null : false;
+  // Known to have nothing loaded: a queue still loading, as after choosing another group to
+  // control, may well have something.
+  const empty = queue === null || (queue !== undefined && nowPlaying(queue) === null);
   const open = usePlayerOpen();
   const dockHeight = useDockHeight();
   const tabBarHeight = useTabBarHeight();
@@ -43,20 +45,22 @@ export function PlayerSheet() {
   // unless what opened is a sheet over the player itself. Typed routes narrow the segments to
   // routes that exist, so they are widened to ask about a group by name.
   const segments: readonly string[] = useSegments();
-  const covered = !segments.includes('(tabs)') && !OVER_PLAYER.has(segments.at(-1) ?? '');
+  const onTop = segments.includes('(tabs)');
+  const covered = !onTop && !OVER_PLAYER.has(segments.at(-1) ?? '');
   useEffect(() => {
-    if (covered || !loaded) collapsePlayer();
-  }, [covered, loaded]);
+    if (covered || empty) collapsePlayer();
+  }, [covered, empty]);
 
-  // Android's back button is the way down from a screen, and the player stands in for one.
+  // Android's back button is the way down from a screen, and the player stands in for one,
+  // while nothing is open over it: a sheet over the player, such as its menu, closes first.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !onTop) return;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       collapsePlayer();
       return true;
     });
     return () => subscription.remove();
-  }, [open]);
+  }, [open, onTop]);
 
   // The dock is where the sheet is laid out, and the animation only carries it away from
   // there: a resting place held in the animated style would reach the screen a frame behind
