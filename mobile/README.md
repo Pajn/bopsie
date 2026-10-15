@@ -21,8 +21,8 @@ to join it to the group, move the queue to it, or control it instead. On iOS thi
 plays.
 
 The bar at the foot of the full player says what plays next, and grows into the group's queue
-over the player: play any track in it, drag tracks into a new order, move one up to play next, or
-remove it. The track playing, and the next one once the player has it, stay
+over the player when tapped or dragged up; drag its header down, or press back, to close it. In
+the queue, play any track, drag tracks into a new order, move one up to play next, or remove it. The track playing, and the next one once the player has it, stay
 where they are, as Music Assistant requires.
 
 Press and hold a track, album, artist or playlist, or use its more button, to play it next, add it

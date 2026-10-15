@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { BackHandler, Platform, Pressable, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  cancelAnimation,
   Easing,
   interpolate,
   interpolateColor,
@@ -9,11 +11,13 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { scheduleOnRN } from 'react-native-worklets';
 import { Artwork } from '@/features/library/Artwork';
 import { QueueList } from '@/features/queue/QueueList';
 import { Icon } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { describeItem, type HeardQueue } from './nowPlaying';
+import { settlesOpen } from './settle';
 
 /** The height of the bar the panel rises from, which the player keeps free for it. */
 export const QUEUE_BAR_HEIGHT = 56;
@@ -32,8 +36,8 @@ const EASING = Easing.bezier(0.2, 0, 0, 1);
 /**
  * The foot of the full player: what plays next, or what the group plays from in place of
  * its queue. Opened, it grows from there to fill the player with the queue, its bar
- * becoming the queue's header and its chevron turning down; the chevron, the header or
- * back close it again.
+ * becoming the queue's header and its chevron turning down; the header, or back, close it
+ * again. Dragging the bar up, or the header down, moves it with the finger.
  *
  * @param bar where the bar sits in the player, and `player` the player's size.
  */
@@ -60,6 +64,10 @@ export function QueuePanel({
   const openPadding = theme.spacing.lg;
   const gap = theme.spacing.md;
 
+  // How far the panel's top moves between closed and open, which a drag covers.
+  const travel = Math.max(bar.y, 1);
+  const dragStart = useSharedValue(0);
+
   const toggle = useCallback(
     (next: boolean) => {
       setOpen(next);
@@ -78,6 +86,23 @@ export function QueuePanel({
     return () => subscription.remove();
   }, [open, toggle]);
 
+  const drag = Gesture.Pan()
+    // Vertical only, and only once it is clearly a drag, so a tap still toggles.
+    .activeOffsetY([-10, 10])
+    .failOffsetX([-20, 20])
+    .onStart(() => {
+      cancelAnimation(progress);
+      dragStart.value = progress.value;
+      scheduleOnRN(setLoaded, true);
+    })
+    .onUpdate((event) => {
+      const next = dragStart.value - event.translationY / travel;
+      progress.value = Math.min(1, Math.max(0, next));
+    })
+    .onEnd((event) => {
+      scheduleOnRN(toggle, settlesOpen(progress.value, event.velocityY, travel));
+    });
+
   const panelStyle = useAnimatedStyle(() => {
     const p = progress.value;
     return {
@@ -85,11 +110,14 @@ export function QueuePanel({
       top: interpolate(p, [0, 1], [bar.y, 0]),
       width: interpolate(p, [0, 1], [bar.width, player.width]),
       height: interpolate(p, [0, 1], [bar.height, player.height]),
-      paddingTop: interpolate(p, [0, 1], [0, topInset]),
       borderRadius: interpolate(p, [0, 1], [closedRadius, 0]),
       backgroundColor: interpolateColor(p, [0, 1], [closedColor, openColor]),
     };
   });
+  // The status bar's space above the header, which a drag can start in too.
+  const topStyle = useAnimatedStyle(() => ({
+    paddingTop: interpolate(progress.value, [0, 1], [0, topInset]),
+  }));
   const headerStyle = useAnimatedStyle(() => ({
     paddingLeft: interpolate(progress.value, [0, 1], [closedPadding, openPadding]),
   }));
@@ -126,44 +154,52 @@ export function QueuePanel({
       accessibilityViewIsModal={open}
       testID="player-queue-panel"
     >
-      <Pressable
-        onPress={() => toggle(!open)}
-        accessibilityRole="button"
-        accessibilityLabel={open ? 'Close the queue' : `${label}: ${title}. Open the queue`}
-        accessibilityState={{ expanded: open }}
-        testID="player-queue"
-      >
-        <Animated.View style={[styles.header, headerStyle]}>
-          <Animated.View style={[styles.artwork, artworkStyle]}>
-            {next ? (
-              <Artwork item={next.artwork} size={ARTWORK} imageSize={80} />
-            ) : (
-              <Icon
-                name={queue.source ? 'speaker' : 'list'}
-                size={18}
-                color={theme.colors.textMuted}
-              />
-            )}
-          </Animated.View>
-          <View style={styles.text}>
-            <Animated.View style={barTextStyle}>
-              <Text variant="caption" muted style={styles.label}>
-                {label}
-              </Text>
-              <Text numberOfLines={1} style={next ? null : styles.quiet} testID="player-up-next">
-                {title}
-                {artists ? <Text style={styles.quiet}>{` · ${artists}`}</Text> : null}
-              </Text>
+      <GestureDetector gesture={drag}>
+        <Animated.View style={topStyle}>
+          <Pressable
+            onPress={() => toggle(!open)}
+            accessibilityRole="button"
+            accessibilityLabel={open ? 'Close the queue' : `${label}: ${title}. Open the queue`}
+            accessibilityState={{ expanded: open }}
+            testID="player-queue"
+          >
+            <Animated.View style={[styles.header, headerStyle]}>
+              <Animated.View style={[styles.artwork, artworkStyle]}>
+                {next ? (
+                  <Artwork item={next.artwork} size={ARTWORK} imageSize={80} />
+                ) : (
+                  <Icon
+                    name={queue.source ? 'speaker' : 'list'}
+                    size={18}
+                    color={theme.colors.textMuted}
+                  />
+                )}
+              </Animated.View>
+              <View style={styles.text}>
+                <Animated.View style={barTextStyle}>
+                  <Text variant="caption" muted style={styles.label}>
+                    {label}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={next ? null : styles.quiet}
+                    testID="player-up-next"
+                  >
+                    {title}
+                    {artists ? <Text style={styles.quiet}>{` · ${artists}`}</Text> : null}
+                  </Text>
+                </Animated.View>
+                <Animated.View style={[styles.title, titleStyle]} pointerEvents="none">
+                  <Text variant="heading">Queue</Text>
+                </Animated.View>
+              </View>
+              <Animated.View style={chevronStyle}>
+                <Icon name="chevron-up" size={open ? 24 : 18} color={theme.colors.textMuted} />
+              </Animated.View>
             </Animated.View>
-            <Animated.View style={[styles.title, titleStyle]} pointerEvents="none">
-              <Text variant="heading">Queue</Text>
-            </Animated.View>
-          </View>
-          <Animated.View style={chevronStyle}>
-            <Icon name="chevron-up" size={open ? 24 : 18} color={theme.colors.textMuted} />
-          </Animated.View>
+          </Pressable>
         </Animated.View>
-      </Pressable>
+      </GestureDetector>
       <Animated.View style={[styles.body, bodyStyle]} pointerEvents={open ? 'auto' : 'none'}>
         {loaded ? <QueueList /> : null}
       </Animated.View>
