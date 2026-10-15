@@ -6,7 +6,7 @@ import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQueryClient } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { useAccountActions, useActiveAccount, useAuthContext } from '@/auth/AuthProvider';
 import { createPlayer } from '@/player/createPlayer';
 import type { LocalPlayer, PlayerStatus } from '@/player/Player';
@@ -100,6 +100,17 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (account && playerStatus === 'unauthorized') markExpired(account.id);
   }, [account, playerStatus, markExpired]);
+
+  // Back in the foreground, a connection that gave up, or is waiting to retry, tries at once:
+  // the network it lost may well be back.
+  const connection = state?.connection;
+  useEffect(() => {
+    if (!connection) return;
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') connection.retry();
+    });
+    return () => subscription.remove();
+  }, [connection]);
 
   const value = useMemo(
     () =>

@@ -119,6 +119,18 @@ export class MaConnection {
     };
   }
 
+  /**
+   * Connects again now: after giving up, or instead of waiting out a retry's backoff, as when
+   * the app comes back to the foreground or the network returns. It gets a fresh set of
+   * retries. Does nothing while connected, or after the server refused the token.
+   */
+  retry(): void {
+    if (this.socket || this.status === 'unauthorized') return;
+    this.clearReconnect();
+    this.reconnectAttempt = 0;
+    this.connect();
+  }
+
   /** Closes for good: no reconnection, and waiting commands fail. */
   close(): void {
     this.clearReconnect();

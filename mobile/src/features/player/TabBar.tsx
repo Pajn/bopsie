@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';
+import { ConnectionBanner } from '@/connection/ConnectionBanner';
 import { Text } from '@/ui/primitives';
 import { setTabBarHeight, useDockHeight } from './sheetStore';
 import { useReportedHeight } from './useReportedHeight';
@@ -24,6 +25,7 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
   return (
     <View style={styles.shell} ref={measure.ref} onLayout={measure.onLayout}>
       <View style={{ height: dockHeight }} />
+      <ConnectionBanner />
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         {state.routes.map((route, index) => {
           const options = descriptors[route.key]?.options;

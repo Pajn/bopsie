@@ -190,6 +190,41 @@ describe('MaConnection', () => {
       expect(connection.status).toBe('closed');
     });
 
+    it('connects again on a retry after giving up, with its retries back', () => {
+      const { connection, socket, sockets } = setup({ maxReconnectAttempts: 1 });
+      connection.connect();
+      socket().receive(SERVER_INFO);
+      socket().drop();
+      jest.advanceTimersByTime(reconnectDelayMs(0));
+      socket().drop();
+      expect(connection.status).toBe('closed');
+
+      connection.retry();
+      expect(sockets).toHaveLength(3);
+      expect(connection.status).toBe('connecting');
+      socket().drop();
+      expect(connection.status).toBe('reconnecting');
+    });
+
+    it('connects at once on a retry while waiting out a backoff', () => {
+      const { connection, socket, sockets } = setup();
+      connection.connect();
+      socket().receive(SERVER_INFO);
+      socket().drop();
+      expect(connection.status).toBe('reconnecting');
+      connection.retry();
+      expect(sockets).toHaveLength(2);
+      jest.advanceTimersByTime(60_000);
+      expect(sockets).toHaveLength(2);
+    });
+
+    it('ignores a retry while connected', () => {
+      const { connection, sockets } = setup();
+      connection.connect();
+      connection.retry();
+      expect(sockets).toHaveLength(1);
+    });
+
     it('does not reconnect after an explicit close', () => {
       const { connection, socket, sockets } = setup();
       connection.connect();
