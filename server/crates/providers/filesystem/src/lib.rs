@@ -12,6 +12,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use bopsie_core::media::AudioFormat;
+use bopsie_library::ids::IdKind;
 use bopsie_library::provider::{
     Entry, EntryKind, Listing, MusicProvider, ProviderError, ScannedImage, ScannedPlaylist,
     ScannedTrack,
@@ -110,6 +111,39 @@ fn strings(tag: &Tag, key: ItemKey) -> Vec<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
+        .collect()
+}
+
+/// The ids that identify a track, by the tag keys they are written under.
+const TRACK_IDS: &[(ItemKey, IdKind)] = &[
+    (ItemKey::Isrc, IdKind::Isrc),
+    (ItemKey::MusicBrainzRecordingId, IdKind::MbRecording),
+    (ItemKey::MusicBrainzTrackId, IdKind::MbTrack),
+];
+
+/// The ids that identify a track's album.
+const ALBUM_IDS: &[(ItemKey, IdKind)] = &[
+    (ItemKey::Barcode, IdKind::Barcode),
+    (ItemKey::MusicBrainzReleaseId, IdKind::MbRelease),
+    (ItemKey::MusicBrainzReleaseGroupId, IdKind::MbReleaseGroup),
+];
+
+/// The values of `key` in the first of `tags` that has any: a file can carry several tags,
+/// and ids are often only in one of them.
+fn all_strings(tags: &[Tag], key: ItemKey) -> Vec<String> {
+    tags.iter()
+        .map(|tag| strings(tag, key))
+        .find(|values| !values.is_empty())
+        .unwrap_or_default()
+}
+
+fn ids(tags: &[Tag], keys: &[(ItemKey, IdKind)]) -> Vec<(IdKind, String)> {
+    keys.iter()
+        .flat_map(|(key, kind)| {
+            all_strings(tags, *key)
+                .into_iter()
+                .map(move |value| (*kind, value))
+        })
         .collect()
 }
 
@@ -260,6 +294,10 @@ impl MusicProvider for FilesystemProvider {
             },
             image,
             album_id: path.parent().and_then(|dir| self.id_of(dir)),
+            ids: ids(file.tags(), TRACK_IDS),
+            album_ids: ids(file.tags(), ALBUM_IDS),
+            artist_ids: all_strings(file.tags(), ItemKey::MusicBrainzArtistId),
+            album_artist_ids: all_strings(file.tags(), ItemKey::MusicBrainzReleaseArtistId),
         })
     }
 

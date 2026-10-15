@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use bopsie_audio::engine::Input;
 use bopsie_core::media::AudioFormat;
+use bopsie_library::ids::IdKind;
 use bopsie_library::provider::{
     Entry, EntryKind, Listing, MusicProvider, ProviderError, ScannedImage, ScannedPlaylist,
     ScannedTrack,
@@ -77,7 +78,35 @@ pub fn scanned_web_track(track: &Value, album: Option<&Value>) -> ScannedTrack {
         audio_format: audio_format(),
         image: best_image(album),
         album_id: album["id"].as_str().map(str::to_owned),
+        ids: web_ids(track, "isrc", IdKind::Isrc),
+        album_ids: web_ids(album, "upc", IdKind::Barcode),
+        ..ScannedTrack::default()
     }
+}
+
+/// An object's Spotify id, and its code of `code` from its `external_ids` as `kind`.
+fn web_ids(object: &Value, code: &str, kind: IdKind) -> Vec<(IdKind, String)> {
+    let spotify = object["id"]
+        .as_str()
+        .map(|id| (IdKind::Spotify, id.to_owned()));
+    let code = object["external_ids"][code]
+        .as_str()
+        .map(|value| (kind, value.to_owned()));
+    spotify.into_iter().chain(code).collect()
+}
+
+/// librespot's external ids of `code`, such as `isrc` or `upc`, as `kind`.
+fn librespot_ids(
+    ids: &librespot_metadata::external_id::ExternalIds,
+    code: &str,
+    kind: IdKind,
+) -> impl Iterator<Item = (IdKind, String)> {
+    ids.0
+        .iter()
+        .filter(|id| id.external_type.eq_ignore_ascii_case(code))
+        .map(move |id| (kind, id.id.clone()))
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// A track as librespot's metadata has it, as the scanner takes it.
@@ -100,6 +129,23 @@ pub fn scanned_librespot_track(track: &librespot_metadata::Track) -> ScannedTrac
             .and_then(|cover| cover.id.to_base16().ok())
             .map(|id| ScannedImage::Path(format!("https://i.scdn.co/image/{id}"))),
         album_id: album.id.to_id().ok(),
+        ids: track
+            .id
+            .to_id()
+            .ok()
+            .map(|id| (IdKind::Spotify, id))
+            .into_iter()
+            .chain(librespot_ids(&track.external_ids, "isrc", IdKind::Isrc))
+            .collect(),
+        album_ids: album
+            .id
+            .to_id()
+            .ok()
+            .map(|id| (IdKind::Spotify, id))
+            .into_iter()
+            .chain(librespot_ids(&album.external_ids, "upc", IdKind::Barcode))
+            .collect(),
+        ..ScannedTrack::default()
     }
 }
 
@@ -364,6 +410,7 @@ mod tests {
             "id": "4aawyAB9vmqN3uQ7FjRGTy",
             "name": "Global Warming",
             "release_date": "2012-11-16",
+            "external_ids": {"upc": "886443671584"},
             "artists": [{"id": "0TnOYISbd1XYRBk9myaseg", "name": "Pitbull"}],
             "images": [
                 {"url": "https://i.scdn.co/image/a", "width": 640},
@@ -376,6 +423,7 @@ mod tests {
             "duration_ms": 85400,
             "disc_number": 1,
             "track_number": 1,
+            "external_ids": {"isrc": "USRC11200786"},
             "artists": [
                 {"id": "0TnOYISbd1XYRBk9myaseg", "name": "Pitbull"},
                 {"id": "7iJrDbKM5fEkGdm5kpjFzS", "name": "Sensato"}
@@ -389,6 +437,20 @@ mod tests {
         assert_eq!(scanned.year, Some(2012));
         assert_eq!(scanned.duration_secs, 85);
         assert_eq!(scanned.album_id.as_deref(), Some("4aawyAB9vmqN3uQ7FjRGTy"));
+        assert_eq!(
+            scanned.ids,
+            [
+                (IdKind::Spotify, "6OmhkSOpvYBokMKQxpIGx2".to_owned()),
+                (IdKind::Isrc, "USRC11200786".to_owned())
+            ]
+        );
+        assert_eq!(
+            scanned.album_ids,
+            [
+                (IdKind::Spotify, "4aawyAB9vmqN3uQ7FjRGTy".to_owned()),
+                (IdKind::Barcode, "886443671584".to_owned())
+            ]
+        );
         assert_eq!(
             scanned.image,
             Some(ScannedImage::Path("https://i.scdn.co/image/a".to_owned()))

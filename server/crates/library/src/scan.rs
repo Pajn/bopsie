@@ -7,6 +7,7 @@ use bopsie_core::media::{MediaType, sort_name};
 use rusqlite::{Connection, OptionalExtension, Result, params};
 use sha2::{Digest, Sha256};
 
+use crate::ids::{IdKind, normalized, search_key};
 use crate::provider::{Entry, ScannedPlaylist, ScannedTrack};
 use crate::query::encode_format;
 
@@ -105,7 +106,25 @@ pub(crate) fn store_image(tx: &Connection, image: Option<&ImageRef>) -> Result<O
     Ok(Some(id))
 }
 
+/// The table items of `media_type` live in.
+fn table(media_type: MediaType) -> &'static str {
+    match media_type {
+        MediaType::Artist => "artists",
+        MediaType::Album => "albums",
+        MediaType::Track => "tracks",
+        MediaType::Playlist => "playlists",
+    }
+}
+
+/// Makes the item findable by `name`: in search, and by its search key.
 pub(crate) fn index(tx: &Connection, media_type: MediaType, id: i64, name: &str) -> Result<()> {
+    tx.execute(
+        &format!(
+            "UPDATE {} SET search_key = ?2 WHERE id = ?1",
+            table(media_type)
+        ),
+        params![id, search_key(name)],
+    )?;
     unindex(tx, media_type, id)?;
     for table in ["search_trigram", "search_words"] {
         tx.execute(
@@ -148,7 +167,99 @@ fn map(
     Ok(())
 }
 
+/// Gives search keys to items from before there were any.
+pub fn backfill_search_keys(tx: &Connection) -> Result<()> {
+    for media_type in [
+        MediaType::Artist,
+        MediaType::Album,
+        MediaType::Track,
+        MediaType::Playlist,
+    ] {
+        let table = table(media_type);
+        let missing: Vec<(i64, String)> = tx
+            .prepare(&format!(
+                "SELECT id, name FROM {table} WHERE search_key IS NULL"
+            ))?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, name) in missing {
+            tx.execute(
+                &format!("UPDATE {table} SET search_key = ?2 WHERE id = ?1"),
+                params![id, search_key(&name)],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Puts the provider's ids for an item in place of what it said before.
+fn set_ids(
+    tx: &Connection,
+    source: &Source,
+    media_type: MediaType,
+    id: i64,
+    ids: &[(IdKind, String)],
+) -> Result<()> {
+    tx.execute(
+        "DELETE FROM external_ids
+         WHERE media_type = ?1 AND item_id = ?2 AND provider_instance = ?3",
+        params![media_type.as_str(), id, source.instance],
+    )?;
+    add_ids(tx, source, media_type, id, ids)
+}
+
+/// Adds to the ids the provider reports for an item.
+fn add_ids(
+    tx: &Connection,
+    source: &Source,
+    media_type: MediaType,
+    id: i64,
+    ids: &[(IdKind, String)],
+) -> Result<()> {
+    for (kind, value) in normalized(ids) {
+        tx.execute(
+            "INSERT OR IGNORE INTO external_ids
+                 (media_type, item_id, provider_instance, kind, value)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                media_type.as_str(),
+                id,
+                source.instance,
+                kind.as_str(),
+                value
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// The MusicBrainz id at `index` of `ids`, when there is one for each of `count` names.
+fn id_at(ids: &[String], count: usize, index: usize) -> Option<&str> {
+    (ids.len() == count).then(|| ids[index].as_str())
+}
+
 fn artist(
+    tx: &Connection,
+    source: &Source,
+    name: &str,
+    mbid: Option<&str>,
+    now: i64,
+    changes: &mut Changes,
+) -> Result<i64> {
+    let id = artist_row(tx, source, name, now, changes)?;
+    if let Some(mbid) = mbid {
+        add_ids(
+            tx,
+            source,
+            MediaType::Artist,
+            id,
+            &[(IdKind::MbArtist, mbid.to_owned())],
+        )?;
+    }
+    Ok(id)
+}
+
+fn artist_row(
     tx: &Connection,
     source: &Source,
     name: &str,
@@ -280,7 +391,11 @@ fn album(
             let id = tx.last_insert_rowid();
             let artist_ids = album_artists
                 .iter()
-                .map(|artist_name| artist(tx, source, artist_name, now, changes))
+                .enumerate()
+                .map(|(i, artist_name)| {
+                    let mbid = id_at(&track.album_artist_ids, album_artists.len(), i);
+                    artist(tx, source, artist_name, mbid, now, changes)
+                })
                 .collect::<Result<Vec<_>>>()?;
             credit(tx, "album_artists", "album_id", id, &artist_ids)?;
             index(tx, MediaType::Album, id, name)?;
@@ -295,6 +410,10 @@ fn album(
         id,
         track.album_id.as_deref().unwrap_or(name),
     )?;
+    // Each track says what its album is; one that says nothing leaves what the others said.
+    if !track.album_ids.is_empty() {
+        set_ids(tx, source, MediaType::Album, id, &track.album_ids)?;
+    }
     Ok(Some(id))
 }
 
@@ -326,7 +445,11 @@ pub fn upsert_track(
     )?;
     let artist_ids = track_artists
         .iter()
-        .map(|name| artist(tx, source, name, now, changes))
+        .enumerate()
+        .map(|(i, name)| {
+            let mbid = id_at(&track.artist_ids, track_artists.len(), i);
+            artist(tx, source, name, mbid, now, changes)
+        })
         .collect::<Result<Vec<_>>>()?;
 
     let existing: Option<i64> = tx
@@ -390,6 +513,7 @@ pub fn upsert_track(
         ],
     )?;
     credit(tx, "track_artists", "track_id", id, &artist_ids)?;
+    set_ids(tx, source, MediaType::Track, id, &track.ids)?;
     index(tx, MediaType::Track, id, title)?;
     Ok(id)
 }
@@ -415,6 +539,11 @@ pub fn remove(
         else {
             continue;
         };
+        tx.execute(
+            "DELETE FROM external_ids
+             WHERE media_type = ?1 AND item_id = ?2 AND provider_instance = ?3",
+            params![media_type.as_str(), id, source.instance],
+        )?;
         let still_held: bool = tx.query_row(
             "SELECT EXISTS (SELECT 1 FROM provider_mappings WHERE media_type = ?1 AND item_id = ?2)",
             params![media_type.as_str(), id],
@@ -433,17 +562,16 @@ fn delete_item(
     id: i64,
     changes: &mut Changes,
 ) -> Result<()> {
-    let table = match media_type {
-        MediaType::Artist => "artists",
-        MediaType::Album => "albums",
-        MediaType::Track => "tracks",
-        MediaType::Playlist => "playlists",
-    };
-    tx.execute(&format!("DELETE FROM {table} WHERE id = ?1"), [id])?;
     tx.execute(
-        "DELETE FROM provider_mappings WHERE media_type = ?1 AND item_id = ?2",
-        params![media_type.as_str(), id],
+        &format!("DELETE FROM {} WHERE id = ?1", table(media_type)),
+        [id],
     )?;
+    for linked in ["provider_mappings", "external_ids"] {
+        tx.execute(
+            &format!("DELETE FROM {linked} WHERE media_type = ?1 AND item_id = ?2"),
+            params![media_type.as_str(), id],
+        )?;
+    }
     unindex(tx, media_type, id)?;
     crate::edit::forget(tx, media_type, id)?;
     changes.delete((media_type, id));

@@ -221,7 +221,7 @@ fn fields(
         version: String::new(),
         sort_name: common.sort_name,
         uri: library_uri(media_type, id),
-        external_ids: Vec::new(),
+        external_ids: external_ids(conn, media_type, id)?,
         is_playable: true,
         media_type,
         provider_mappings: mappings(conn, media_type, id)?,
@@ -233,6 +233,28 @@ fn fields(
         position: None,
         date_added: date(common.date_added),
     })
+}
+
+/// The item's external ids as Music Assistant lists them, `["isrc", "…"]`; links to a service,
+/// which Music Assistant keeps as mappings, are left out.
+fn external_ids(
+    conn: &Connection,
+    media_type: MediaType,
+    id: i64,
+) -> Result<Vec<serde_json::Value>> {
+    let mut statement = conn.prepare_cached(
+        "SELECT DISTINCT kind, value FROM external_ids
+         WHERE media_type = ?1 AND item_id = ?2 AND kind != 'spotify'
+         ORDER BY kind, value",
+    )?;
+    statement
+        .query_map((media_type.as_str(), id), |row| {
+            Ok(serde_json::json!([
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?
+            ]))
+        })?
+        .collect()
 }
 
 fn mapping(

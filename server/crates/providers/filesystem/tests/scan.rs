@@ -625,6 +625,7 @@ impl bopsie_library::provider::MusicProvider for Streamed {
             audio_format: bopsie_core::media::AudioFormat::unknown(),
             image: None,
             album_id: Some("streamed-album".to_owned()),
+            ..Default::default()
         })
     }
     fn read_playlist(
@@ -845,4 +846,94 @@ async fn a_streaming_services_playlist_has_its_artwork_and_its_catalogs_tracks()
         .unwrap();
     assert_eq!(playable.len(), 1);
     assert_eq!(playable[0].1, bopsie_audio::engine::Input::File(file));
+}
+
+#[tokio::test]
+async fn a_tracks_ids_are_read_from_its_tags_and_served() {
+    let f = fixture();
+    let path = f
+        .dir
+        .path()
+        .join("music/Test Artist/First Album/01 - Opening.wav");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Opening".to_owned());
+    tag.set_artist("Test Artist".to_owned());
+    tag.set_album("First Album".to_owned());
+    tag.insert_text(ItemKey::Isrc, "us-um7-17-03861".to_owned());
+    tag.insert_text(ItemKey::Barcode, "602557382549".to_owned());
+    tag.insert_text(
+        ItemKey::MusicBrainzRecordingId,
+        "8f1a3c35-3b33-4f8b-9a4e-111122223333".to_owned(),
+    );
+    tag.insert_text(
+        ItemKey::MusicBrainzReleaseGroupId,
+        "0E5D6A6C-1C1D-4E0B-9A2E-444455556666".to_owned(),
+    );
+    tag.insert_text(
+        ItemKey::MusicBrainzArtistId,
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_owned(),
+    );
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    f.library.sync().await.unwrap();
+
+    let track = f
+        .library
+        .search(MediaType::Track, "Opening".to_owned(), 5)
+        .await
+        .unwrap()
+        .remove(0);
+    let ids = &track.fields().external_ids;
+    assert!(
+        ids.contains(&serde_json::json!(["isrc", "USUM71703861"])),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&serde_json::json!([
+            "musicbrainz_recordingid",
+            "8f1a3c35-3b33-4f8b-9a4e-111122223333"
+        ])),
+        "{ids:?}"
+    );
+    let album = id(&f.library, MediaType::Album, "First Album").await;
+    let Some(MediaItem::Album(album)) = f.library.item(MediaType::Album, album).await.unwrap()
+    else {
+        panic!("no album");
+    };
+    assert_eq!(
+        album.fields.external_ids,
+        [
+            serde_json::json!(["barcode", "00602557382549"]),
+            serde_json::json!([
+                "musicbrainz_releasegroupid",
+                "0e5d6a6c-1c1d-4e0b-9a2e-444455556666"
+            ]),
+        ]
+    );
+    let artist = id(&f.library, MediaType::Artist, "Test Artist").await;
+    let Some(MediaItem::Artist(artist)) = f.library.item(MediaType::Artist, artist).await.unwrap()
+    else {
+        panic!("no artist");
+    };
+    assert_eq!(
+        artist.fields.external_ids,
+        [serde_json::json!([
+            "musicbrainz_artistid",
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        ])]
+    );
+
+    // Gone from the tags, gone from the library.
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Opening".to_owned());
+    tag.set_artist("Test Artist".to_owned());
+    tag.set_album("First Album".to_owned());
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    f.library.sync().await.unwrap();
+    let track = f
+        .library
+        .search(MediaType::Track, "Opening".to_owned(), 5)
+        .await
+        .unwrap()
+        .remove(0);
+    assert!(track.fields().external_ids.is_empty());
 }

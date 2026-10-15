@@ -116,5 +116,30 @@ pub const MIGRATIONS: Migrations = Migrations {
         -- A playlist's artwork, by proxy id, as albums have theirs.
         ALTER TABLE playlists ADD COLUMN image TEXT;
     ",
+        "
+        -- What identifies an item beyond its name, as each provider reports it: ISRCs,
+        -- barcodes, MusicBrainz ids, a streaming service's ids. Ids go with their provider.
+        CREATE TABLE external_ids (
+            media_type TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            provider_instance TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (media_type, item_id, provider_instance, kind, value)
+        ) STRICT;
+        CREATE INDEX external_ids_value ON external_ids (kind, value);
+
+        -- Names as candidates for being the same item are found by (ids::search_key).
+        ALTER TABLE artists ADD COLUMN search_key TEXT;
+        ALTER TABLE albums ADD COLUMN search_key TEXT;
+        ALTER TABLE tracks ADD COLUMN search_key TEXT;
+        ALTER TABLE playlists ADD COLUMN search_key TEXT;
+        CREATE INDEX artists_search_key ON artists (search_key);
+        CREATE INDEX albums_search_key ON albums (search_key);
+        CREATE INDEX tracks_search_key ON tracks (search_key);
+
+        -- Every track is read again once, for the ids it carries.
+        UPDATE provider_mappings SET stamp = NULL WHERE media_type = 'track';
+    ",
     ],
 };

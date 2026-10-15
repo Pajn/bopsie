@@ -2,6 +2,8 @@
 //! scanner calls them on blocking threads.
 
 use bopsie_audio::engine::Input;
+
+use crate::ids::IdKind;
 use bopsie_core::media::AudioFormat;
 
 #[derive(Debug, thiserror::Error)]
@@ -37,7 +39,7 @@ pub enum ScannedImage {
     Embedded { data: Vec<u8>, extension: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ScannedTrack {
     pub title: String,
     pub artists: Vec<String>,
@@ -52,6 +54,14 @@ pub struct ScannedTrack {
     pub image: Option<ScannedImage>,
     /// What the provider calls the album, such as its folder, for the album's provider mapping.
     pub album_id: Option<String>,
+    /// What identifies the track: its ISRC, its MusicBrainz recording, its id on a service.
+    pub ids: Vec<(IdKind, String)>,
+    /// What identifies its album: barcode, MusicBrainz release and release group.
+    pub album_ids: Vec<(IdKind, String)>,
+    /// MusicBrainz ids of `artists` and `album_artists`, in the same order, when the provider
+    /// has one for each.
+    pub artist_ids: Vec<String>,
+    pub album_artist_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

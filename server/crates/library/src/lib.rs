@@ -3,6 +3,7 @@
 
 pub mod catalog;
 pub mod edit;
+pub mod ids;
 pub mod provider;
 pub mod query;
 pub mod scan;
@@ -343,6 +344,7 @@ impl Library {
                 let mut pruned = Changes::default();
                 // What was edited by hand is written again over what was scanned.
                 edit::apply_all(&tx)?;
+                scan::backfill_search_keys(&tx)?;
                 scan::prune(&tx, &mut pruned)?;
                 tx.commit()?;
                 Ok(pruned)

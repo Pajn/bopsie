@@ -6,6 +6,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+deunicode.workspace = true
 futures.workspace = true
 bopsie-audio.workspace = true
 bopsie-core.workspace = true
