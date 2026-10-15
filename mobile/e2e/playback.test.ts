@@ -32,7 +32,7 @@ describe('playback on the phone', () => {
     await fill(byId('login-username'), USERNAME);
     await fill(byId('login-password'), PASSWORD);
     await tap(byId('login-submit'));
-    await expectVisible(byId('library-list'), { timeout: 20_000 });
+    await expectVisible(byId('home'), { timeout: 20_000 });
   });
 
   it('registers the phone as a Music Assistant player', async () => {

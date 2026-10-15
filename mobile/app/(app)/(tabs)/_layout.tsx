@@ -25,6 +25,10 @@ export default function TabsLayout() {
         }}
       >
         <Tabs.Screen
+          name="(home)"
+          options={{ title: 'Home', tabBarIcon: icon('home'), tabBarButtonTestID: 'tab-home' }}
+        />
+        <Tabs.Screen
           name="(library)"
           options={{
             title: 'Library',

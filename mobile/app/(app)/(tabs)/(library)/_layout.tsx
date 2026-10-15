@@ -7,7 +7,7 @@ export default function LibraryStackLayout() {
   const { theme } = useUnistyles();
   return (
     <Stack screenOptions={stackScreenOptions(theme)}>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="library" options={{ headerShown: false }} />
       {/* Detail screens set their title once they know it; until then the header stays blank. */}
       <Stack.Screen name="album/[id]" options={{ title: '' }} />
       <Stack.Screen name="artist/[id]" options={{ title: '' }} />

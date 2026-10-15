@@ -8,11 +8,12 @@ Architecture, stack choices and the roadmap live in [`docs/plans`](../docs/plans
 Music Assistant API and the Sendspin protocol look like on the wire, with sources, is in
 [`docs/research`](../docs/research).
 
-What works today: sign in to Music Assistant 2.7.1 or later with a username and password; browse
-albums, artists, tracks and playlists, sorted and filtered; search; and, on Android, play on the
-phone itself. The phone joins Music Assistant as a player over Sendspin, so the server keeps its
-queue and other clients see it, with notification and lock-screen controls. iOS browses but does
-not play yet.
+What works today: sign in to Music Assistant 2.7.1 or later with a username and password; open on a
+home of what came into the library lately, its playlists and artists, and albums to rediscover;
+browse albums, artists, tracks and playlists, sorted, filtered and as a grid; search; and, on
+Android, play on the phone itself. The phone joins Music Assistant as a player over Sendspin, so the
+server keeps its queue and other clients see it, with notification and lock-screen controls. iOS
+browses but does not play yet.
 
 The app also controls any other Music Assistant player. It works on one active group at a time — the
 phone until you choose another — and the speaker button on the mini player, or the pill under the

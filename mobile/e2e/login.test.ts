@@ -17,14 +17,14 @@ describe('sign in', () => {
 
     await fill(byId('login-password'), PASSWORD);
     await tap(byId('login-submit'));
-    await expectVisible(byId('library-list'), { timeout: 20_000 });
+    await expectVisible(byId('home'), { timeout: 20_000 });
     await tap(byId('tab-account'));
     await expectText(byId('account-username'), USERNAME);
   });
 
   it('stays signed in across a relaunch and can sign out', async () => {
     await launchApp();
-    await expectVisible(byId('library-list'), { timeout: 20_000 });
+    await expectVisible(byId('home'), { timeout: 20_000 });
     await tap(byId('tab-account'));
     await tap(byId('account-sign-out'));
     // The confirmation covers the screen, so its button is the one in view.
