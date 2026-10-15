@@ -103,6 +103,28 @@ pub fn scanned_librespot_track(track: &librespot_metadata::Track) -> ScannedTrac
     }
 }
 
+/// A playlist's artwork as librespot has it: the URL Spotify made for it, as it does for its
+/// own mixes, which the Web API keeps from developer apps, else the cover it was given.
+fn playlist_picture(
+    attributes: &librespot_metadata::playlist::attribute::PlaylistAttributes,
+) -> Option<String> {
+    attributes
+        .picture_sizes
+        .iter()
+        .find(|size| size.target_name == "default")
+        .or_else(|| attributes.picture_sizes.first())
+        .map(|size| size.url.clone())
+        .filter(|url| !url.is_empty())
+        .or_else(|| {
+            (!attributes.picture.is_empty()).then(|| {
+                format!(
+                    "https://i.scdn.co/image/{}",
+                    hex::encode(&attributes.picture)
+                )
+            })
+        })
+}
+
 #[derive(Default)]
 struct Listed {
     tracks: HashMap<String, ScannedTrack>,
@@ -226,13 +248,10 @@ impl SpotifyLibrary {
                 continue;
             };
             let id = uri.to_id().unwrap_or_default();
-            let picture = (!playlist.attributes.picture.is_empty()).then(|| {
-                format!(
-                    "https://i.scdn.co/image/{}",
-                    hex::encode(&playlist.attributes.picture)
-                )
-            });
-            let image = artwork.get(&id).cloned().or(picture);
+            let image = artwork
+                .get(&id)
+                .cloned()
+                .or_else(|| playlist_picture(&playlist.attributes));
             entries.push(Entry {
                 id: id.clone(),
                 kind: EntryKind::Playlist,
