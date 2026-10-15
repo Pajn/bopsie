@@ -20,6 +20,11 @@
     },
     "android": {
       "package": "io.github.pajn.cratie",
+      "adaptiveIcon": {
+        "backgroundColor": "#3E1C78",
+        "foregroundImage": "./assets/brand/android-icon-foreground.png",
+        "monochromeImage": "./assets/brand/android-icon-monochrome.png"
+      },
       "versionCode": 1,
       "permissions": ["android.permission.POST_NOTIFICATIONS"],
       "predictiveBackGestureEnabled": false
