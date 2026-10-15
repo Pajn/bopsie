@@ -4,6 +4,7 @@
 pub mod catalog;
 pub mod edit;
 pub mod ids;
+pub mod matching;
 pub mod provider;
 pub mod query;
 pub mod scan;
