@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use bopsie_core::config::SpotifyConfig;
 use bopsie_players::{Change, Device, Devices};
@@ -39,11 +40,22 @@ pub struct SpotifyConnect {
     inner: Arc<Inner>,
 }
 
+/// How long a speaker is seen before its device is announced, so that it is announced under
+/// the name it settles on: some give a provisional one when they are first found.
+const SETTLE: Duration = Duration::from_secs(10);
+/// How long a speaker may be away before its device is withdrawn, so that one that drops off
+/// the network for a few minutes does not come and go in the Spotify app.
+const GRACE: Duration = Duration::from_secs(15 * 60);
+
 struct Inner {
     config: Config,
     devices: Devices,
     sources: Sources,
     running: Mutex<BTreeMap<String, Arc<ConnectDevice>>>,
+    /// When each speaker was first seen able to play.
+    seen: Mutex<BTreeMap<String, Instant>>,
+    /// Since when each announced speaker has been away.
+    away: Mutex<BTreeMap<String, Instant>>,
 }
 
 impl SpotifyConnect {
@@ -60,6 +72,8 @@ impl SpotifyConnect {
                 devices: devices.clone(),
                 sources,
                 running: Mutex::default(),
+                seen: Mutex::default(),
+                away: Mutex::default(),
             }),
         };
         let mut changes = devices.subscribe();
@@ -85,13 +99,57 @@ impl SpotifyConnect {
         connect
     }
 
-    /// Starts, renames or stops the device for player `id` to match its settings.
+    /// Checks player `id` again after `after`.
+    fn recheck(&self, id: &str, after: Duration) {
+        let (connect, id) = (self.clone(), id.to_owned());
+        tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            connect.follow(&id);
+        });
+    }
+
+    /// Starts, renames or stops the device for player `id` to match its settings. A speaker
+    /// newly able to play is announced once it has been for [`SETTLE`]; one that went away
+    /// keeps its device for [`GRACE`].
     fn follow(&self, id: &str) {
-        let wanted = self
-            .inner
-            .devices
-            .get(id)
-            .and_then(|device| wanted(&device, &self.inner.config.names));
+        let device = self.inner.devices.get(id);
+        let available = device.as_ref().is_some_and(Device::available);
+        let mut wanted = device
+            .as_ref()
+            .and_then(|device| wanted(device, &self.inner.config.names));
+        let now = Instant::now();
+        if available {
+            self.inner.away.lock().unwrap().remove(id);
+            let since = *self
+                .inner
+                .seen
+                .lock()
+                .unwrap()
+                .entry(id.to_owned())
+                .or_insert(now);
+            let settling = SETTLE.saturating_sub(now - since);
+            if !settling.is_zero() && !self.inner.running.lock().unwrap().contains_key(id) {
+                self.recheck(id, settling);
+                return;
+            }
+        } else {
+            self.inner.seen.lock().unwrap().remove(id);
+            if wanted.is_some() && self.inner.running.lock().unwrap().contains_key(id) {
+                let since = *self
+                    .inner
+                    .away
+                    .lock()
+                    .unwrap()
+                    .entry(id.to_owned())
+                    .or_insert(now);
+                let left = GRACE.saturating_sub(now - since);
+                if !left.is_zero() {
+                    self.recheck(id, left);
+                    return;
+                }
+            }
+            wanted = None;
+        }
         let mut running = self.inner.running.lock().unwrap();
         let current = running.get(id).map(|device| device.name().to_owned());
         if current == wanted.as_ref().map(|(name, _)| name.clone()) {
@@ -128,19 +186,17 @@ impl SpotifyConnect {
 }
 
 /// The name and volume a device is announced with, if it should be: an enabled speaker, not an
-/// app, that has not been turned off for Spotify Connect, and that could play when it started.
-/// Its name is its settings' Spotify name, else `names`' pattern applied to its name.
+/// app, that has not been turned off for Spotify Connect. Its name is its settings' Spotify
+/// name, else `names`' pattern applied to its name.
 fn wanted(device: &Device, names: &SpotifyConfig) -> Option<(String, u8)> {
     let primary = device.primary();
-    (device.enabled && device.spotify_connect && !primary.state.app && device.available()).then(
-        || {
-            let name = device
-                .spotify_name
-                .clone()
-                .unwrap_or_else(|| names.device_name(&device.name));
-            (name, primary.state.volume.unwrap_or(50))
-        },
-    )
+    (device.enabled && device.spotify_connect && !primary.state.app).then(|| {
+        let name = device
+            .spotify_name
+            .clone()
+            .unwrap_or_else(|| names.device_name(&device.name));
+        (name, primary.state.volume.unwrap_or(50))
+    })
 }
 
 /// The addresses of the network interface this host reaches the network from, the one its

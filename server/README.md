@@ -32,7 +32,8 @@ cargo run -p bopsie-server -- --config config.toml
 
 The config file is optional; [`config.example.toml`](config.example.toml) lists every key with
 its default. The server listens on port 8095 and keeps its database in `data/`. Logging follows
-`RUST_LOG`, at `info` by default, with the tag reader's warnings about odd tags left out.
+`RUST_LOG`, at `info` by default, with the tag reader's warnings about odd tags and Spotify
+Connect's about network packets it cannot read left out.
 
 Music comes from the folders under `[library]`. The server scans them at startup and on
 `music/sync`; a rescan reads only files whose size or modification time changed. Album art is a
@@ -92,7 +93,9 @@ shows what Spotify plays.
 It needs Spotify Premium. The devices are announced by mDNS (`_spotify-connect._tcp`), each with
 a small HTTP server of its own on a free port, and play through
 [librespot](https://github.com/librespot-org/librespot). The credentials of whoever picked a
-device are kept in the data directory under `spotify/`, so it reconnects after a restart.
+device are kept in the data directory under `spotify/`, so it reconnects after a restart. A
+speaker is announced once it has been on the network for ten seconds, under the name it settles
+on, and one that drops off keeps its device for fifteen minutes.
 Spotify has been changing how its audio is protected, and librespot no longer plays for every
 account; `cargo run -p bopsie-sources-spotify --example spotify-probe` announces one device that
 logs what it is given, to check an account before relying on it. A speaker's settings in the web

@@ -47,8 +47,9 @@ struct Args {
 }
 
 /// What is logged unless `RUST_LOG` says otherwise. The tag reader warns about every odd tag it
-/// skips, which buries everything else in a large library.
-const DEFAULT_LOG: &str = "info,lofty=error";
+/// skips, which buries everything else in a large library, and Spotify Connect's mDNS
+/// responder about every packet on the network it cannot read.
+const DEFAULT_LOG: &str = "info,lofty=error,libmdns=error";
 
 #[tokio::main]
 async fn main() -> ExitCode {
