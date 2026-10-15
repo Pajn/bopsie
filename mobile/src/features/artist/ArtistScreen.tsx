@@ -1,18 +1,20 @@
-import { artistAlbums, getArtist } from '@bopsie/client/api/endpoints/library';
+import { artistAlbums, artistTracks, getArtist } from '@bopsie/client/api/endpoints/library';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { LegendList } from '@legendapp/list/react-native';
 import { useQuery } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
-import { View } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { ItemHeader } from '@/features/library/ItemHeader';
 import { MoreButton } from '@/features/library/menu';
-import { AlbumRow } from '@/features/library/rows';
+import { AlbumRow, TrackRow } from '@/features/library/rows';
 import { useOpenItemMenu } from '@/features/library/useOpenItemMenu';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
-import { InlineError } from '@/ui/primitives';
+import { InlineError, Text } from '@/ui/primitives';
+import { type ArtistRow, artistRows } from './sections';
 
 export function ArtistScreen({
   id,
@@ -26,6 +28,8 @@ export function ArtistScreen({
   const { connection, account } = useConnection();
   const playback = usePlaybackActions();
   const openMenu = useOpenItemMenu();
+  const { theme } = useUnistyles();
+  const [expanded, setExpanded] = useState(false);
   const ref = { itemId: id, provider };
   const artist = useQuery({
     queryKey: queryKeys.item(account.id, 'artist', id, provider),
@@ -35,7 +39,56 @@ export function ArtistScreen({
     queryKey: [...queryKeys.item(account.id, 'artist', id, provider), 'albums'],
     queryFn: () => artistAlbums(connection, ref),
   });
-  const error = artist.error ?? albums.error;
+  const tracks = useQuery({
+    queryKey: [...queryKeys.item(account.id, 'artist', id, provider), 'tracks'],
+    queryFn: () => artistTracks(connection, ref),
+  });
+  const error = artist.error ?? albums.error ?? tracks.error;
+  const loading = albums.isPending || tracks.isPending;
+  const rows = useMemo(
+    () =>
+      artistRows(albums.data ?? [], tracks.data ?? [], {
+        popular: provider !== 'library',
+        expanded,
+      }),
+    [albums.data, tracks.data, provider, expanded],
+  );
+  const trackUris = useMemo(() => (tracks.data ?? []).map((track) => track.uri), [tracks.data]);
+
+  const renderRow = (row: ArtistRow) => {
+    switch (row.type) {
+      case 'heading':
+        return (
+          <Text variant="label" muted style={styles.heading}>
+            {row.title}
+          </Text>
+        );
+      case 'track':
+        // A track plays on through the artist's tracks after it.
+        return (
+          <TrackRow
+            track={row.track}
+            showArtwork
+            onPress={() => playback.play(trackUris, row.track.uri)}
+          />
+        );
+      case 'album':
+        return <AlbumRow album={row.album} />;
+      case 'more':
+        return (
+          <Pressable
+            onPress={() => setExpanded(true)}
+            style={({ pressed }) => [styles.more, pressed && styles.pressed]}
+            accessibilityRole="button"
+            testID="artist-tracks-more"
+          >
+            <Text variant="label" style={styles.moreText}>
+              {`Show ${row.hidden} more`}
+            </Text>
+          </Pressable>
+        );
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -51,9 +104,10 @@ export function ArtistScreen({
         }}
       />
       <LegendList
-        data={albums.data ?? []}
-        keyExtractor={(album) => `${album.provider}/${album.item_id}`}
-        renderItem={({ item }) => <AlbumRow album={item} />}
+        data={rows}
+        keyExtractor={(row) => row.key}
+        getItemType={(row) => row.type}
+        renderItem={({ item }) => renderRow(item)}
         estimatedItemSize={64}
         ListHeaderComponent={
           <>
@@ -68,7 +122,17 @@ export function ArtistScreen({
             {error ? <InlineError message={describeError(error)} /> : null}
           </>
         }
+        ListEmptyComponent={
+          loading ? (
+            <ActivityIndicator color={theme.colors.accent} style={styles.empty} />
+          ) : error ? null : (
+            <Text muted style={styles.empty}>
+              No albums or tracks.
+            </Text>
+          )
+        }
         contentContainerStyle={styles.content}
+        testID="artist-list"
       />
     </View>
   );
@@ -77,4 +141,9 @@ export function ArtistScreen({
 const styles = StyleSheet.create((theme) => ({
   screen: { flex: 1, backgroundColor: theme.colors.background },
   content: { paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xxl },
+  heading: { marginTop: theme.spacing.lg, marginBottom: theme.spacing.xs },
+  more: { paddingVertical: theme.spacing.md },
+  moreText: { color: theme.colors.accent },
+  pressed: { opacity: 0.6 },
+  empty: { marginTop: theme.spacing.xl, textAlign: 'center' },
 }));

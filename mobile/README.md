@@ -30,6 +30,9 @@ to the end of the queue, or go to its album or artists.
 The full player shuffles and repeats the queue, or the track playing. Shuffle beside an album's,
 artist's or playlist's Play button turns shuffle on and plays it.
 
+An artist's page lists the artist's tracks, or for a Spotify artist the most popular, then the
+albums, newest first. A Spotify artist's singles and EPs, and compilations, are listed apart.
+
 ## Requirements
 
 - Node 24 and pnpm 12. The Nix dev shell provides both.
