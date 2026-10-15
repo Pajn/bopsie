@@ -88,12 +88,17 @@ export const adminDevice = z.looseObject({
   enabled: z.boolean(),
   available: z.boolean(),
   max_volume: z.nullable(z.number()),
+  /** What it is called in the Spotify app. */
+  spotify_name: z.string(),
+  /** What it is called in the Spotify app without a Spotify name of its own. */
+  spotify_default_name: z.string(),
   settings: z.object({
     name: sourced(z.nullable(z.string())),
     enabled: sourced(z.boolean()),
     max_volume: sourced(z.nullable(z.number())),
     /** Whether it shows in the Spotify app as a Spotify Connect device. */
     spotify_connect: sourced(z.boolean()),
+    spotify_name: sourced(z.nullable(z.string())),
   }),
   members: z.array(adminEndpoint),
   /** The sources announced for it, such as its Spotify Connect device. */

@@ -78,7 +78,10 @@ repeat and shuffle. A speaker switched to another source leaves its group, which
 
 ### Spotify Connect
 
-Every speaker shows in the Spotify app as a Spotify Connect device, under its name. Picking one
+Every speaker shows in the Spotify app as a Spotify Connect device, named "Kitchen (Bopsie)" and
+so on, so it is told apart from a speaker's own Spotify Connect. `name` under `[spotify]` sets the
+pattern, where `{name}` is the speaker's name, and a speaker's Spotify name in the web UI wins over
+it. Picking one
 plays Spotify to the group the speaker is in, through the server, in sync across AirPlay,
 LinkPlay and Sendspin as anything else plays. The group's queue rests, paused, meanwhile, and
 playing something from Bopsie on the group takes it back from Spotify. Spotify's play, pause,

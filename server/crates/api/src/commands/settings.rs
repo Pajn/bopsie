@@ -36,6 +36,10 @@ pub struct PlayerUpdateArgs {
     /// Whether the player shows in the Spotify app as a Spotify Connect device.
     #[serde(default, deserialize_with = "present")]
     pub spotify_connect: Option<Option<bool>>,
+    /// What the player is called in the Spotify app, instead of `[spotify] name`'s pattern.
+    /// Empty clears it.
+    #[serde(default, deserialize_with = "present")]
+    pub spotify_name: Option<Option<String>>,
 }
 
 pub struct PlayerUpdate;
@@ -72,6 +76,11 @@ impl Command for PlayerUpdate {
         }
         if let Some(spotify_connect) = args.spotify_connect {
             saved.spotify_connect = spotify_connect;
+        }
+        if let Some(spotify_name) = args.spotify_name {
+            saved.spotify_name = spotify_name
+                .map(|name| name.trim().to_owned())
+                .filter(|name| !name.is_empty());
         }
         players.save_device(&device.id, saved).await?;
         // Clients hear of it as of any change to the device's endpoints.

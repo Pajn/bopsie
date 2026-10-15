@@ -175,6 +175,7 @@ fn device(id: &str, endpoints: &[Spec]) -> Device {
         enabled: true,
         max_volume: None,
         spotify_connect: true,
+        spotify_name: None,
         members: endpoints.iter().map(Spec::member).collect(),
     }
 }

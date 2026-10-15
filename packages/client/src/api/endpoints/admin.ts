@@ -34,6 +34,7 @@ export const updatePlayerSettings = (
     enabled?: boolean | null;
     max_volume?: number | null;
     spotify_connect?: boolean | null;
+    spotify_name?: string | null;
   },
 ) => connection.command<void>('admin/player/update', { player_id: playerId, ...changes });
 

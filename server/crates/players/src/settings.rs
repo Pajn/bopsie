@@ -28,6 +28,7 @@ pub struct SavedDevice {
     pub enabled: Option<bool>,
     pub max_volume: Option<u8>,
     pub spotify_connect: Option<bool>,
+    pub spotify_name: Option<String>,
 }
 
 /// An endpoint's settings as saved from the web UI. `None` is not set here.
@@ -56,6 +57,8 @@ pub struct DeviceSettings {
     pub max_volume: Sourced<Option<u8>>,
     /// Whether it shows in the Spotify app, if it is a speaker.
     pub spotify_connect: Sourced<bool>,
+    /// What it is called in the Spotify app, instead of the config file's pattern.
+    pub spotify_name: Sourced<Option<String>>,
 }
 
 /// An endpoint's settings, layered. Quirks are layered by [`crate::quirks::resolve`].
@@ -117,6 +120,11 @@ impl Layers {
                 saved.spotify_connect,
                 file.and_then(|f| f.spotify_connect),
                 true,
+            ),
+            spotify_name: layered(
+                saved.spotify_name.map(Some),
+                file.and_then(|f| f.spotify_name.clone()).map(Some),
+                None,
             ),
         }
     }
@@ -182,12 +190,17 @@ mod tests {
                 enabled: Some(true),
                 max_volume: None,
                 spotify_connect: Some(false),
+                spotify_name: Some("Cooking speaker".into()),
             },
         );
         let device = layers.device("kitchen");
         assert_eq!(
             (device.spotify_connect.value, device.spotify_connect.layer),
             (false, Layer::Saved)
+        );
+        assert_eq!(
+            device.spotify_name.value.as_deref(),
+            Some("Cooking speaker")
         );
         assert_eq!(device.name.value.as_deref(), Some("Cooking"));
         assert_eq!(device.name.layer, Layer::Saved);

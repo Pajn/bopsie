@@ -13,6 +13,7 @@ use std::net::{IpAddr, UdpSocket};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use bopsie_core::config::SpotifyConfig;
 use bopsie_players::{Change, Device, Devices};
 use bopsie_sources::Sources;
 use sha2::{Digest, Sha256};
@@ -28,6 +29,8 @@ pub struct Config {
     pub server_id: String,
     /// The addresses the devices are announced at; empty for [`local_address`]'s.
     pub addresses: Vec<IpAddr>,
+    /// What speakers are called, unless their settings say: `[spotify]` in the config file.
+    pub names: SpotifyConfig,
 }
 
 /// The Spotify Connect devices, one for each speaker that wants one.
@@ -88,7 +91,7 @@ impl SpotifyConnect {
             .inner
             .devices
             .get(id)
-            .and_then(|device| wanted(&device));
+            .and_then(|device| wanted(&device, &self.inner.config.names));
         let mut running = self.inner.running.lock().unwrap();
         let current = running.get(id).map(|device| device.name().to_owned());
         if current == wanted.as_ref().map(|(name, _)| name.clone()) {
@@ -126,10 +129,18 @@ impl SpotifyConnect {
 
 /// The name and volume a device is announced with, if it should be: an enabled speaker, not an
 /// app, that has not been turned off for Spotify Connect, and that could play when it started.
-fn wanted(device: &Device) -> Option<(String, u8)> {
+/// Its name is its settings' Spotify name, else `names`' pattern applied to its name.
+fn wanted(device: &Device, names: &SpotifyConfig) -> Option<(String, u8)> {
     let primary = device.primary();
-    (device.enabled && device.spotify_connect && !primary.state.app && device.available())
-        .then(|| (device.name.clone(), primary.state.volume.unwrap_or(50)))
+    (device.enabled && device.spotify_connect && !primary.state.app && device.available()).then(
+        || {
+            let name = device
+                .spotify_name
+                .clone()
+                .unwrap_or_else(|| names.device_name(&device.name));
+            (name, primary.state.volume.unwrap_or(50))
+        },
+    )
 }
 
 /// The address this host reaches the network from: the one its default route leaves by. Found

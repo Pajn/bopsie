@@ -7,11 +7,14 @@ test('an admin device reads as the server writes it', () => {
     enabled: true,
     available: true,
     max_volume: 40,
+    spotify_name: 'Kitchen (Bopsie)',
+    spotify_default_name: 'Kitchen (Bopsie)',
     settings: {
       name: { value: 'Kitchen', layer: 'saved' },
       enabled: { value: true, layer: 'default' },
       max_volume: { value: 40, layer: 'config' },
       spotify_connect: { value: true, layer: 'default' },
+      spotify_name: { value: null, layer: 'default' },
     },
     sources: [
       {

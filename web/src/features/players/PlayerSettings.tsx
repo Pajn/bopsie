@@ -377,6 +377,21 @@ export function PlayerSettings({ device }: { device: AdminDevice }) {
           ))}
         </Stack>
       </Row>
+      {settings.spotify_connect.value ? (
+        <Row label="Spotify name" hint="What it is called in the Spotify app">
+          <Stack horizontal gap="xs">
+            <SavedField
+              value={settings.spotify_name.value ?? ''}
+              placeholder={device.spotify_default_name}
+              onSave={(name) => void update({ spotify_name: name.trim() || null })}
+            />
+            <Layer
+              layer={settings.spotify_name.layer}
+              onReset={() => void update({ spotify_name: null })}
+            />
+          </Stack>
+        </Row>
+      ) : null}
       <InlineError message={error} />
       {device.members.map((endpoint) => (
         <EndpointSettings

@@ -33,6 +33,11 @@ pub struct DeviceView {
     pub enabled: bool,
     pub available: bool,
     pub max_volume: Option<u8>,
+    /// What it is called in the Spotify app: its own Spotify name, else the config file's
+    /// pattern applied to its name.
+    pub spotify_name: String,
+    /// What it is called in the Spotify app without a Spotify name of its own.
+    pub spotify_default_name: String,
     /// Each setting and the layer it comes from: `default`, `config` or `saved`.
     pub settings: DeviceSettingsView,
     /// Its endpoints, in order of protocol preference.
@@ -60,6 +65,7 @@ pub struct DeviceSettingsView {
     pub enabled: SourcedView<bool>,
     pub max_volume: SourcedView<Option<u8>>,
     pub spotify_connect: SourcedView<bool>,
+    pub spotify_name: SourcedView<Option<String>>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -277,6 +283,11 @@ fn device(ctx: &Context, device: &Device) -> DeviceView {
         enabled: device.enabled,
         available: device.available(),
         max_volume: device.max_volume,
+        spotify_name: device
+            .spotify_name
+            .clone()
+            .unwrap_or_else(|| ctx.api.config.spotify.device_name(&device.name)),
+        spotify_default_name: ctx.api.config.spotify.device_name(&device.name),
         settings: {
             let settings = ctx
                 .api
@@ -289,6 +300,7 @@ fn device(ctx: &Context, device: &Device) -> DeviceView {
                 enabled: sourced(settings.enabled, |v| v),
                 max_volume: sourced(settings.max_volume, |v| v),
                 spotify_connect: sourced(settings.spotify_connect, |v| v),
+                spotify_name: sourced(settings.spotify_name, |v| v),
             }
         },
         members: device

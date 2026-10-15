@@ -199,6 +199,39 @@ async fn a_rename_reaches_every_client_and_clears_back() {
     );
     assert_eq!(device(&devices, "kitchen")["sources"], json!([]));
 
+    // The Spotify name follows the pattern, unless the player has its own.
+    assert_eq!(
+        device(&devices, "kitchen")["spotify_name"],
+        "Cooking (Bopsie)"
+    );
+    client
+        .result(
+            "admin/player/update",
+            json!({"player_id": "kitchen", "spotify_name": "Cooking"}),
+        )
+        .await;
+    let devices = client.result("admin/devices", json!({})).await;
+    assert_eq!(device(&devices, "kitchen")["spotify_name"], "Cooking");
+    assert_eq!(
+        device(&devices, "kitchen")["spotify_default_name"],
+        "Cooking (Bopsie)"
+    );
+    assert_eq!(
+        device(&devices, "kitchen")["settings"]["spotify_name"],
+        json!({"value": "Cooking", "layer": "saved"})
+    );
+    client
+        .result(
+            "admin/player/update",
+            json!({"player_id": "kitchen", "spotify_name": ""}),
+        )
+        .await;
+    let devices = client.result("admin/devices", json!({})).await;
+    assert_eq!(
+        device(&devices, "kitchen")["spotify_name"],
+        "Cooking (Bopsie)"
+    );
+
     // Cleared, the name is the speaker's own again; what was not mentioned stays.
     client
         .result(

@@ -118,6 +118,21 @@ pub struct SpotifyConfig {
     /// The addresses the devices are announced at. Unset, the address the server reaches the
     /// network from: a host with container networks has others that phones cannot reach.
     pub addresses: Vec<std::net::IpAddr>,
+    /// What a speaker is called in the Spotify app, where `{name}` is its name. A speaker's
+    /// own Spotify name, from its settings, wins over this.
+    pub name: String,
+}
+
+impl SpotifyConfig {
+    /// What the speaker named `name` is called in the Spotify app, unless its settings say.
+    pub fn device_name(&self, name: &str) -> String {
+        let named = self.name.replace("{name}", name);
+        if named.trim().is_empty() {
+            name.to_owned()
+        } else {
+            named
+        }
+    }
 }
 
 impl Default for SpotifyConfig {
@@ -125,6 +140,7 @@ impl Default for SpotifyConfig {
         Self {
             enabled: true,
             addresses: Vec::new(),
+            name: "{name} (Bopsie)".to_owned(),
         }
     }
 }
@@ -170,6 +186,8 @@ pub struct PlayerConfig {
     /// Whether the player shows in the Spotify app as a Spotify Connect device; by default a
     /// speaker does.
     pub spotify_connect: Option<bool>,
+    /// What the player is called in the Spotify app, instead of `[spotify] name`'s.
+    pub spotify_name: Option<String>,
     /// Over the shipped quirk rules.
     pub quirks: Quirks,
 }
@@ -182,6 +200,7 @@ impl Default for PlayerConfig {
             password: None,
             max_volume: None,
             spotify_connect: None,
+            spotify_name: None,
             quirks: Quirks::default(),
         }
     }
@@ -237,6 +256,18 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spotify_names_follow_the_pattern() {
+        let mut spotify = SpotifyConfig::default();
+        assert_eq!(spotify.device_name("Kitchen"), "Kitchen (Bopsie)");
+        spotify.name = "{name}".to_owned();
+        assert_eq!(spotify.device_name("Kitchen"), "Kitchen");
+        spotify.name = "Bopsie {name}".to_owned();
+        assert_eq!(spotify.device_name("Kitchen"), "Bopsie Kitchen");
+        spotify.name = " ".to_owned();
+        assert_eq!(spotify.device_name("Kitchen"), "Kitchen", "never blank");
+    }
 
     #[test]
     fn empty_file_is_the_defaults() {
