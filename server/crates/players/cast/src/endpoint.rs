@@ -75,6 +75,9 @@ pub(crate) struct Status {
     pub wanted: bool,
     /// The receiver was seen running since it was last asked for.
     pub seen: bool,
+    /// Another app took the device from the receiver: it is not launched again until a play
+    /// asks for it.
+    pub taken: bool,
     /// The receiver's transport the server told where to connect.
     pub configured: Option<String>,
     /// Where the receiver is told to connect.
@@ -218,10 +221,21 @@ impl Endpoint for CastEndpoint {
         endpoint
     }
 
+    /// Plays through the receiver's client. Without one, as when it joins a group that already
+    /// plays, the receiver is launched, and the sink fails until the group takes it back.
     fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {
         match self.shared.live() {
             Some(client) => client.output(format, timeline),
-            None => Box::new(Absent(format)),
+            None => {
+                let status = self.shared.status.lock().unwrap();
+                let launch = !status.wanted && !status.taken;
+                drop(status);
+                if launch {
+                    self.release_later();
+                    self.shared.send(Command::Launch);
+                }
+                Box::new(Absent(format))
+            }
         }
     }
 
@@ -262,6 +276,7 @@ impl Endpoint for CastEndpoint {
 
     /// Launches the receiver, and waits for it to connect.
     fn prepare(&self) -> Option<Micros> {
+        self.shared.status.lock().unwrap().taken = false;
         self.keep();
         self.release_later();
         if self.shared.live().is_some() {

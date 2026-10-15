@@ -233,9 +233,13 @@ fn speakers_of_one_protocol_play_over_it() {
 
 #[test]
 fn a_device_without_the_groups_protocol_is_dropped_with_a_reason() {
+    // A group that may play over AirPlay only.
+    let airplay_only = Policy {
+        protocols: vec!["airplay".to_owned()],
+    };
     let kitchen = device("kitchen", &[airplay("ap1")]);
     let phone = device("phone", &[sendspin("ss1")]);
-    let plan = make_plan(&kitchen, std::slice::from_ref(&phone), &policy(), None).unwrap();
+    let plan = make_plan(&kitchen, std::slice::from_ref(&phone), &airplay_only, None).unwrap();
     assert_eq!(plan.strategy, Strategy::AirplayDirect);
     assert_eq!(carriers(&plan), owned(&[("kitchen", "ap1", 44_100)]));
     assert_eq!(plan.dropped.len(), 1);
@@ -250,19 +254,88 @@ fn a_device_without_the_groups_protocol_is_dropped_with_a_reason() {
         "Phone can't join Kitchen: the group plays over AirPlay and it doesn't"
     );
 
-    // Led by the phone, the speaker is the one left out.
-    let plan = plan_for(&phone, &[kitchen]);
-    assert_eq!(plan.strategy, Strategy::SendspinDirect);
+    // A device streamed over neither protocol is left out of a group that mixes them.
+    let amp = device("amp", &[linkplay("lp1", 4)]);
+    let plan = plan_for(&kitchen, &[phone, amp]);
+    assert_eq!(plan.strategy, Strategy::Mixed);
+    assert_eq!(plan.dropped.len(), 1);
+    assert_eq!(plan.dropped[0].reason, Reason::NoStreamedProtocol);
     assert_eq!(
-        plan.dropped[0].reason,
-        Reason::NoCommonProtocol {
-            protocol: "sendspin"
-        }
+        plan.dropped[0].message("Kitchen"),
+        "Amp can't join Kitchen: it can't be streamed to over AirPlay or Sendspin"
     );
 }
 
 fn plan_for(leader: &Device, members: &[Device]) -> bopsie_players::planner::Plan {
     make_plan(leader, members, &policy(), None).unwrap()
+}
+
+#[test]
+fn airplay_and_sendspin_devices_play_together_each_over_its_own() {
+    let kitchen = device("kitchen", &[airplay("ap1")]);
+    let phone = device("phone", &[sendspin("ss1")]);
+    let plan = plan_for(&kitchen, std::slice::from_ref(&phone));
+    assert_eq!(plan.strategy, Strategy::Mixed);
+    assert_eq!(
+        carriers(&plan),
+        owned(&[("kitchen", "ap1", 44_100), ("phone", "ss1", 44_100)])
+    );
+    assert_eq!(plan.lead, 2_500_000, "AirPlay's, the longest");
+    assert!(plan.dropped.is_empty());
+
+    // Led by the phone, the same.
+    let plan = plan_for(&phone, std::slice::from_ref(&kitchen));
+    assert_eq!(plan.strategy, Strategy::Mixed);
+    assert_eq!(plan.carriers.len(), 2);
+
+    // A group of one protocol keeps to it.
+    let bedroom = device("bedroom", &[airplay("ap2")]);
+    assert_eq!(
+        plan_for(&kitchen, std::slice::from_ref(&bedroom)).strategy,
+        Strategy::AirplayDirect
+    );
+}
+
+#[test]
+fn a_wiim_plays_with_airplay_speakers_through_its_receiver() {
+    let amp = device("amp", &[linkplay("lp1", 4), sendspin("cast1").launched()]);
+    let kitchen = device("kitchen", &[airplay("ap1")]);
+    let plan = plan_for(&amp, std::slice::from_ref(&kitchen));
+    assert_eq!(plan.strategy, Strategy::Mixed);
+    assert_eq!(
+        native_carriers(&plan),
+        [
+            ("amp".to_owned(), "cast1".to_owned(), false),
+            ("kitchen".to_owned(), "ap1".to_owned(), false)
+        ]
+    );
+    // A speaker with both is streamed to over AirPlay, rather than launch its receiver.
+    let both = device("both", &[airplay("ap2"), sendspin("cast2").launched()]);
+    let plan = plan_for(&amp, &[kitchen, both]);
+    assert_eq!(
+        plan.carriers
+            .iter()
+            .map(|c| c.endpoint.as_str())
+            .collect::<Vec<_>>(),
+        ["cast1", "ap1", "ap2"]
+    );
+}
+
+#[test]
+fn each_protocols_group_limit_counts_its_own_devices() {
+    let leader = device("leader", &[airplay("ap0")]);
+    let ids = ["ap1", "ap2", "ap3", "ap4", "ap5", "ap6", "ap7", "ap8"];
+    let mut members: Vec<Device> = ids
+        .iter()
+        .map(|id| device(&format!("d{id}"), &[airplay(id)]))
+        .collect();
+    members.push(device("phone", &[sendspin("ss1")]));
+    let plan = plan_for(&leader, &members);
+    assert_eq!(plan.strategy, Strategy::Mixed);
+    assert_eq!(plan.carriers.len(), 9, "eight over AirPlay, and the phone");
+    assert_eq!(plan.dropped.len(), 1);
+    assert_eq!(plan.dropped[0].device, "dap8");
+    assert_eq!(plan.dropped[0].reason, Reason::GroupFull { max: 8 });
 }
 
 #[test]

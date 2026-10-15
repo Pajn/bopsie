@@ -388,6 +388,7 @@ fn plan(plan: &Plan, leader: &str) -> PlanView {
         strategy: match plan.strategy {
             Strategy::AirplayDirect => "airplay_direct",
             Strategy::SendspinDirect => "sendspin_direct",
+            Strategy::Mixed => "mixed",
             Strategy::Native => "native",
         }
         .to_owned(),

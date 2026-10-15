@@ -9,6 +9,9 @@ use axum::Router;
 use axum::extract::{State, WebSocketUpgrade};
 use axum::response::Response;
 use axum::routing::get;
+use bopsie_audio::OutputFormat;
+use bopsie_audio::timeline::Timeline;
+use bopsie_core::clock;
 use bopsie_players::{Endpoint, Players};
 use bopsie_players_cast::discovery::Sighting;
 use bopsie_players_cast::message::{self, CastMessage};
@@ -23,6 +26,11 @@ use tokio_tungstenite::tungstenite::Message;
 
 const APP: &str = "TESTAPP1";
 const UUID: &str = "0123456789abcdef0123456789abcdef";
+const CD: OutputFormat = OutputFormat {
+    sample_rate: 44_100,
+    channels: 2,
+    bits: 16,
+};
 const LOCALHOST: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
 async fn serve(State(server): State<SendspinServer>, upgrade: WebSocketUpgrade) -> Response {
@@ -394,6 +402,8 @@ async fn another_app_taking_the_device_is_not_fought() {
     };
     device.push.send(taken).unwrap();
     eventually(|| endpoint.diagnostics()["wanted"] == false).await;
+    // The group it played in asks for it again, and is not given it.
+    let _ = endpoint.output(CD, Timeline::new(44_100, clock::now()));
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(device.state.lock().unwrap().app, Some("OTHERAPP"));
 
@@ -403,5 +413,38 @@ async fn another_app_taking_the_device_is_not_fought() {
         .expect("urn:x-cast:com.google.cast.receiver", "LAUNCH")
         .await;
     assert_eq!(device.state.lock().unwrap().app, Some(APP));
+    provider.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_receiver_that_stopped_by_itself_is_launched_again_for_its_group() {
+    let Setup {
+        provider,
+        mut device,
+        endpoint,
+        ..
+    } = setup().await;
+    eventually(|| endpoint.state().available).await;
+    assert!(prepare(&endpoint).await.is_some());
+    device.expect("urn:x-cast:sendspin", "config").await;
+
+    let stopped = {
+        let mut state = device.state.lock().unwrap();
+        state.app = None;
+        if let Some(client) = state.client.take() {
+            client.abort();
+        }
+        status(&state)
+    };
+    device.push.send(stopped).unwrap();
+    eventually(|| endpoint.diagnostics()["wanted"] == false).await;
+
+    // Its group takes it back, as it does a member whose output failed.
+    let _ = endpoint.output(CD, Timeline::new(44_100, clock::now()));
+    device
+        .expect("urn:x-cast:com.google.cast.receiver", "LAUNCH")
+        .await;
+    device.expect("urn:x-cast:sendspin", "config").await;
+    eventually(|| endpoint.state().capabilities.formats.len() == 1).await;
     provider.shutdown();
 }

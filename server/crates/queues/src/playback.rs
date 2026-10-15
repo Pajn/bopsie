@@ -876,9 +876,14 @@ impl Playback {
         } else {
             self.plan_for(leader, &leading.members, Some(running.strategy))?
         };
-        let same_stream = running.strategy == plan.strategy
-            && running.sample_rate == plan.sample_rate
-            && running.channels == plan.channels;
+        // The stream plays on when every device it carries is carried as it was, though the
+        // group may now mix protocols to carry this one.
+        let same_stream = running.sample_rate == plan.sample_rate
+            && running.channels == plan.channels
+            && running
+                .carriers
+                .iter()
+                .all(|carrier| plan.carrier(&carrier.device) == Some(carrier));
         if same_stream {
             if let Some(carrier) = plan.carrier(device).filter(|c| !c.native)
                 && let Some(member) = self.device(device)?.member(&carrier.endpoint)

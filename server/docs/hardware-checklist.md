@@ -49,8 +49,10 @@ Each line says what to do, what to hear, and what the log shows when it went rig
    Log for the second: `[STATUS] started` on time.
 7. **Group volume.** Move the group volume. Both follow, keeping their balance, without a break.
 8. **Leave.** Remove the second speaker. It stops; the first plays on.
-9. **Mixed protocols.** Try adding the phone to the AirPlay group. Bopsie does not offer it;
-   through the API, `players/cmd/group` fails with the reason (error 9).
+9. **Mixed protocols.** Add a Cast speaker, such as a WiiM, to the playing AirPlay group. It
+   joins within a few seconds and plays in step with the others: no echo standing between it
+   and an AirPlay speaker. The AirPlay speakers play on without a break. If it is audibly ahead
+   or behind, note by how much: its `sync_adjust_ms` quirk corrects it.
 10. **Transfer.** Move the queue from one speaker to the other. It continues on the new one from
     where it was, and the old one stops.
 

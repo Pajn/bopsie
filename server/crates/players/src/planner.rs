@@ -1,7 +1,9 @@
 //! The group planner: how a group plays, and which of its devices it can serve. A group plays
-//! over one protocol, through one endpoint per device, at one format, with one lead; a device
-//! that cannot play that way is dropped, with the reason.
+//! through one endpoint per device, at one format, with one lead: over one protocol, or each
+//! device streamed over its own; a device that cannot play that way is dropped, with the
+//! reason.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use bopsie_audio::OutputFormat;
@@ -18,6 +20,9 @@ pub enum Strategy {
     AirplayDirect,
     /// One Sendspin stream per device, on the server's clock.
     SendspinDirect,
+    /// One stream per device over its own protocol, AirPlay or Sendspin: both play the
+    /// session's timeline on the server's clock, so they play in step.
+    Mixed,
     /// The server streams to the leader, and the leader's own multiroom, such as LinkPlay's,
     /// carries the others.
     Native,
@@ -29,7 +34,7 @@ impl Strategy {
         match self {
             Self::AirplayDirect => Some("airplay"),
             Self::SendspinDirect => Some("sendspin"),
-            Self::Native => None,
+            Self::Mixed | Self::Native => None,
         }
     }
 
@@ -80,6 +85,8 @@ pub enum Reason {
     NoCommonProtocol {
         protocol: &'static str,
     },
+    /// It cannot be streamed to over any protocol the group may play over.
+    NoStreamedProtocol,
     /// It cannot play the group's rate and channels.
     NoCommonFormat {
         sample_rate: u32,
@@ -114,6 +121,9 @@ impl fmt::Display for Reason {
                 "the group plays over {} and it doesn't",
                 protocol_name(protocol)
             ),
+            Self::NoStreamedProtocol => {
+                write!(f, "it can't be streamed to over AirPlay or Sendspin")
+            }
             Self::NoCommonFormat {
                 sample_rate,
                 channels,
@@ -212,8 +222,8 @@ fn lead(member: &Member) -> Micros {
 
 /// How `leader` and `members` play together, preferring `current`'s strategy when it serves
 /// as many: the strategy that serves the most members, then the one that launches the fewest
-/// endpoints, earliest in `policy` among equals, and the leader's own multiroom after those.
-/// `None` when the leader cannot play at all.
+/// endpoints, earliest in `policy` among equals, then each device over its own protocol, and
+/// the leader's own multiroom after those. `None` when the leader cannot play at all.
 pub fn plan(
     leader: &Device,
     members: &[Device],
@@ -228,7 +238,8 @@ pub fn plan(
         .protocols
         .iter()
         .filter_map(|p| Strategy::for_protocol(p))
-        .map(|strategy| (strategy, plan_with(strategy, leader, members)))
+        .chain(std::iter::once(Strategy::Mixed))
+        .map(|strategy| (strategy, plan_with(strategy, leader, members, policy)))
         .chain(std::iter::once((
             Strategy::Native,
             plan_native(leader, members),
@@ -271,9 +282,33 @@ fn launches(plan: &Plan, leader: &Device, members: &[Device]) -> usize {
         .count()
 }
 
-fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<Plan> {
-    let protocol = strategy.protocol()?;
-    let head = endpoint_for(leader, protocol)?;
+/// `device`'s endpoint for `strategy`: over its protocol, or for [`Strategy::Mixed`], over the
+/// first in `policy` the device has.
+fn streamed_endpoint<'a>(
+    strategy: Strategy,
+    device: &'a Device,
+    policy: &Policy,
+) -> Option<&'a Member> {
+    match strategy.protocol() {
+        Some(protocol) => endpoint_for(device, protocol),
+        None => policy
+            .protocols
+            .iter()
+            .filter(|p| Strategy::for_protocol(p).is_some())
+            .find_map(|protocol| endpoint_for(device, protocol)),
+    }
+}
+
+fn plan_with(
+    strategy: Strategy,
+    leader: &Device,
+    members: &[Device],
+    policy: &Policy,
+) -> Option<Plan> {
+    if strategy == Strategy::Native {
+        return None;
+    }
+    let head = streamed_endpoint(strategy, leader, policy)?;
     let grouped = !members.is_empty();
     if grouped && !head.state.capabilities.sync_group {
         return None;
@@ -292,8 +327,11 @@ fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<
             dropped.push(drop(Reason::Unavailable));
             continue;
         }
-        let Some(member) = endpoint_for(device, protocol) else {
-            dropped.push(drop(Reason::NoCommonProtocol { protocol }));
+        let Some(member) = streamed_endpoint(strategy, device, policy) else {
+            dropped.push(drop(match strategy.protocol() {
+                Some(protocol) => Reason::NoCommonProtocol { protocol },
+                None => Reason::NoStreamedProtocol,
+            }));
             continue;
         };
         if !member.state.capabilities.sync_group {
@@ -326,7 +364,12 @@ fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<
         format,
         native: false,
     }];
-    let mut max = head.state.capabilities.max_group_size;
+    // Each protocol's group limit counts the devices streamed over it.
+    let mut groups: BTreeMap<&str, (Option<usize>, usize)> = BTreeMap::new();
+    groups.insert(
+        head.state.provider,
+        (head.state.capabilities.max_group_size, 1),
+    );
     let mut lead_needed = lead(head);
     for (device, member) in able {
         let drop = |reason| Dropped {
@@ -341,17 +384,21 @@ fn plan_with(strategy: Strategy, leader: &Device, members: &[Device]) -> Option<
             }));
             continue;
         };
+        let (max, count) = groups
+            .get(member.state.provider)
+            .copied()
+            .unwrap_or((None, 0));
         let limit = [max, member.state.capabilities.max_group_size]
             .into_iter()
             .flatten()
             .min();
-        if limit.is_some_and(|limit| carriers.len() >= limit) {
+        if limit.is_some_and(|limit| count >= limit) {
             dropped.push(drop(Reason::GroupFull {
                 max: limit.unwrap_or_default(),
             }));
             continue;
         }
-        max = limit;
+        groups.insert(member.state.provider, (limit, count + 1));
         lead_needed = lead_needed.max(lead(member));
         carriers.push(Carrier {
             device: device.id.clone(),

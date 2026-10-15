@@ -381,9 +381,10 @@ impl Channel<'_> {
     /// Takes in the device's status: its volume, and the app it runs.
     fn update(&self, status: &Value) {
         let shared = self.shared;
+        // A device's idle screen is an app too, but nothing that plays.
         let app = status["applications"]
             .as_array()
-            .and_then(|apps| apps.first())
+            .and_then(|apps| apps.iter().find(|app| app["isIdleScreen"] != true))
             .and_then(|app| {
                 Some(RunningApp {
                     app_id: app["appId"].as_str()?.to_owned(),
@@ -404,8 +405,13 @@ impl Channel<'_> {
         if current.wanted && ours {
             current.seen = true;
         } else if current.wanted && current.seen {
-            // It stopped, or another app took the device: it is not taken back.
-            tracing::info!(device = shared.id, "the Cast receiver stopped");
+            // It stopped, or another app took the device, which is not taken back.
+            current.taken = app.is_some();
+            tracing::info!(
+                device = shared.id,
+                taken = current.taken,
+                "the Cast receiver stopped"
+            );
             current.wanted = false;
             current.seen = false;
         }

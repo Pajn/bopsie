@@ -69,18 +69,20 @@ async fn player(client: &mut Client, id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn speakers_of_one_protocol_group_and_others_are_refused_with_the_reason() {
+async fn speakers_group_across_protocols_and_others_are_refused_with_the_reason() {
     let (server, token) = start_set_up_with(10).await;
     let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
     let bedroom = Speaker::register(&server.players, "bedroom", "airplay", &[CD], None);
-    let _phone = Speaker::register(&server.players, "phone", "sendspin", &[DAT, CD], None);
+    let phone = Speaker::register(&server.players, "phone", "sendspin", &[DAT, CD], None);
+    // A speaker the server cannot stream to, nor group by its own multiroom.
+    let _radio = Speaker::register(&server.players, "radio", "linkplay", &[CD], None);
     let mut client = signed_in(&server, &token).await;
 
     let leader = until(
         &mut client,
         "players/get",
         json!({"player_id": "kitchen"}),
-        |p| p["can_group_with"] == json!(["bedroom"]),
+        |p| p["can_group_with"] == json!(["bedroom", "phone"]),
     )
     .await;
     assert!(
@@ -90,9 +92,9 @@ async fn speakers_of_one_protocol_group_and_others_are_refused_with_the_reason()
             .contains(&json!("set_members"))
     );
     assert_eq!(
-        player(&mut client, "phone").await["can_group_with"],
+        player(&mut client, "radio").await["can_group_with"],
         json!([]),
-        "the speakers play over AirPlay only"
+        "it is streamed over neither protocol"
     );
 
     play_album(&mut client, "kitchen").await;
@@ -109,22 +111,35 @@ async fn speakers_of_one_protocol_group_and_others_are_refused_with_the_reason()
         json!(["kitchen", "bedroom"])
     );
 
+    // The phone joins over Sendspin, and the speakers play on undisturbed.
+    client
+        .result(
+            "players/cmd/group",
+            json!({"player_id": "phone", "target_player": "kitchen"}),
+        )
+        .await;
+    eventually(|| phone.frames() > 0).await;
+    assert_eq!(
+        player(&mut client, "kitchen").await["group_members"],
+        json!(["kitchen", "bedroom", "phone"])
+    );
+    let outputs = |s: &Speaker| s.outputs.load(Ordering::SeqCst);
+    assert_eq!((outputs(&kitchen), outputs(&bedroom)), (1, 1));
+
     let refused = client
         .send(
             "players/cmd/group",
-            json!({"player_id": "phone", "target_player": "kitchen"}),
+            json!({"player_id": "radio", "target_player": "kitchen"}),
         )
         .await;
     assert_eq!(refused["error_code"], 9, "{refused}");
     assert_eq!(
         refused["details"],
-        "Phone can't join Kitchen: the group plays over AirPlay and it doesn't"
+        "Radio can't join Kitchen: it can't be streamed to over AirPlay or Sendspin"
     );
-    assert_eq!(player(&mut client, "phone").await["synced_to"], Value::Null);
+    assert_eq!(player(&mut client, "radio").await["synced_to"], Value::Null);
 
-    // Group volume moves both by the same proportion, without disturbing the stream.
-    let outputs = |s: &Speaker| s.outputs.load(Ordering::SeqCst);
-    assert_eq!((outputs(&kitchen), outputs(&bedroom)), (1, 1));
+    // Group volume moves them all by the same proportion, without disturbing the stream.
     client
         .result(
             "players/cmd/volume_set",

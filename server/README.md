@@ -80,6 +80,13 @@ minutes. Launching takes a few seconds, so a device that also plays over another
 WiiM does over LinkPlay, plays over that one unless the receiver serves more of a group. Another
 app cast to a device takes it; the server does not take it back until it is played to again.
 
+A group plays over one protocol when that reaches all of it: AirPlay, Sendspin, or a LinkPlay
+leader's own multiroom. A group of AirPlay speakers and Sendspin players, including Cast devices
+through their receiver, plays each over its own: both protocols play the session's timeline on
+the server's clock, so they keep in step, and AirPlay's group limit counts only its own
+speakers. A speaker that sounds ahead of or behind the rest is moved by its `sync_adjust_ms`
+quirk; see [`config.example.toml`](config.example.toml).
+
 A speaker's own controls act on the group it plays in, as the app would: pause pressed on
 one speaker pauses all of them, and play, next, previous and its volume buttons work the same
 way. AirPlay speakers send their controls to the server, which announces itself for them over
