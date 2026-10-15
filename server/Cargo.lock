@@ -615,6 +615,7 @@ dependencies = [
  "axum",
  "bopsie-audio",
  "bopsie-core",
+ "bopsie-fixtures",
  "bopsie-players",
  "bopsie-sources",
  "futures",

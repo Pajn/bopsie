@@ -8,6 +8,7 @@
 pub mod account;
 mod device;
 mod events;
+pub mod media;
 
 use std::collections::BTreeMap;
 use std::net::{IpAddr, UdpSocket};
