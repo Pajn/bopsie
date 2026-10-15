@@ -18,6 +18,7 @@ use bopsie_core::events::EventBus;
 use bopsie_core::logtail::Tail;
 use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
+use bopsie_metadata::fingerprint::{self, AcoustId};
 use bopsie_metadata::job::Enricher;
 use bopsie_metadata::musicbrainz::{self, MusicBrainz};
 use bopsie_players::planner::Policy;
@@ -219,6 +220,14 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
 
     // Albums are looked up on MusicBrainz after each sync, in the background: at a request a
     // second, a large library takes a while the first time.
+    // Albums a search cannot find are found by their tracks' sound, when AcoustID is set up.
+    let acoustid = config.metadata.acoustid_key.clone().and_then(|key| {
+        let Some(fpcalc) = fingerprint::find_fpcalc(None) else {
+            tracing::warn!("[metadata] acoustid_key is set, but fpcalc was not found");
+            return None;
+        };
+        Some(AcoustId::new(db.clone(), fingerprint::BASE, key, fpcalc))
+    });
     let enricher = config.metadata.musicbrainz.then(|| {
         Enricher::new(
             library.clone(),
@@ -235,6 +244,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
                 .then(|| musicbrainz::COVER_ART_BASE.to_owned()),
         )
         .genres(config.metadata.genres)
+        .by_sound_with(acoustid)
     });
     let enriching = Arc::new(tokio::sync::Mutex::new(()));
 

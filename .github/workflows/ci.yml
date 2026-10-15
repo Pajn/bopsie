@@ -166,6 +166,7 @@ jobs:
           curl -fsS -H 'Accept: text/html' localhost:8095/players | grep -q '<div id="root">'
           docker exec bopsie cliairplay --check
           docker exec bopsie ffmpeg -version
+          docker exec bopsie fpcalc -version
           docker stop bopsie
           docker logs bopsie
       - name: Check the systemd unit

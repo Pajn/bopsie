@@ -22,6 +22,7 @@ const FIRST: &str = "11111111-1111-1111-1111-111111111111";
 const SECOND: &str = "22222222-2222-2222-2222-222222222222";
 const GROUP: &str = "33333333-3333-3333-3333-333333333333";
 const ARTIST: &str = "44444444-4444-4444-4444-444444444444";
+const THIRD: &str = "88888888-8888-8888-8888-888888888888";
 
 #[derive(Default)]
 struct Stand {
@@ -75,6 +76,20 @@ fn releases() -> HashMap<&'static str, Value> {
                     track(1, "Opening", "55555555-5555-5555-5555-000000000001"),
                     track(2, "Middle", "55555555-5555-5555-5555-000000000002"),
                     track(3, "Closing", "55555555-5555-5555-5555-000000000003"),
+                ],
+            ),
+        ),
+        // What the second album's files sound like.
+        (
+            THIRD,
+            release(
+                THIRD,
+                "Second Album",
+                "Other Artist",
+                vec![
+                    track(1, "Alpha", "99999999-9999-9999-9999-000000000001"),
+                    track(2, "Beta", "99999999-9999-9999-9999-000000000002"),
+                    track(3, "Gamma", "99999999-9999-9999-9999-000000000003"),
                 ],
             ),
         ),
@@ -160,9 +175,37 @@ async fn cover(
     ([("content-type", "image/png")], PNG).into_response()
 }
 
+/// AcoustID: each fixture file's stand-in fingerprint is the recording of its title on THIRD.
+async fn acoustid(State(stand): State<Shared>, headers: HeaderMap, body: String) -> Response {
+    let form: HashMap<String, String> = body
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+    note(
+        &stand,
+        &headers,
+        format!("acoustid {}", form["fingerprint"]),
+    );
+    assert_eq!(form["client"], "the-key");
+    let recording = match form["fingerprint"].as_str() {
+        "FP-01+-+Alpha.wav" => "99999999-9999-9999-9999-000000000001",
+        "FP-02+-+Beta.wav" => "99999999-9999-9999-9999-000000000002",
+        "FP-03+-+Gamma.wav" => "99999999-9999-9999-9999-000000000003",
+        _ => return axum::Json(json!({"status": "ok", "results": []})).into_response(),
+    };
+    axum::Json(
+        json!({"status": "ok", "results": [{"id": "a", "score": 0.93, "recordings": [
+            {"id": recording, "releases": [{"id": THIRD}]}
+        ]}]}),
+    )
+    .into_response()
+}
+
 async fn stand_in() -> (String, Shared) {
     let stand = Shared::default();
     let app = Router::new()
+        .route("/v2/lookup", axum::routing::post(acoustid))
         .route("/ws/2/release", get(search))
         .route("/ws/2/release/{id}", get(lookup))
         .route("/release-group/{id}/front-500", get(cover))
@@ -500,4 +543,92 @@ async fn a_release_linked_to_a_streamed_album_merges_them_whatever_their_names()
     );
     let first = album(&library, "First Album").await;
     assert_eq!(first.fields().provider_mappings.len(), 2);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_badly_tagged_album_is_found_by_its_sound() {
+    use bopsie_metadata::fingerprint::AcoustId;
+    use std::os::unix::fs::PermissionsExt;
+
+    let (base, stand) = stand_in().await;
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    // The second album's files, tagged with nothing to find them by.
+    for (number, file) in ["01 - Alpha.wav", "02 - Beta.wav", "03 - Gamma.wav"]
+        .iter()
+        .enumerate()
+    {
+        use lofty::config::WriteOptions;
+        use lofty::prelude::*;
+        use lofty::tag::{Tag, TagType};
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.set_title(format!("Track {}", number + 1));
+        tag.set_artist("Unknown".to_owned());
+        tag.set_album("Untitled".to_owned());
+        tag.set_track(number as u32 + 1);
+        tag.save_to_path(
+            music.join("Other Artist/Second Album").join(file),
+            WriteOptions::default(),
+        )
+        .unwrap();
+    }
+    // fpcalc, as a script that names each file's fingerprint after it.
+    let fpcalc = dir.path().join("fpcalc");
+    std::fs::write(
+        &fpcalc,
+        "#!/bin/sh\nname=$(basename \"$4\")\nprintf '{\"duration\": 1.0, \"fingerprint\": \"FP-%s\"}' \"$name\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&fpcalc, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let db = database();
+    let library = Library::new(
+        db.clone(),
+        EventBus::default(),
+        vec![Arc::new(FilesystemProvider::new(music))],
+        dir.path().join("artwork"),
+    );
+    library.sync().await.unwrap();
+    let root = base.trim_end_matches("/ws/2").to_owned();
+    let enricher = Enricher::new(
+        library.clone(),
+        MusicBrainz::new(db.clone(), base, None).paced(Duration::from_millis(10)),
+    )
+    .cover_art(None)
+    .by_sound_with(Some(AcoustId::new(
+        db.clone(),
+        format!("{root}/v2"),
+        "the-key".to_owned(),
+        fpcalc,
+    )));
+    assert_eq!(enricher.run().await.matched, 2);
+    let untitled = album(&library, "Untitled").await;
+    assert!(served_ids(&untitled).contains(&("musicbrainz_albumid".to_owned(), THIRD.to_owned())));
+    let id: i64 = untitled.fields().item_id.parse().unwrap();
+    let first = &library.album_tracks(id).await.unwrap()[0];
+    let first = library
+        .item(MediaType::Track, first.fields.item_id.parse().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(served_ids(&first).contains(&(
+        "musicbrainz_recordingid".to_owned(),
+        "99999999-9999-9999-9999-000000000001".to_owned()
+    )));
+    // Each file was fingerprinted once, and is kept.
+    let kept: i64 = db
+        .call(|conn| Ok(conn.query_row("SELECT count(*) FROM fingerprints", [], |row| row.get(0))?))
+        .await
+        .unwrap();
+    assert_eq!(kept, 3);
+    let lookups = stand
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .filter(|(request, _)| request.starts_with("acoustid "))
+        .count();
+    assert_eq!(lookups, 3, "only the album a search could not find");
 }

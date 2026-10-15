@@ -9,6 +9,9 @@ use bopsie_library::Library;
 use bopsie_library::enrich::{ACCEPT, AlbumToMatch, Identified, REJECT};
 use bopsie_library::ids::IdKind;
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::fingerprint::{AcoustId, Heard};
 use crate::musicbrainz::{MbError, MusicBrainz, Release, phrase};
 use crate::score::{Scored, score};
 
@@ -23,6 +26,8 @@ const SUGGEST_BELOW: f64 = 0.25;
 const BARCODE_NAMES_BELOW: f64 = 0.1;
 /// Releases a search finds that are looked up and scored.
 const CANDIDATES: usize = 3;
+/// AcoustID matches this sure are a track's recording.
+const HEARD_SCORE: f64 = 0.5;
 
 /// What one run did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -46,6 +51,8 @@ pub struct Enricher {
     /// Where cover art comes from, if it is wanted.
     cover_art: Option<String>,
     genres: bool,
+    /// Finds albums by their tracks' sound, if it is set up.
+    acoustid: Option<AcoustId>,
 }
 
 fn now() -> i64 {
@@ -137,7 +144,14 @@ impl Enricher {
             musicbrainz,
             cover_art: Some(crate::musicbrainz::COVER_ART_BASE.to_owned()),
             genres: true,
+            acoustid: None,
         }
+    }
+
+    /// Finds albums a search cannot by their tracks' sound, with `acoustid`.
+    pub fn by_sound_with(mut self, acoustid: Option<AcoustId>) -> Self {
+        self.acoustid = acoustid;
+        self
     }
 
     /// Takes cover art from the archive at `base`, or none.
@@ -345,6 +359,12 @@ impl Enricher {
                 Ok(Outcome::Suggested)
             }
             _ => {
+                if let Some(acoustid) = &self.acoustid
+                    && let Some(outcome) =
+                        self.by_sound(acoustid, &album, rejected.as_deref()).await?
+                {
+                    return Ok(outcome);
+                }
                 self.library
                     .album_checked(id, None)
                     .await
@@ -352,5 +372,99 @@ impl Enricher {
                 Ok(Outcome::Unmatched)
             }
         }
+    }
+
+    /// Finds the album's release by its tracks' sound: the release most of its fingerprinted
+    /// tracks are on, its tracks paired by recording. `None` when no release holds enough of
+    /// them.
+    async fn by_sound(
+        &self,
+        acoustid: &AcoustId,
+        album: &AlbumToMatch,
+        rejected: Option<&str>,
+    ) -> Result<Option<Outcome>, MbError> {
+        let files = self
+            .library
+            .track_files(album.id)
+            .await
+            .map_err(|e| MbError::Refused(e.to_string()))?;
+        // The recordings each of the album's tracks sounds like.
+        let mut heard: Vec<(usize, Vec<Heard>)> = Vec::new();
+        for (track, path, stamp) in files {
+            let Some(index) = album.track_ids.iter().position(|t| *t == track) else {
+                continue;
+            };
+            let Some((duration, fingerprint)) = acoustid.fingerprint(&path, &stamp).await else {
+                continue;
+            };
+            let found: Vec<Heard> = acoustid
+                .lookup(duration, &fingerprint)
+                .await?
+                .into_iter()
+                .filter(|heard| heard.score >= HEARD_SCORE)
+                .collect();
+            heard.push((index, found));
+        }
+        let mut on: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+        for (index, found) in &heard {
+            for release in found.iter().flat_map(|heard| heard.releases.iter()) {
+                on.entry(release).or_default().insert(*index);
+            }
+        }
+        let ours = album.facts.tracks.len();
+        let Some((release_id, held)) = on
+            .into_iter()
+            .filter(|(release, _)| Some(*release) != rejected)
+            .max_by_key(|(_, held)| held.len())
+        else {
+            return Ok(None);
+        };
+        if held.len() * 10 <= ours * 6 {
+            return Ok(None);
+        }
+        let Some(release) = self.musicbrainz.release(release_id).await? else {
+            return Ok(None);
+        };
+        let recordings: Vec<&str> = release
+            .media
+            .iter()
+            .flat_map(|medium| medium.tracks.iter())
+            .map(|track| track.recording.id.as_str())
+            .collect();
+        let mut taken = vec![false; recordings.len()];
+        let mut pairs = Vec::new();
+        for (index, found) in &heard {
+            let paired = recordings.iter().enumerate().position(|(at, recording)| {
+                !taken[at] && found.iter().any(|heard| heard.recording == *recording)
+            });
+            if let Some(at) = paired {
+                taken[at] = true;
+                pairs.push((*index, at));
+            }
+        }
+        pairs.sort_unstable();
+        let theirs = recordings.len();
+        let scored = Scored {
+            distance: 1.0 - pairs.len() as f64 / ours.max(theirs) as f64,
+            name_distance: 0.0,
+            missing: theirs - pairs.len(),
+            extra: ours - pairs.len(),
+            pairs,
+        };
+        tracing::debug!(album = album.id, release = %release.id, ?scored, "found by sound");
+        if scored.missing == 0 && scored.extra == 0 {
+            return self.keep(album, &release, &scored).await.map(Some);
+        }
+        if scored.distance < SUGGEST_BELOW {
+            self.library
+                .album_checked(
+                    album.id,
+                    Some((release.id.clone(), release.describe(), scored.distance)),
+                )
+                .await
+                .map_err(|e| MbError::Refused(e.to_string()))?;
+            return Ok(Some(Outcome::Suggested));
+        }
+        Ok(None)
     }
 }

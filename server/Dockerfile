@@ -29,6 +29,7 @@ RUN cd server && cargo build --release --locked -p bopsie-server
 FROM docker.io/library/debian:bookworm-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg libcap2-bin \
+        libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/*
 COPY server/scripts/fetch-cliairplay.sh /tmp/fetch-cliairplay.sh
 RUN /tmp/fetch-cliairplay.sh /usr/local/bin/cliairplay \

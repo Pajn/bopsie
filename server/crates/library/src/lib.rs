@@ -613,6 +613,43 @@ impl Library {
         self.publish(&changes, false).await
     }
 
+    /// The files album `id`'s tracks play from, by track, with each file's stamp.
+    pub async fn track_files(&self, id: i64) -> Result<Vec<(i64, PathBuf, String)>> {
+        let mappings: Vec<(i64, String, String, Option<String>)> = self
+            .read(move |conn| {
+                let mut statement = conn.prepare(
+                    "SELECT tracks.id, provider_instance, provider_item_id, stamp
+                     FROM tracks JOIN provider_mappings
+                         ON media_type = 'track' AND item_id = tracks.id
+                     WHERE album_id = ?1 ORDER BY tracks.id, priority DESC",
+                )?;
+                statement
+                    .query_map([id], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    })?
+                    .collect()
+            })
+            .await?;
+        let providers = self.providers.clone();
+        blocking(move || {
+            let mut files: Vec<(i64, PathBuf, String)> = Vec::new();
+            for (track, instance, item, stamp) in mappings {
+                if files.last().is_some_and(|(last, _, _)| *last == track) {
+                    continue;
+                }
+                let file = providers
+                    .iter()
+                    .find(|p| p.instance_id() == instance)
+                    .and_then(|provider| provider.file(&item));
+                if let Some(file) = file {
+                    files.push((track, file, stamp.unwrap_or_default()));
+                }
+            }
+            files
+        })
+        .await
+    }
+
     /// Gives album `id` cover art from a metadata service, unless it has art of its own.
     pub async fn set_cover_art(
         &self,
