@@ -1449,3 +1449,42 @@ async fn an_album_credited_twice_before_is_repaired_and_keeps_its_id() {
         ["First Album", "Second Album"]
     );
 }
+
+#[tokio::test]
+async fn an_id_merged_away_finds_the_item_it_became() {
+    let m = Merging::new();
+    let holding = Holding::new(&m.streams, "First Album", &HELD);
+    // Streamed first: a queue, or a client, holds these ids.
+    let streamed = m.library(false, &holding);
+    streamed.sync().await.unwrap();
+    let old_album = id(&streamed, MediaType::Album, "First Album").await;
+    let old_track: i64 = streamed.album_tracks(old_album).await.unwrap()[0]
+        .fields
+        .item_id
+        .parse()
+        .unwrap();
+
+    let library = m.library(true, &holding);
+    library.sync().await.unwrap();
+    let album = id(&library, MediaType::Album, "First Album").await;
+    assert_ne!(album, old_album, "the files' album survives");
+    let Some(MediaItem::Album(found)) = library.item(MediaType::Album, old_album).await.unwrap()
+    else {
+        panic!("the old id finds nothing");
+    };
+    assert_eq!(found.fields.item_id, album.to_string());
+    assert_eq!(library.album_tracks(old_album).await.unwrap().len(), 3);
+    let Some(MediaItem::Track(track)) = library.item(MediaType::Track, old_track).await.unwrap()
+    else {
+        panic!("the old track id finds nothing");
+    };
+    assert_eq!(track.fields.name, "Opening");
+    let played = library
+        .playable(&format!("library://track/{old_track}"))
+        .await
+        .unwrap();
+    assert_eq!(played.len(), 1);
+    assert!(
+        matches!(&played[0].1, bopsie_audio::engine::Input::File(path) if path.starts_with(&m.music))
+    );
+}

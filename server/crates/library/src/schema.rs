@@ -187,5 +187,15 @@ pub const MIGRATIONS: Migrations = Migrations {
             PRIMARY KEY (media_type, item_id, provider_instance, position)
         ) STRICT;
     ",
+        "
+        -- Items merged into another, so that a queue, or a client, holding the id of one that
+        -- is gone finds the item it became.
+        CREATE TABLE merged_items (
+            media_type TEXT NOT NULL,
+            from_id INTEGER NOT NULL,
+            into_id INTEGER NOT NULL,
+            PRIMARY KEY (media_type, from_id)
+        ) STRICT;
+    ",
     ],
 };

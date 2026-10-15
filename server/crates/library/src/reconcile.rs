@@ -395,6 +395,15 @@ fn merge_item(
         params![into, from],
     )?;
     carry_edits(tx, media_type, from, into)?;
+    // What was merged into `from` before is `into` now too.
+    tx.execute(
+        "UPDATE merged_items SET into_id = ?3 WHERE media_type = ?1 AND into_id = ?2",
+        params![media_type.as_str(), from, into],
+    )?;
+    tx.execute(
+        "INSERT OR REPLACE INTO merged_items (media_type, from_id, into_id) VALUES (?1, ?2, ?3)",
+        params![media_type.as_str(), from, into],
+    )?;
     delete_item(tx, media_type, from, changes)?;
     changes.update((media_type, into));
     Ok(())

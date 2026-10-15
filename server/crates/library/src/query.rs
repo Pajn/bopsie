@@ -236,6 +236,32 @@ fn fields(
     })
 }
 
+/// The item `id` is: itself while it exists, else the item it was merged into.
+pub fn resolve(conn: &Connection, media_type: MediaType, id: i64) -> Result<i64> {
+    let table = match media_type {
+        MediaType::Artist => "artists",
+        MediaType::Album => "albums",
+        MediaType::Track => "tracks",
+        MediaType::Playlist => "playlists",
+    };
+    let exists: bool = conn.query_row(
+        &format!("SELECT EXISTS (SELECT 1 FROM {table} WHERE id = ?1)"),
+        [id],
+        |row| row.get(0),
+    )?;
+    if exists {
+        return Ok(id);
+    }
+    Ok(conn
+        .query_row(
+            "SELECT into_id FROM merged_items WHERE media_type = ?1 AND from_id = ?2",
+            params![media_type.as_str(), id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(id))
+}
+
 /// An album's genres, most voted first; an artist's, the most common among its albums'; a
 /// track's, its album's. `None` when there are none.
 fn genres(conn: &Connection, media_type: MediaType, id: i64) -> Result<Option<Vec<String>>> {

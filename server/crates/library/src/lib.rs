@@ -108,23 +108,43 @@ impl Library {
             .await
     }
 
+    /// The item with library id `id`; or, for one merged into another, the item it became,
+    /// as every lookup by id here does.
     pub async fn item(&self, media_type: MediaType, id: i64) -> Result<Option<MediaItem>> {
-        self.read(move |conn| query::item(conn, media_type, id))
-            .await
+        self.read(move |conn| {
+            let id = query::resolve(conn, media_type, id)?;
+            query::item(conn, media_type, id)
+        })
+        .await
     }
 
     pub async fn album_tracks(&self, album_id: i64) -> Result<Vec<bopsie_core::media::Track>> {
-        self.read(move |conn| query::album_tracks(conn, album_id))
-            .await
+        self.read(move |conn| {
+            let id = query::resolve(conn, MediaType::Album, album_id)?;
+            query::album_tracks(conn, id)
+        })
+        .await
     }
 
     pub async fn artist_albums(&self, artist_id: i64) -> Result<Vec<bopsie_core::media::Album>> {
-        self.read(move |conn| query::artist_albums(conn, artist_id))
-            .await
+        self.read(move |conn| {
+            let id = query::resolve(conn, MediaType::Artist, artist_id)?;
+            query::artist_albums(conn, id)
+        })
+        .await
     }
 
     pub async fn artist_tracks(&self, artist_id: i64) -> Result<Vec<bopsie_core::media::Track>> {
-        self.read(move |conn| query::artist_tracks(conn, artist_id))
+        self.read(move |conn| {
+            let id = query::resolve(conn, MediaType::Artist, artist_id)?;
+            query::artist_tracks(conn, id)
+        })
+        .await
+    }
+
+    /// The item library id `id` of `media_type` is now: itself, or what it was merged into.
+    async fn resolved(&self, media_type: MediaType, id: i64) -> Result<i64> {
+        self.read(move |conn| query::resolve(conn, media_type, id))
             .await
     }
 
@@ -134,6 +154,7 @@ impl Library {
         &self,
         playlist_id: i64,
     ) -> Result<Vec<bopsie_core::media::Track>> {
+        let playlist_id = self.resolved(MediaType::Playlist, playlist_id).await?;
         if let Some((catalog, id)) = self
             .kept_by_catalog(MediaType::Playlist, playlist_id)
             .await?
@@ -180,6 +201,7 @@ impl Library {
 
     /// What the track plays from: the first of its providers that can play it.
     pub async fn track_media(&self, track_id: i64) -> Result<Option<Input>> {
+        let track_id = self.resolved(MediaType::Track, track_id).await?;
         let mappings = self.track_sources(track_id).await?;
         self.media_from(mappings).await
     }
@@ -419,6 +441,7 @@ impl Library {
         id: i64,
         changes: serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
+        let id = self.resolved(media_type, id).await?;
         let (touched, outcome) = self
             .db
             .call(move |conn| {
@@ -485,6 +508,7 @@ impl Library {
         media_type: MediaType,
         id: i64,
     ) -> Result<serde_json::Map<String, serde_json::Value>> {
+        let id = self.resolved(media_type, id).await?;
         self.db
             .call(move |conn| Ok(edit::stored(conn, media_type, id)?.edits))
             .await
@@ -535,6 +559,7 @@ impl Library {
     /// Takes provider `instance` back out of album `id`, which then stays apart from what is
     /// left. Returns the album it now has, if it shared the album with another provider.
     pub async fn separate(&self, id: i64, instance: String) -> Result<Option<i64>> {
+        let id = self.resolved(MediaType::Album, id).await?;
         let separates = self
             .providers
             .iter()
