@@ -627,6 +627,18 @@ async fn suggestions_decisions_and_separating_are_for_admins() {
         )
         .await;
     assert_eq!(code, 2, "no such album");
+    // Nothing decided, nothing to reconsider.
+    let code = client
+        .error_code("admin/library/reconsider", json!({"id": 1}))
+        .await;
+    assert_eq!(code, 2, "no such decision");
+    let code = client
+        .error_code(
+            "admin/library/reconsider_release",
+            json!({"item_id": first}),
+        )
+        .await;
+    assert_eq!(code, 2, "no decision on a release");
     let server = client.result("admin/server", json!({})).await;
     assert_eq!(
         server["library"]["metadata"]["albums"],

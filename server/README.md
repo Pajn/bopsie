@@ -148,7 +148,9 @@ albums tied by a MusicBrainz release or a link to the same Spotify album:
 
 An item's page in the web UI lists its sources, the one it plays from first at the top.
 Separate takes one back out of a merged album, with the tracks only it holds, into an album
-of its own that is not merged again.
+of its own that is not merged again. Suggestions also lists what was decided, Separate
+included, and Reconsider forgets a decision: the albums are compared again at once, and a
+release decision has the album looked up again.
 
 ### Metadata from MusicBrainz
 

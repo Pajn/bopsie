@@ -127,6 +127,17 @@ export const decideRelease = (
 export const refreshMetadata = (connection: MaConnection, albumId: string) =>
   connection.command<void>('admin/library/refresh_metadata', { item_id: albumId });
 
+/**
+ * Forgets a decision to merge or keep two items apart, Separate's too, and compares them again
+ * at once: the same release merges, and one that may be is suggested again.
+ */
+export const reconsider = (connection: MaConnection, id: number) =>
+  connection.command<void>('admin/library/reconsider', { id });
+
+/** Forgets a decision on the release suggested for an album, and looks it up again at once. */
+export const reconsiderRelease = (connection: MaConnection, albumId: string) =>
+  connection.command<void>('admin/library/reconsider_release', { item_id: albumId });
+
 /** Asks an AirPlay speaker that pairs with a PIN to show one. */
 export const pairStart = (connection: MaConnection, playerId: string) =>
   connection.command<void>('airplay/pair_start', { player_id: playerId });

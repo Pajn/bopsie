@@ -91,7 +91,7 @@ export function Sources({ item }: { item: Item }) {
       {separable ? (
         <Text variant="caption" muted>
           Merged from several sources. Separate takes one back out, with the tracks only it holds,
-          into an album of its own that is not merged again.
+          into an album of its own that is not merged again, unless reconsidered under Suggestions.
         </Text>
       ) : null}
       <InlineError message={error} />

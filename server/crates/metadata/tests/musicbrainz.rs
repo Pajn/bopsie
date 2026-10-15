@@ -444,6 +444,14 @@ async fn albums_are_identified_suggested_and_accepted() {
         .count();
     assert_eq!(covers, 1, "only for the album without art");
     assert!(library.release_suggestions(false).await.unwrap().is_empty());
+
+    // Reconsidered, the acceptance is forgotten: looked up again, it is suggested again.
+    library
+        .reconsider_release(suggestions[0].album_id)
+        .await
+        .unwrap();
+    assert_eq!(enricher.run().await.suggested, 1);
+    assert_eq!(library.release_suggestions(false).await.unwrap().len(), 1);
 }
 
 /// A streaming service holding the fixture's First Album under another name, as its own id,

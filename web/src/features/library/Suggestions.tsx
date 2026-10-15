@@ -2,6 +2,8 @@ import {
   decideRelease,
   decideSuggestion,
   librarySuggestions,
+  reconsider,
+  reconsiderRelease,
   releaseSuggestions,
 } from '@bopsie/client/api/endpoints/admin';
 import type { LibrarySuggestion } from '@bopsie/client/api/schemas/admin';
@@ -141,7 +143,95 @@ export function Suggestions() {
           </Stack>
         </Card>
       ))}
+      <Decided />
     </Stack>
+  );
+}
+
+const DECISIONS: Record<string, string> = {
+  merge: 'Merged',
+  apart: 'Kept apart',
+  accept: 'Release used',
+  reject: 'Release rejected',
+};
+
+/**
+ * What was decided before: merges, albums kept apart (by hand or by Separate), and releases
+ * used or rejected. Reconsider forgets a decision, and the two are compared, or the album
+ * looked up, again at once.
+ */
+function Decided() {
+  const { account, connection } = useConnection();
+  const queryClient = useQueryClient();
+  const albums = useQuery({
+    queryKey: queryKeys.admin(account.id, 'suggestions-decided'),
+    queryFn: async () =>
+      (await librarySuggestions(connection, true)).filter((s) => s.decision !== null),
+  });
+  const releases = useQuery({
+    queryKey: queryKeys.admin(account.id, 'release-suggestions-decided'),
+    queryFn: async () =>
+      (await releaseSuggestions(connection, true)).filter((s) => s.decision !== null),
+  });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const undo = async (key: string, action: () => Promise<void>) => {
+    setError(null);
+    setBusy(key);
+    try {
+      await action();
+      await queryClient.invalidateQueries({ queryKey: ['admin', account.id] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.library(account.id) });
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!albums.data?.length && !releases.data?.length) return null;
+  return (
+    <Card title="Decided">
+      <Text variant="caption" muted>
+        Reconsider forgets a decision: the albums are compared again at once, and merge if they are
+        the same release, which undoes a Separate; an album is looked up again.
+      </Text>
+      <InlineError message={error} />
+      {albums.data?.map((s) => (
+        <View key={`a${s.id}`} style={styles.side}>
+          <Text variant="label">
+            {DECISIONS[s.decision ?? ''] ?? s.decision}: {s.reason}
+          </Text>
+          <ItemRow item={s.a} />
+          <ItemRow item={s.b} />
+          <Button
+            title="Reconsider"
+            variant="secondary"
+            loading={busy === `a${s.id}`}
+            disabled={busy !== null}
+            onPress={() => void undo(`a${s.id}`, () => reconsider(connection, s.id))}
+          />
+        </View>
+      ))}
+      {releases.data?.map((s) => (
+        <View key={`r${s.album.item_id}`} style={styles.side}>
+          <Text variant="label">
+            {DECISIONS[s.decision ?? ''] ?? s.decision}: {s.title}
+          </Text>
+          <ItemRow item={s.album} />
+          <Button
+            title="Reconsider"
+            variant="secondary"
+            loading={busy === `r${s.album.item_id}`}
+            disabled={busy !== null}
+            onPress={() =>
+              void undo(`r${s.album.item_id}`, () => reconsiderRelease(connection, s.album.item_id))
+            }
+          />
+        </View>
+      ))}
+    </Card>
   );
 }
 

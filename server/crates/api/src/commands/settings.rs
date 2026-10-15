@@ -436,3 +436,38 @@ impl Command for RefreshMetadata {
             .await
     }
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReconsiderArgs {
+    /// The decided suggestion's id, as `admin/library/suggestions` with `all` lists it.
+    pub id: i64,
+}
+
+pub struct Reconsider;
+impl Command for Reconsider {
+    const NAME: &'static str = "admin/library/reconsider";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str = "Forget a decision to merge or keep two items apart, Separate's too, and compare them again now.";
+    type Args = ReconsiderArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: ReconsiderArgs) -> Result<()> {
+        ctx.api.library.reconsider(args.id).await
+    }
+}
+
+pub struct ReconsiderRelease;
+impl Command for ReconsiderRelease {
+    const NAME: &'static str = "admin/library/reconsider_release";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str = "Forget a decision on the MusicBrainz release suggested for an album, and look it up again now.";
+    type Args = RefreshMetadataArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: RefreshMetadataArgs) -> Result<()> {
+        ctx.api
+            .library
+            .reconsider_release(item_id(&args.item_id)?)
+            .await
+    }
+}

@@ -1272,6 +1272,16 @@ async fn a_deluxe_edition_is_suggested_and_a_decision_holds() {
     assert!(library.suggestions(false).await.unwrap().is_empty());
     assert_eq!(list(&library, MediaType::Album).await.len(), 3);
 
+    // Reconsidered, it is suggested again; kept apart again for what follows.
+    let decided = library.suggestions(true).await.unwrap();
+    library.reconsider(decided[0].id).await.unwrap();
+    let again = library.suggestions(false).await.unwrap();
+    assert_eq!(again.len(), 1);
+    library
+        .decide(again[0].id, "apart".to_owned())
+        .await
+        .unwrap();
+
     // Said to be the same, they merge, the bonus track joining the files' album.
     let decided = library.suggestions(true).await.unwrap();
     library
@@ -1327,6 +1337,20 @@ async fn a_merged_album_separates_and_stays_apart() {
         .unwrap();
     assert_eq!(sources(&library, MediaType::Track, track).await.len(), 1);
     assert!(library.suggestions(false).await.unwrap().is_empty());
+
+    // Reconsidered, the separation is forgotten: the two are one album again.
+    let decided = library.suggestions(true).await.unwrap();
+    assert_eq!(decided.len(), 1);
+    assert_eq!(decided[0].decision.as_deref(), Some("apart"));
+    library.reconsider(decided[0].id).await.unwrap();
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+    assert_eq!(sources(&library, MediaType::Album, album).await.len(), 2);
+    assert_eq!(sources(&library, MediaType::Track, track).await.len(), 2);
+    assert!(library.suggestions(true).await.unwrap().is_empty());
+    assert!(library.reconsider(decided[0].id).await.is_err());
 }
 
 #[tokio::test]

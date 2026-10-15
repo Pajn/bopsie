@@ -591,6 +591,85 @@ impl Library {
         self.publish(&changes, false).await
     }
 
+    /// Forgets what a person decided of suggestion `id`, merging or keeping apart, and compares
+    /// the two again at once: the same release merges, which undoes a Separate, and one that
+    /// may be is suggested again.
+    pub async fn reconsider(&self, id: i64) -> Result<()> {
+        let _syncing = self.syncing.lock().await;
+        let changes = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let deleted = tx.execute(
+                    "DELETE FROM match_suggestions WHERE id = ?1 AND decision IS NOT NULL",
+                    [id],
+                )?;
+                if deleted == 0 {
+                    return Ok(None);
+                }
+                let mut changes = Changes::default();
+                reconcile::reconcile(&tx, now(), &mut changes)?;
+                edit::apply_all(&tx)?;
+                scan::prune(&tx, &mut changes)?;
+                tx.commit()?;
+                Ok(Some(changes))
+            })
+            .await?
+            .ok_or_else(|| {
+                Error::new(
+                    bopsie_core::ErrorCode::MediaNotFound,
+                    format!("No decision {id}"),
+                )
+            })?;
+        self.publish(&changes, false).await
+    }
+
+    /// Forgets what a person decided of the release suggested for album `id`, and what an
+    /// accepted one gave it, its and its tracks' ids and its genres, and looks the album up
+    /// again now.
+    pub async fn reconsider_release(&self, id: i64) -> Result<()> {
+        let id = self.resolved(MediaType::Album, id).await?;
+        let deleted = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let deleted = tx.execute(
+                    "DELETE FROM release_suggestions WHERE album_id = ?1 AND decision IS NOT NULL",
+                    [id],
+                )?;
+                if deleted == 0 {
+                    return Ok(0);
+                }
+                tx.execute(
+                    "DELETE FROM external_ids WHERE provider_instance = ?2
+                         AND ((media_type = 'album' AND item_id = ?1)
+                             OR (media_type = 'track'
+                                 AND item_id IN (SELECT id FROM tracks WHERE album_id = ?1)))",
+                    rusqlite::params![id, enrich::MUSICBRAINZ],
+                )?;
+                tx.execute(
+                    "DELETE FROM item_genres
+                     WHERE media_type = 'album' AND item_id = ?1 AND provider_instance = ?2",
+                    rusqlite::params![id, enrich::MUSICBRAINZ],
+                )?;
+                tx.execute(
+                    "UPDATE albums SET metadata_checked = NULL WHERE id = ?1",
+                    [id],
+                )?;
+                tx.commit()?;
+                Ok(deleted)
+            })
+            .await?;
+        if deleted == 0 {
+            return Err(Error::new(
+                bopsie_core::ErrorCode::MediaNotFound,
+                format!("No decision on a release for album {id}"),
+            ));
+        }
+        self.metadata_wanted.notify_one();
+        Ok(())
+    }
+
     /// Takes provider `instance` back out of album `id`, which then stays apart from what is
     /// left. Returns the album it now has, if it shared the album with another provider.
     pub async fn separate(&self, id: i64, instance: String) -> Result<Option<i64>> {
