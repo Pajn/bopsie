@@ -137,6 +137,15 @@ export function MorphPanel({
       scheduleOnRN(toggle, settlesOpen(progress.value, event.velocityY, travel));
     });
 
+  // A panel that goes while open, as when the player has nothing left to show, must not leave
+  // the player covered: the artwork, which fades under a panel, would stay hidden.
+  useEffect(
+    () => () => {
+      if (progress.value > 0) panelCoverage.value = 0;
+    },
+    [progress],
+  );
+
   // Only the panel moving reports, so a closed one leaves the other's coverage alone.
   useAnimatedReaction(
     () => progress.value,
