@@ -248,9 +248,44 @@ async fn commons(
     ([("content-type", "image/png")], PNG).into_response()
 }
 
+/// fanart.tv: the test artist's photo, two backgrounds, both kinds of logo, its images served
+/// by the stand-in itself.
+async fn fanart(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(mbid): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    note(&stand, &headers, format!("fanart {mbid}"));
+    assert_eq!(query["api_key"], "fanart-key");
+    if mbid != ARTIST {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let base = format!("http://{}", headers["host"].to_str().unwrap());
+    let picture = |name: &str, likes: u32| json!({"url": format!("{base}/fanart/{name}.png"), "likes": likes.to_string()});
+    axum::Json(json!({
+        "artistthumb": [picture("thumb", 1)],
+        "artistbackground": [picture("quiet", 1), picture("loved", 9)],
+        "hdmusiclogo": [picture("hdlogo", 2)],
+        "musiclogo": [picture("logo", 5)],
+    }))
+    .into_response()
+}
+
+async fn fanart_image(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Response {
+    note(&stand, &headers, format!("fanart image {name}"));
+    ([("content-type", "image/png")], PNG).into_response()
+}
+
 async fn stand_in() -> (String, Shared) {
     let stand = Shared::default();
     let app = Router::new()
+        .route("/v3/music/{mbid}", get(fanart))
+        .route("/fanart/{name}", get(fanart_image))
         .route("/wiki/Special:EntityData/{file}", get(entity))
         .route("/wiki/Special:FilePath/{file}", get(commons))
         .route("/ws/2/artist/{id}", get(artist))
@@ -896,5 +931,67 @@ async fn an_artist_no_catalog_has_a_photo_of_gets_wikimedias() {
             .unwrap()
             .unwrap(),
         PNG
+    );
+}
+
+#[tokio::test]
+async fn an_artist_gets_backgrounds_and_a_logo_from_fanart_tv() {
+    use bopsie_metadata::fanart::Fanart;
+    let (base, stand) = stand_in().await;
+    let root = base.trim_end_matches("/ws/2").to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    let db = database();
+    let library = Library::new(
+        db.clone(),
+        EventBus::default(),
+        vec![Arc::new(FilesystemProvider::new(music))],
+        dir.path().join("artwork"),
+    );
+    library.catalogs().add(Arc::new(Pictures));
+    library.sync().await.unwrap();
+    Enricher::new(
+        library.clone(),
+        MusicBrainz::new(db, base, None).paced(Duration::from_millis(10)),
+    )
+    .cover_art(None)
+    .fanart(Some(Fanart::new(
+        &format!("{root}/v3"),
+        "fanart-key".to_owned(),
+    )))
+    .run()
+    .await;
+    let artists = library
+        .list(MediaType::Artist, ListQuery::default())
+        .await
+        .unwrap();
+    let test_artist = artists
+        .iter()
+        .find(|a| a.fields().name == "Test Artist")
+        .unwrap();
+    let images = test_artist.fields().metadata.images.clone().unwrap();
+    let kinds: Vec<&str> = images.iter().map(|i| i.kind).collect();
+    // Spotify's photo first, then fanart.tv's; its backgrounds; its HD logo.
+    assert_eq!(kinds, ["thumb", "thumb", "fanart", "fanart", "logo"]);
+    assert_eq!(images[0].provider, "pictures");
+    assert_eq!(
+        library
+            .image(images[2].proxy_id.clone())
+            .await
+            .unwrap()
+            .unwrap(),
+        PNG
+    );
+    let fetched: Vec<String> = stand
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .filter_map(|(r, _)| r.strip_prefix("fanart image ").map(str::to_owned))
+        .collect();
+    assert_eq!(
+        fetched,
+        ["thumb.png", "loved.png", "quiet.png", "hdlogo.png"]
     );
 }

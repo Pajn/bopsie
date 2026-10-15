@@ -182,6 +182,9 @@ pub struct MetadataConfig {
     /// An email address or URL to reach whoever runs this server at, sent to MusicBrainz with
     /// each request as it asks of the software that calls it.
     pub contact: Option<String>,
+    /// A personal API key from fanart.tv: artists then get backgrounds, logos and banners, for
+    /// an app to style their pages with.
+    pub fanarttv_key: Option<String>,
     /// An AcoustID application key, from acoustid.org: albums MusicBrainz cannot otherwise
     /// find are then found by their tracks' sound. Needs `fpcalc` (Chromaprint).
     pub acoustid_key: Option<String>,
@@ -195,6 +198,7 @@ impl Default for MetadataConfig {
             genres: true,
             artist_images: true,
             contact: None,
+            fanarttv_key: None,
             acoustid_key: None,
         }
     }

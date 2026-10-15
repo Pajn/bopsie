@@ -73,6 +73,9 @@ artist_images = true
 # An email address or URL MusicBrainz can reach whoever runs this server at, sent with each
 # request as it asks.
 # contact = "admin@example.org"
+# A personal API key from fanart.tv (fanart.tv/get-an-api-key): artists then get
+# backgrounds, logos and banners, for an app to style their pages with.
+# fanarttv_key = "…"
 # An AcoustID application key, from acoustid.org: albums a search cannot find are then found by
 # their tracks' sound. Needs fpcalc (Chromaprint) on the path.
 # acoustid_key = "…"

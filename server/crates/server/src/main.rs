@@ -18,6 +18,7 @@ use bopsie_core::events::EventBus;
 use bopsie_core::logtail::Tail;
 use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
+use bopsie_metadata::fanart::{self, Fanart};
 use bopsie_metadata::fingerprint::{self, AcoustId};
 use bopsie_metadata::job::Enricher;
 use bopsie_metadata::musicbrainz::{self, MusicBrainz};
@@ -249,6 +250,14 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         )
         .genres(config.metadata.genres)
         .artist_images(config.metadata.artist_images)
+        .fanart(
+            config
+                .metadata
+                .fanarttv_key
+                .clone()
+                .filter(|_| config.metadata.artist_images)
+                .map(|key| Fanart::new(fanart::BASE, key)),
+        )
         .wikimedia(config.metadata.artist_images.then(|| {
             Wikimedia::new(
                 wikimedia::WIKIDATA,

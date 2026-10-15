@@ -2,6 +2,7 @@
 //! sync: [`musicbrainz`] finds each album's release, [`score`] says how close a release is, and
 //! [`job`] keeps what was found, or suggests it to a person when it is close but not certain.
 
+pub mod fanart;
 pub mod fingerprint;
 pub mod job;
 pub mod musicbrainz;

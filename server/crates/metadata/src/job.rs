@@ -12,11 +12,14 @@ use bopsie_library::{ItemImage, Library};
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::fanart::Fanart;
 use crate::fingerprint::{AcoustId, Heard};
 use crate::musicbrainz::{ArtistLinks, MbError, MusicBrainz, Release, phrase};
 use crate::score::{Scored, score};
 use crate::wikimedia::Wikimedia;
 
+/// The source an artist's images from fanart.tv are kept as.
+pub const FANART: &str = "fanarttv";
 /// The source an artist's photo from Wikimedia Commons is kept as.
 pub const WIKIMEDIA: &str = "wikimedia";
 /// How long until an album is looked up again.
@@ -65,6 +68,8 @@ pub struct Enricher {
     artist_images: bool,
     /// Where artists no catalog has a photo of get theirs, if wanted.
     wikimedia: Option<Wikimedia>,
+    /// Where artists' backgrounds, logos and banners come from, if set up.
+    fanart: Option<Fanart>,
 }
 
 fn now() -> i64 {
@@ -159,12 +164,19 @@ impl Enricher {
             acoustid: None,
             artist_images: true,
             wikimedia: None,
+            fanart: None,
         }
     }
 
     /// Gives artists no catalog has a photo of theirs from Wikimedia Commons, with `wikimedia`.
     pub fn wikimedia(mut self, wikimedia: Option<Wikimedia>) -> Self {
         self.wikimedia = wikimedia;
+        self
+    }
+
+    /// Gives artists their backgrounds, logo and banner from fanart.tv, with `fanart`.
+    pub fn fanart(mut self, fanart: Option<Fanart>) -> Self {
+        self.fanart = fanart;
         self
     }
 
@@ -366,6 +378,34 @@ impl Enricher {
                             Err(error) => {
                                 tracing::debug!(artist = artist.id, %error, "no Wikimedia photo");
                             }
+                        }
+                    }
+                }
+                // Backgrounds, a logo and a banner, besides a photo, by its MusicBrainz id.
+                if let (Some(fanart), Some(mbid)) = (&self.fanart, artist.musicbrainz.first()) {
+                    match fanart.artist(mbid).await {
+                        Ok(images) if !images.is_empty() => {
+                            let images = images
+                                .into_iter()
+                                .map(|(kind, bytes, extension)| {
+                                    (kind, ItemImage::Data { bytes, extension })
+                                })
+                                .collect();
+                            given |= self
+                                .library
+                                .set_item_images(
+                                    MediaType::Artist,
+                                    artist.id,
+                                    FANART.to_owned(),
+                                    images,
+                                )
+                                .await
+                                .is_ok();
+                        }
+                        Ok(_) => {}
+                        Err(MbError::Unreachable(_)) => return illustrated,
+                        Err(error) => {
+                            tracing::warn!(artist = artist.id, %error, "no images from fanart.tv");
                         }
                     }
                 }

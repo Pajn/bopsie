@@ -244,7 +244,8 @@ fn image_kind(kind: &str) -> Option<&'static str> {
 }
 
 /// An item's own artwork, then its images from metadata services: its photo, backgrounds,
-/// logo and banner, in that order, each from the source that does them best first.
+/// logo and banner, in that order: a catalog's, such as Spotify's, then fanart.tv's, then
+/// Wikimedia's.
 fn images(
     conn: &Connection,
     media_type: MediaType,
@@ -257,8 +258,8 @@ fn images(
          WHERE media_type = ?1 AND item_id = ?2
          ORDER BY CASE item_images.kind WHEN 'thumb' THEN 0 WHEN 'fanart' THEN 1
                       WHEN 'logo' THEN 2 WHEN 'banner' THEN 3 ELSE 4 END,
-                  CASE provider_instance WHEN 'spotify' THEN 0 WHEN 'fanarttv' THEN 1
-                      WHEN 'wikimedia' THEN 2 ELSE 3 END,
+                  CASE provider_instance WHEN 'fanarttv' THEN 1 WHEN 'wikimedia' THEN 2
+                      ELSE 0 END,
                   position",
     )?;
     let mut images: Vec<Image> = own.into_iter().collect();

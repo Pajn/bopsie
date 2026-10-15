@@ -174,6 +174,10 @@ is suggested on the web UI's library page, to use or reject. What is taken:
   links to Spotify, served as the artist's `thumb` image and fetched from Spotify as shown.
   An artist Spotify has no photo of gets the one Wikidata, as MusicBrainz links it, has on
   [Wikimedia Commons](https://commons.wikimedia.org), at 500 px; its licence is the file's.
+- **Backgrounds, logos and banners:** with `fanarttv_key` under `[metadata]` set to a personal
+  key from [fanart.tv](https://fanart.tv/get-an-api-key/), artists MusicBrainz identifies get
+  up to three backgrounds, a logo and a banner from it, served as `fanart`, `logo` and
+  `banner` images beside the photo, for an app to style an artist's page with.
 - **Genres:** the release group's three most voted, served as the album's and its tracks'
   `metadata.genres`. An artist's are the most common among its albums'.
 
