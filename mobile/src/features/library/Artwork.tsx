@@ -28,7 +28,8 @@ export function Artwork({
       {uri ? (
         <Image source={{ uri }} style={shape} resizeMode="cover" />
       ) : (
-        <Icon name={placeholder} size={size * 0.4} />
+        // In proportion to small artwork, and no heavier than this on large.
+        <Icon name={placeholder} size={Math.min(size * 0.4, 56)} />
       )}
     </View>
   );

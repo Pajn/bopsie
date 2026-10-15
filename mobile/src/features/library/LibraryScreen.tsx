@@ -5,7 +5,7 @@ import { LegendList } from '@legendapp/list/react-native';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, TextInput, View } from 'react-native';
+import { Pressable, TextInput, useWindowDimensions, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { usePlaybackActions } from '@/features/player/usePlayback';
@@ -15,7 +15,7 @@ import { Icon } from '@/ui/Icon';
 import { InlineError, Screen, Text } from '@/ui/primitives';
 import { SkeletonRows } from '@/ui/Skeleton';
 import { AlbumRow, ArtistRow, PlaylistRow, TrackRow } from './rows';
-import { useLibrarySort } from './useLibrarySort';
+import { chooseLibraryLayout, useLibraryLayout, useLibrarySort } from './useLibrarySort';
 
 const KINDS: Array<{ kind: LibraryKind; label: string }> = [
   { kind: 'albums', label: 'Albums' },
@@ -29,13 +29,18 @@ type Item = Album | Artist | Track | Playlist;
 
 export function LibraryScreen() {
   const [kind, setKind] = useState<LibraryKind>('albums');
+  const { theme } = useUnistyles();
   const [filter, setFilter] = useState('');
   const search = useDebounced(filter.trim(), 300);
   const sort = useLibrarySort(kind);
+  const layout = useLibraryLayout(kind);
+  const grid = layout === 'grid';
+  const { width } = useWindowDimensions();
+  // Two across, between the screen's padding and a gap.
+  const tile = Math.floor((width - theme.spacing.lg * 2 - theme.spacing.md) / 2);
   const { connection, account } = useConnection();
   const playback = usePlaybackActions();
   const router = useRouter();
-  const { theme } = useUnistyles();
   const query = useInfiniteQuery({
     queryKey: [...queryKeys.libraryList(account.id, kind, search), sort.key],
     queryFn: ({ pageParam }) =>
@@ -117,23 +122,44 @@ export function LibraryScreen() {
             {sort.label}
           </Text>
         </Pressable>
+        {kind !== 'tracks' ? (
+          <Pressable
+            onPress={() => chooseLibraryLayout(kind, grid ? 'list' : 'grid')}
+            hitSlop={8}
+            style={({ pressed }) => [styles.layout, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={grid ? 'Show as a list' : 'Show as a grid'}
+            testID="library-layout"
+          >
+            <Icon name={grid ? 'list' : 'grid'} size={18} color={theme.colors.accent} />
+          </Pressable>
+        ) : null}
       </View>
       {query.isError ? <InlineError message={describeError(query.error)} /> : null}
       <LegendList
         data={items}
         keyExtractor={(item) => `${item.provider}/${item.item_id}`}
-        renderItem={({ item }) =>
-          kind === 'albums' ? (
-            <AlbumRow album={item as Album} />
-          ) : kind === 'artists' ? (
-            <ArtistRow artist={item as Artist} />
-          ) : kind === 'tracks' ? (
-            <TrackRow track={item as Track} showArtwork onPress={() => playTrack(item as Track)} />
-          ) : (
-            <PlaylistRow playlist={item as Playlist} />
-          )
-        }
-        estimatedItemSize={64}
+        renderItem={({ item, index }) => (
+          // A tile holds to the outer edge of its column, leaving the gap between the two.
+          <View style={grid && (index % 2 === 0 ? styles.left : styles.right)}>
+            {kind === 'albums' ? (
+              <AlbumRow album={item as Album} {...(grid && { tile })} />
+            ) : kind === 'artists' ? (
+              <ArtistRow artist={item as Artist} {...(grid && { tile })} />
+            ) : kind === 'tracks' ? (
+              <TrackRow
+                track={item as Track}
+                showArtwork
+                onPress={() => playTrack(item as Track)}
+              />
+            ) : (
+              <PlaylistRow playlist={item as Playlist} {...(grid && { tile })} />
+            )}
+          </View>
+        )}
+        key={grid ? 'grid' : 'list'}
+        numColumns={grid ? 2 : 1}
+        estimatedItemSize={grid ? tile + 56 : 64}
         recycleItems
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -199,6 +225,9 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing.sm,
   },
   sortText: { color: theme.colors.accent },
+  left: { alignItems: 'flex-start' },
+  right: { alignItems: 'flex-end' },
+  layout: { paddingVertical: theme.spacing.sm, paddingRight: theme.spacing.xs },
   pressed: { opacity: 0.6 },
   empty: { marginTop: theme.spacing.xl, textAlign: 'center' },
 }));

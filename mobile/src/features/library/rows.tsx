@@ -84,19 +84,98 @@ function Row({
   );
 }
 
-export function ArtistRow({ artist }: { artist: Artist }) {
+/**
+ * An item in a grid: its artwork `size` wide, and its name and subtitle below. A long press
+ * opens its menu, as a row's does.
+ */
+function Tile({
+  onPress,
+  onMenu,
+  testID,
+  item,
+  size,
+  round,
+  placeholder,
+  title,
+  subtitle,
+}: {
+  onPress: () => void;
+  onMenu: () => void;
+  testID: string;
+  item: Parameters<typeof Artwork>[0]['item'];
+  size: number;
+  round?: boolean;
+  placeholder?: Parameters<typeof Artwork>[0]['placeholder'];
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={() => {
+        haptics.longPress();
+        onMenu();
+      }}
+      style={({ pressed }) => [styles.tile, { width: size }, pressed && styles.pressed]}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      testID={testID}
+    >
+      <Artwork
+        item={item}
+        size={size}
+        imageSize={size > 160 ? 512 : 256}
+        {...(round !== undefined && { round })}
+        {...(placeholder && { placeholder })}
+      />
+      <View style={[styles.tileText, round && styles.centred]}>
+        <Text numberOfLines={1} style={round && styles.centredText}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text variant="caption" muted numberOfLines={1} style={round && styles.centredText}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+/** An artist, album or playlist as a row, or, given `tile`, as a grid tile that wide. */
+interface ItemProps {
+  tile?: number;
+}
+
+export function ArtistRow({ artist, tile }: { artist: Artist } & ItemProps) {
   const router = useRouter();
   const openMenu = useOpenItemMenu();
   const subtitle = useMarked(artist.provider);
+  const open = () =>
+    router.push({
+      pathname: '/artist/[id]',
+      params: { id: artist.item_id, provider: artist.provider, name: artist.name },
+    });
+  const menu = () => openMenu('artist', artist);
+  if (tile) {
+    return (
+      <Tile
+        onPress={open}
+        onMenu={menu}
+        testID={`artist-${artist.item_id}`}
+        item={artist}
+        size={tile}
+        round
+        placeholder="user"
+        title={artist.name}
+        {...(subtitle ? { subtitle } : {})}
+      />
+    );
+  }
   return (
     <Row
-      onPress={() =>
-        router.push({
-          pathname: '/artist/[id]',
-          params: { id: artist.item_id, provider: artist.provider, name: artist.name },
-        })
-      }
-      onMenu={() => openMenu('artist', artist)}
+      onPress={open}
+      onMenu={menu}
       testID={`artist-${artist.item_id}`}
       artwork={<Artwork item={artist} size={48} imageSize={80} round placeholder="user" />}
       title={artist.name}
@@ -105,19 +184,33 @@ export function ArtistRow({ artist }: { artist: Artist }) {
   );
 }
 
-export function AlbumRow({ album }: { album: Album }) {
+export function AlbumRow({ album, tile }: { album: Album } & ItemProps) {
   const router = useRouter();
   const openMenu = useOpenItemMenu();
   const subtitle = useMarked(album.provider, artistNames(album), album.year);
+  const open = () =>
+    router.push({
+      pathname: '/album/[id]',
+      params: { id: album.item_id, provider: album.provider, name: album.name },
+    });
+  const menu = () => openMenu('album', album);
+  if (tile) {
+    return (
+      <Tile
+        onPress={open}
+        onMenu={menu}
+        testID={`album-${album.item_id}`}
+        item={album}
+        size={tile}
+        title={album.name}
+        {...(subtitle ? { subtitle } : {})}
+      />
+    );
+  }
   return (
     <Row
-      onPress={() =>
-        router.push({
-          pathname: '/album/[id]',
-          params: { id: album.item_id, provider: album.provider, name: album.name },
-        })
-      }
-      onMenu={() => openMenu('album', album)}
+      onPress={open}
+      onMenu={menu}
       testID={`album-${album.item_id}`}
       artwork={<Artwork item={album} size={48} imageSize={80} />}
       title={album.name}
@@ -126,19 +219,34 @@ export function AlbumRow({ album }: { album: Album }) {
   );
 }
 
-export function PlaylistRow({ playlist }: { playlist: Playlist }) {
+export function PlaylistRow({ playlist, tile }: { playlist: Playlist } & ItemProps) {
   const router = useRouter();
   const openMenu = useOpenItemMenu();
   const subtitle = useMarked(playlist.provider, playlist.owner);
+  const open = () =>
+    router.push({
+      pathname: '/playlist/[id]',
+      params: { id: playlist.item_id, provider: playlist.provider, name: playlist.name },
+    });
+  const menu = () => openMenu('playlist', playlist);
+  if (tile) {
+    return (
+      <Tile
+        onPress={open}
+        onMenu={menu}
+        testID={`playlist-${playlist.item_id}`}
+        item={playlist}
+        size={tile}
+        placeholder="list"
+        title={playlist.name}
+        {...(subtitle ? { subtitle } : {})}
+      />
+    );
+  }
   return (
     <Row
-      onPress={() =>
-        router.push({
-          pathname: '/playlist/[id]',
-          params: { id: playlist.item_id, provider: playlist.provider, name: playlist.name },
-        })
-      }
-      onMenu={() => openMenu('playlist', playlist)}
+      onPress={open}
+      onMenu={menu}
       testID={`playlist-${playlist.item_id}`}
       artwork={<Artwork item={playlist} size={48} imageSize={80} placeholder="list" />}
       title={playlist.name}
@@ -205,6 +313,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   pressed: { opacity: 0.6 },
   text: { flex: 1, gap: 2 },
+  tile: { gap: theme.spacing.sm, marginBottom: theme.spacing.lg },
+  tileText: { gap: 2 },
+  centred: { alignItems: 'center' },
+  centredText: { textAlign: 'center' },
   number: { width: 28, textAlign: 'center', alignItems: 'center' },
   current: { color: theme.colors.accent, fontWeight: '600' },
   // Over the artwork of what plays, so the bars read on any cover.
