@@ -122,6 +122,10 @@ jobs:
     defaults:
       run:
         working-directory: server
+    env:
+      # Dozens of test binaries with full debug info fill the runner's disk while linking.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_INCREMENTAL: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
