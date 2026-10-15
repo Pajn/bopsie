@@ -153,7 +153,7 @@ fn mappings(conn: &Connection, media_type: MediaType, id: i64) -> Result<Vec<Pro
     let mut statement = conn.prepare_cached(
         "SELECT provider_domain, provider_instance, provider_item_id, stamp, audio_format
          FROM provider_mappings WHERE media_type = ?1 AND item_id = ?2
-         ORDER BY provider_instance",
+         ORDER BY priority DESC, provider_instance",
     )?;
     statement
         .query_map(params![media_type.as_str(), id], |row| {

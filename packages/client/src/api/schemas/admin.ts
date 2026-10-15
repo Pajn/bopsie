@@ -1,4 +1,5 @@
 import * as z from 'zod/mini';
+import { album } from './media';
 
 /**
  * What the server's admin commands answer: this server's own, not Music Assistant's. Fields the
@@ -165,3 +166,14 @@ export const logLine = z.object({
   fields: z.record(z.string(), z.string()),
 });
 export type LogLine = z.infer<typeof logLine>;
+
+/** Two library items from different providers that may be the same, for a person to decide. */
+export const librarySuggestion = z.looseObject({
+  id: z.number(),
+  media_type: z.string(),
+  a: album,
+  b: album,
+  reason: z.string(),
+  decision: z.nullable(z.enum(['merge', 'apart'])),
+});
+export type LibrarySuggestion = z.infer<typeof librarySuggestion>;

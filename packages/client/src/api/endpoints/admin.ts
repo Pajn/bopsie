@@ -1,6 +1,6 @@
 import * as z from 'zod/mini';
 import type { MaConnection } from '../client';
-import { adminDevice, adminGroup, adminServer, logLine } from '../schemas/admin';
+import { adminDevice, adminGroup, adminServer, librarySuggestion, logLine } from '../schemas/admin';
 
 /** Every device and its endpoints, with all the server knows of each. Admins only. */
 export const adminDevices = (connection: MaConnection) =>
@@ -77,6 +77,28 @@ export const libraryItemEdits = (
     'admin/library/edits',
     { media_type: mediaType, item_id: itemId },
     { schema: z.record(z.string(), z.unknown()) },
+  );
+
+/** Items from different providers that may be the same; with decided ones too when `all`. */
+export const librarySuggestions = (connection: MaConnection, all = false) =>
+  connection.command('admin/library/suggestions', { all }, { schema: z.array(librarySuggestion) });
+
+/** Merges a suggestion's two items at once, or keeps them apart; either holds at every sync. */
+export const decideSuggestion = (
+  connection: MaConnection,
+  id: number,
+  decision: 'merge' | 'apart',
+) => connection.command<void>('admin/library/decide', { id, decision });
+
+/**
+ * Takes a provider back out of a merged album, into an album of its own that stays apart.
+ * Answers with that album's id, or `null` when the provider did not share the album.
+ */
+export const separateAlbum = (connection: MaConnection, itemId: string, providerInstance: string) =>
+  connection.command(
+    'admin/library/separate',
+    { item_id: itemId, provider_instance: providerInstance },
+    { schema: z.object({ item_id: z.nullable(z.string()) }) },
   );
 
 /** Asks an AirPlay speaker that pairs with a PIN to show one. */

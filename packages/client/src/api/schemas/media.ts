@@ -27,6 +27,15 @@ export const itemMapping = z.looseObject({
 });
 export type ItemMapping = z.infer<typeof itemMapping>;
 
+/** `ProviderMapping`: one provider that holds an item; the first listed plays first. */
+export const providerMapping = z.looseObject({
+  item_id: z.string(),
+  provider_domain: z.string(),
+  provider_instance: z.string(),
+  available: booleanOr(true),
+});
+export type ProviderMapping = z.infer<typeof providerMapping>;
+
 const mediaItemFields = {
   item_id: z.string(),
   provider: z.string(),
@@ -36,6 +45,7 @@ const mediaItemFields = {
   sort_name: z.nullish(z.string()),
   favorite: booleanOr(false),
   metadata,
+  provider_mappings: arrayOr(providerMapping),
 };
 
 export const artist = z.looseObject({ ...mediaItemFields });

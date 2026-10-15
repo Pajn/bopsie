@@ -102,7 +102,7 @@ library_commands! {
     PlaylistItems, PlaylistCount, "playlists", MediaType::Playlist;
 }
 
-fn to_value(item: impl Serialize) -> Result<Value> {
+pub(crate) fn to_value(item: impl Serialize) -> Result<Value> {
     serde_json::to_value(item).map_err(|error| {
         tracing::error!(%error, "serializing a media item");
         Error::unexpected()

@@ -6,6 +6,7 @@ import { ScrollView } from 'react-native';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { ItemRow } from '@/features/library/ItemRow';
 import { PlayButtons, TargetPicker } from '@/features/library/PlayButtons';
+import { Suggestions } from '@/features/library/Suggestions';
 import { describeError } from '@/lib/errors';
 import { Button, Card, InlineError, Stack, Text, TextField } from '@/ui/primitives';
 
@@ -20,7 +21,8 @@ const PAGE = 100;
 
 export default function LibraryScreen() {
   const { account, connection } = useConnection();
-  const [kind, setKind] = useState<LibraryKind>('albums');
+  const [tab, setTab] = useState<LibraryKind | 'suggestions'>('albums');
+  const kind = tab === 'suggestions' ? 'albums' : tab;
   const [search, setSearch] = useState('');
   const items = useInfiniteQuery({
     queryKey: queryKeys.libraryList(account.id, kind, search),
@@ -29,6 +31,7 @@ export default function LibraryScreen() {
     initialPageParam: 0,
     getNextPageParam: (last, pages) =>
       last.length < PAGE ? undefined : pages.reduce((n, page) => n + page.length, 0),
+    enabled: tab !== 'suggestions',
   });
   const all = items.data?.pages.flat() ?? [];
 
@@ -42,27 +45,38 @@ export default function LibraryScreen() {
             <Button
               key={k.kind}
               title={k.title}
-              variant={k.kind === kind ? 'primary' : 'secondary'}
-              onPress={() => setKind(k.kind)}
+              variant={k.kind === tab ? 'primary' : 'secondary'}
+              onPress={() => setTab(k.kind)}
             />
           ))}
+          <Button
+            title="Suggestions"
+            variant={tab === 'suggestions' ? 'primary' : 'secondary'}
+            onPress={() => setTab('suggestions')}
+          />
         </Stack>
-        <TextField label="Search" value={search} onChangeText={setSearch} autoCorrect={false} />
-        <InlineError message={items.error ? describeError(items.error) : null} />
-        <Card>
-          {items.isSuccess && all.length === 0 ? <Text muted>Nothing here.</Text> : null}
-          {all.map((item) => (
-            <ItemRow key={item.uri} item={item} actions={<PlayButtons uri={item.uri} />} />
-          ))}
-          {items.hasNextPage ? (
-            <Button
-              title="More"
-              variant="secondary"
-              loading={items.isFetchingNextPage}
-              onPress={() => void items.fetchNextPage()}
-            />
-          ) : null}
-        </Card>
+        {tab === 'suggestions' ? (
+          <Suggestions />
+        ) : (
+          <>
+            <TextField label="Search" value={search} onChangeText={setSearch} autoCorrect={false} />
+            <InlineError message={items.error ? describeError(items.error) : null} />
+            <Card>
+              {items.isSuccess && all.length === 0 ? <Text muted>Nothing here.</Text> : null}
+              {all.map((item) => (
+                <ItemRow key={item.uri} item={item} actions={<PlayButtons uri={item.uri} />} />
+              ))}
+              {items.hasNextPage ? (
+                <Button
+                  title="More"
+                  variant="secondary"
+                  loading={items.isFetchingNextPage}
+                  onPress={() => void items.fetchNextPage()}
+                />
+              ) : null}
+            </Card>
+          </>
+        )}
       </Stack>
     </ScrollView>
   );

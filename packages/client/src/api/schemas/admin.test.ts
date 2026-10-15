@@ -1,4 +1,4 @@
-import { adminDevice, adminGroup } from './admin';
+import { adminDevice, adminGroup, librarySuggestion } from './admin';
 
 test('an admin device reads as the server writes it', () => {
   const parsed = adminDevice.parse({
@@ -85,4 +85,29 @@ test('an admin device reads as the server writes it', () => {
 
 test('a group without a plan reads', () => {
   expect(adminGroup.parse({ leader: 'kitchen', members: ['bedroom'], plan: null }).plan).toBeNull();
+});
+
+test('a suggestion reads both albums and their sources', () => {
+  const side = (id: string, instance: string) => ({
+    item_id: id,
+    provider: 'library',
+    name: 'First Album (Deluxe)',
+    uri: `library://album/${id}`,
+    media_type: 'album',
+    artists: [],
+    provider_mappings: [
+      { item_id: `held-${id}`, provider_domain: 'spotify', provider_instance: instance },
+    ],
+  });
+  const parsed = librarySuggestion.parse({
+    id: 3,
+    media_type: 'album',
+    a: side('1', 'filesystem_local--abc'),
+    b: side('2', 'spotify--def'),
+    reason: '3 of 4 tracks are the same, in another edition',
+    decision: null,
+  });
+  expect(parsed.b.provider_mappings[0]?.provider_instance).toBe('spotify--def');
+  expect(parsed.a.metadata.images).toEqual([]);
+  expect(parsed.decision).toBeNull();
 });

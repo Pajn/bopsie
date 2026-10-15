@@ -18,6 +18,7 @@ import { useTreeColors } from '@/debug/treeColors';
 import { EditItem } from '@/features/library/EditItem';
 import { type Item, ItemRow } from '@/features/library/ItemRow';
 import { PlayButtons, TargetPicker } from '@/features/library/PlayButtons';
+import { Sources } from '@/features/library/Sources';
 import { describeError } from '@/lib/errors';
 import { Card, InlineError, Stack, Text } from '@/ui/primitives';
 
@@ -72,6 +73,7 @@ export default function ItemScreen() {
         {item.data && provider === 'library' && KINDS.includes(kind as Kind) ? (
           <EditItem key={item.data.uri} item={item.data} kind={kind as Kind} />
         ) : null}
+        {item.data && provider === 'library' ? <Sources item={item.data} /> : null}
         {contents.data?.albums.length ? (
           <Card title="Albums">
             {contents.data.albums.map((album) => (

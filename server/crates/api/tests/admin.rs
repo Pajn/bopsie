@@ -576,6 +576,45 @@ async fn an_album_edited_by_an_admin_reaches_every_client() {
     assert_eq!(code, 3, "invalid data");
 }
 
+#[tokio::test]
+async fn suggestions_decisions_and_separating_are_for_admins() {
+    let (server, token) = start_set_up().await;
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    assert_eq!(
+        client
+            .result("admin/library/suggestions", json!({"all": true}))
+            .await,
+        json!([])
+    );
+    let code = client
+        .error_code(
+            "admin/library/decide",
+            json!({"id": 1, "decision": "merge"}),
+        )
+        .await;
+    assert_eq!(code, 2, "no such suggestion");
+    let code = client
+        .error_code(
+            "admin/library/decide",
+            json!({"id": 1, "decision": "maybe"}),
+        )
+        .await;
+    assert_eq!(code, 3, "invalid data");
+    let albums = client.result("music/albums/library_items", json!({})).await;
+    let first = albums[0]["item_id"].as_str().unwrap().to_owned();
+    // Held by the files alone, there is nothing to separate.
+    assert_eq!(
+        client
+            .result(
+                "admin/library/separate",
+                json!({"item_id": first, "provider_instance": "streamed"}),
+            )
+            .await,
+        json!({"item_id": null})
+    );
+}
+
 fn png() -> Vec<u8> {
     let mut bytes = Vec::new();
     image::RgbImage::from_pixel(4, 4, image::Rgb([200, 30, 30]))

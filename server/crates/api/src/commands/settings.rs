@@ -4,7 +4,7 @@
 
 use bopsie_core::{Error, ErrorCode, Result};
 use schemars::JsonSchema;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::auth::Scope;
@@ -226,5 +226,116 @@ impl Command for LibraryEdits {
             .library
             .edits(media_type(&args.media_type)?, item_id(&args.item_id)?)
             .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LibrarySuggestionsArgs {
+    /// Also those already decided.
+    #[serde(default)]
+    pub all: bool,
+}
+
+/// Two items that may be the same, and what a person decided of them.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LibrarySuggestion {
+    pub id: i64,
+    /// `album`, for now.
+    pub media_type: String,
+    /// The two items, as `music/<kind>s/get` serves them.
+    pub a: Value,
+    pub b: Value,
+    /// Why they may be the same, as a person reads it.
+    pub reason: String,
+    /// `merge`, `apart`, or `null` while undecided.
+    pub decision: Option<String>,
+}
+
+pub struct LibrarySuggestions;
+impl Command for LibrarySuggestions {
+    const NAME: &'static str = "admin/library/suggestions";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str =
+        "Items from different providers that may be the same, for a person to merge or keep apart.";
+    type Args = LibrarySuggestionsArgs;
+    type Output = Vec<LibrarySuggestion>;
+
+    async fn handle(ctx: Context, args: LibrarySuggestionsArgs) -> Result<Vec<LibrarySuggestion>> {
+        let library = &ctx.api.library;
+        let mut out = Vec::new();
+        for suggestion in library.suggestions(args.all).await? {
+            let (Some(a), Some(b)) = (
+                library.item(suggestion.media_type, suggestion.a).await?,
+                library.item(suggestion.media_type, suggestion.b).await?,
+            ) else {
+                continue;
+            };
+            out.push(LibrarySuggestion {
+                id: suggestion.id,
+                media_type: suggestion.media_type.as_str().to_owned(),
+                a: super::music::to_value(a)?,
+                b: super::music::to_value(b)?,
+                reason: suggestion.reason,
+                decision: suggestion.decision,
+            });
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LibraryDecideArgs {
+    /// The suggestion's id.
+    pub id: i64,
+    /// `merge` to make the two one now, `apart` to keep them apart. Either holds at every
+    /// later sync.
+    pub decision: String,
+}
+
+pub struct LibraryDecide;
+impl Command for LibraryDecide {
+    const NAME: &'static str = "admin/library/decide";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str = "Merge the two items of a suggestion, or keep them apart.";
+    type Args = LibraryDecideArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: LibraryDecideArgs) -> Result<()> {
+        ctx.api.library.decide(args.id, args.decision).await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LibrarySeparateArgs {
+    /// The album's library id.
+    pub item_id: String,
+    /// The provider instance to take back out of it, as its `provider_mappings` name it.
+    pub provider_instance: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct Separated {
+    /// The album the provider now has, or `null` when it did not share the album.
+    pub item_id: Option<String>,
+}
+
+pub struct LibrarySeparate;
+impl Command for LibrarySeparate {
+    const NAME: &'static str = "admin/library/separate";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str =
+        "Take one provider back out of a merged album, into an album of its own kept apart.";
+    type Args = LibrarySeparateArgs;
+    type Output = Separated;
+
+    async fn handle(ctx: Context, args: LibrarySeparateArgs) -> Result<Separated> {
+        let album = ctx
+            .api
+            .library
+            .separate(item_id(&args.item_id)?, args.provider_instance)
+            .await?;
+        Ok(Separated {
+            item_id: album.map(|id| id.to_string()),
+        })
     }
 }
