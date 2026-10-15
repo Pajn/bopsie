@@ -119,6 +119,10 @@ pub(crate) fn album_facts(tx: &Connection, id: i64) -> Result<(AlbumFacts, Vec<i
     Ok((facts, track_ids))
 }
 
+// The id pairs below name their index: without statistics, SQLite walks the primary key for
+// both sides instead, which on a library of some thousands of tracks takes seconds, and holds
+// up every other read and write meanwhile.
+
 /// Pairs of albums, from providers apart, that may be the same: of the same name, but for its
 /// version, and an album artist; or tied by an id.
 fn candidates(tx: &Connection) -> Result<BTreeSet<(i64, i64)>> {
@@ -158,7 +162,7 @@ fn candidates(tx: &Connection) -> Result<BTreeSet<(i64, i64)>> {
     }
     let mut statement = tx.prepare(
         "SELECT DISTINCT x.item_id, y.item_id FROM external_ids x
-         JOIN external_ids y ON y.kind = x.kind AND y.value = x.value AND y.item_id > x.item_id
+         JOIN external_ids y INDEXED BY external_ids_value ON y.kind = x.kind AND y.value = x.value AND y.item_id > x.item_id
          WHERE x.media_type = 'album' AND y.media_type = 'album' AND x.kind IN (?1, ?2, ?3)",
     )?;
     let linked = statement.query_map(
@@ -345,7 +349,7 @@ fn track_facts(tx: &Connection, id: i64) -> Result<Option<(TrackFacts, Option<i6
 fn reconcile_tracks(tx: &Connection, changes: &mut Changes) -> Result<()> {
     let mut statement = tx.prepare(
         "SELECT DISTINCT x.item_id, y.item_id FROM external_ids x
-         JOIN external_ids y ON y.kind = x.kind AND y.value = x.value AND y.item_id > x.item_id
+         JOIN external_ids y INDEXED BY external_ids_value ON y.kind = x.kind AND y.value = x.value AND y.item_id > x.item_id
          WHERE x.media_type = 'track' AND y.media_type = 'track' AND x.kind IN (?1, ?2)
          UNION
          SELECT a.id, b.id FROM tracks a
