@@ -1,6 +1,7 @@
 //! The `MusicProvider` trait: a source of music the library scans. Methods block, and the
 //! scanner calls them on blocking threads.
 
+use bopsie_audio::engine::Input;
 use bopsie_core::media::AudioFormat;
 
 #[derive(Debug, thiserror::Error)]
@@ -94,4 +95,8 @@ pub trait MusicProvider: Send + Sync + 'static {
     fn image(&self, path: &str) -> Result<Vec<u8>, ProviderError>;
     /// The local file a track plays from, if the provider has one.
     fn file(&self, id: &str) -> Option<std::path::PathBuf>;
+    /// What a track plays from: its file, or, for a provider that streams, its stream.
+    fn media(&self, id: &str) -> Option<Input> {
+        self.file(id).map(Input::File)
+    }
 }

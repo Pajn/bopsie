@@ -5,7 +5,7 @@
 //! up to the higher of the two can be moved or removed, and new items go after it, so an edit
 //! never pulls the next track out from under the player.
 
-use std::path::PathBuf;
+use bopsie_audio::engine::Input;
 use std::time::Duration;
 
 use bopsie_core::media::Track;
@@ -53,8 +53,8 @@ pub struct QueueItem {
     /// Order of insertion, which turning shuffle off restores.
     pub sort_index: u64,
     pub track: Track,
-    /// The file the track plays from.
-    pub path: PathBuf,
+    /// What the track plays from: a file, or a provider's stream.
+    pub input: Input,
 }
 
 /// What the player must do after an operation.
@@ -151,16 +151,16 @@ impl Queue {
         Some(index + 1)
     }
 
-    fn make_items(&mut self, tracks: Vec<(Track, PathBuf)>) -> Vec<QueueItem> {
+    fn make_items(&mut self, tracks: Vec<(Track, Input)>) -> Vec<QueueItem> {
         tracks
             .into_iter()
-            .map(|(track, path)| {
+            .map(|(track, input)| {
                 self.next_sort_index += 1;
                 QueueItem {
                     queue_item_id: uuid::Uuid::new_v4().simple().to_string(),
                     sort_index: self.next_sort_index,
                     track,
-                    path,
+                    input,
                 }
             })
             .collect()
@@ -190,7 +190,7 @@ impl Queue {
     /// Adds tracks as `option` says.
     pub fn enqueue(
         &mut self,
-        tracks: Vec<(Track, PathBuf)>,
+        tracks: Vec<(Track, Input)>,
         option: QueueOption,
         rng: &mut impl Rng,
     ) -> Effect {
@@ -463,13 +463,15 @@ impl Queue {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use bopsie_core::media::{ItemFields, MediaType, Metadata};
     use rand::SeedableRng;
     use rand::rngs::StdRng;
 
     use super::*;
 
-    fn track(name: &str) -> (Track, PathBuf) {
+    fn track(name: &str) -> (Track, Input) {
         let track = Track {
             fields: ItemFields {
                 item_id: name.to_owned(),
@@ -495,10 +497,10 @@ mod tests {
             track_number: 0,
             audio_metadata: None,
         };
-        (track, PathBuf::from(format!("{name}.wav")))
+        (track, PathBuf::from(format!("{name}.wav")).into())
     }
 
-    fn tracks(names: &str) -> Vec<(Track, PathBuf)> {
+    fn tracks(names: &str) -> Vec<(Track, Input)> {
         names.chars().map(|c| track(&c.to_string())).collect()
     }
 

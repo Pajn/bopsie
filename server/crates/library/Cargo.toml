@@ -6,6 +6,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+bopsie-audio.workspace = true
 bopsie-core.workspace = true
 hex.workspace = true
 rusqlite.workspace = true

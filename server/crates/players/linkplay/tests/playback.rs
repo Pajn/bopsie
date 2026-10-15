@@ -5,7 +5,6 @@
 mod common;
 
 use std::io;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -156,7 +155,7 @@ impl Setup {
         self.playback.player(id, None).unwrap()
     }
 
-    fn track(&self) -> (Track, PathBuf) {
+    fn track(&self) -> (Track, bopsie_audio::engine::Input) {
         let path = self.dir.path().join("a.wav");
         write_wav(&path, 44_100, 2, &noise(1, 44_100 * 2 * 5)).unwrap();
         let track = Track {
@@ -184,7 +183,7 @@ impl Setup {
             track_number: 0,
             audio_metadata: None,
         };
-        (track, path)
+        (track, path.into())
     }
 }
 

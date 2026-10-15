@@ -594,7 +594,7 @@ impl Playback {
     /// idle where they were.
     pub async fn persist(&self, db: Database, library: Library) -> Result<()> {
         let saved = store::load(&db).await?;
-        let mut found: HashMap<String, Option<(Track, PathBuf)>> = HashMap::new();
+        let mut found: HashMap<String, Option<(Track, Input)>> = HashMap::new();
         for queue in saved.queues.values() {
             for item in &queue.items {
                 if !found.contains_key(&item.uri) {
@@ -1335,7 +1335,7 @@ impl Playback {
     pub fn play_media(
         &self,
         queue_id: &str,
-        tracks: Vec<(Track, PathBuf)>,
+        tracks: Vec<(Track, Input)>,
         option: QueueOption,
         start_at: Option<usize>,
     ) -> Result<()> {

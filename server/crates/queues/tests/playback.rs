@@ -75,11 +75,11 @@ fn path(dir: &Path, index: usize) -> PathBuf {
 }
 
 impl Fixture {
-    fn tracks(&self) -> Vec<(Track, PathBuf)> {
+    fn tracks(&self) -> Vec<(Track, bopsie_audio::engine::Input)> {
         (0..self.samples.len())
             .map(|i| {
                 let name = ((b'a' + i as u8) as char).to_string();
-                (track(&name), path(self.dir.path(), i))
+                (track(&name), path(self.dir.path(), i).into())
             })
             .collect()
     }

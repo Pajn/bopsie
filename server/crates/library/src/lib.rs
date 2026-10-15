@@ -8,6 +8,7 @@ pub mod scan;
 mod schema;
 pub mod search;
 
+use bopsie_audio::engine::Input;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -136,8 +137,8 @@ impl Library {
             .await
     }
 
-    /// The file the track plays from: the first of its providers that has one.
-    pub async fn track_file(&self, track_id: i64) -> Result<Option<PathBuf>> {
+    /// What the track plays from: the first of its providers that can play it.
+    pub async fn track_media(&self, track_id: i64) -> Result<Option<Input>> {
         let mappings: Vec<(String, String)> = self
             .read(move |conn| {
                 let mut statement = conn.prepare(
@@ -155,16 +156,16 @@ impl Library {
                 providers
                     .iter()
                     .find(|p| p.instance_id() == instance)?
-                    .file(item)
+                    .media(item)
             })
         })
         .await
     }
 
-    /// The tracks a `library://` URI stands for, with the files they play from: a track
-    /// itself, an album's or artist's tracks, or a playlist's, in order. Tracks without a file
-    /// are left out.
-    pub async fn playable(&self, uri: &str) -> Result<Vec<(Track, PathBuf)>> {
+    /// The tracks a `library://` URI stands for, with what they play from: a track itself, an
+    /// album's or artist's tracks, or a playlist's, in order. Tracks nothing can play are left
+    /// out.
+    pub async fn playable(&self, uri: &str) -> Result<Vec<(Track, Input)>> {
         let not_found = || {
             Error::new(
                 bopsie_core::ErrorCode::MediaNotFound,
@@ -186,8 +187,8 @@ impl Library {
             let Ok(track_id) = track.fields.item_id.parse() else {
                 continue;
             };
-            if let Some(file) = self.track_file(track_id).await? {
-                playable.push((track, file));
+            if let Some(media) = self.track_media(track_id).await? {
+                playable.push((track, media));
             }
         }
         Ok(playable)

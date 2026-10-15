@@ -3,9 +3,9 @@
 //! library knows it at the next start, and one the library lost is dropped.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::time::Duration;
 
+use bopsie_audio::engine::Input;
 use bopsie_core::db::{Database, Migrations};
 use bopsie_core::media::Track;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,6 @@ pub struct SavedItem {
     pub queue_item_id: String,
     pub sort_index: u64,
     pub uri: String,
-    pub path: PathBuf,
 }
 
 /// A queue as it is kept.
@@ -60,7 +59,6 @@ impl SavedQueue {
                     queue_item_id: item.queue_item_id.clone(),
                     sort_index: item.sort_index,
                     uri: item.track.fields.uri.clone(),
-                    path: item.path.clone(),
                 })
                 .collect(),
             current_index: queue.current_index,
@@ -73,12 +71,12 @@ impl SavedQueue {
     /// The queue again, idle where it was, with each item's track as `resolve` finds it now.
     /// Items whose track is gone are dropped; if the current one is, the queue rests on the
     /// next that is left, from its start.
-    pub fn restore(&self, mut resolve: impl FnMut(&str) -> Option<(Track, PathBuf)>) -> Queue {
+    pub fn restore(&self, mut resolve: impl FnMut(&str) -> Option<(Track, Input)>) -> Queue {
         let mut current = None;
         let mut position = Duration::from_millis(self.position_ms);
         let mut items = Vec::new();
         for (index, saved) in self.items.iter().enumerate() {
-            let Some((track, path)) = resolve(&saved.uri) else {
+            let Some((track, input)) = resolve(&saved.uri) else {
                 if Some(index) == self.current_index {
                     position = Duration::ZERO;
                 }
@@ -91,7 +89,7 @@ impl SavedQueue {
                 queue_item_id: saved.queue_item_id.clone(),
                 sort_index: saved.sort_index,
                 track,
-                path,
+                input,
             });
         }
         if current.is_none() {
@@ -204,6 +202,8 @@ pub async fn save_volumes(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use bopsie_core::media::{ItemFields, MediaType, Metadata};
 
@@ -244,7 +244,6 @@ mod tests {
                     queue_item_id: format!("q{i}"),
                     sort_index: i as u64 + 1,
                     uri: (*uri).to_owned(),
-                    path: PathBuf::from(format!("/music/{uri}.flac")),
                 })
                 .collect(),
             current_index: current,
@@ -254,12 +253,20 @@ mod tests {
         }
     }
 
-    fn resolve_all_but<'a>(
-        gone: &'a [&'a str],
-    ) -> impl FnMut(&str) -> Option<(Track, PathBuf)> + 'a {
+    fn resolve_all_but<'a>(gone: &'a [&'a str]) -> impl FnMut(&str) -> Option<(Track, Input)> + 'a {
         move |uri| {
-            (!gone.contains(&uri)).then(|| (track(uri), PathBuf::from(format!("/new/{uri}.flac"))))
+            (!gone.contains(&uri))
+                .then(|| (track(uri), PathBuf::from(format!("/new/{uri}.flac")).into()))
         }
+    }
+
+    #[test]
+    fn a_queue_kept_with_its_files_paths_still_reads() {
+        let kept = r#"{"items":[{"queue_item_id":"q0","sort_index":1,"uri":"a",
+            "path":"/music/a.flac"}],"current_index":0,"shuffle_enabled":false,
+            "repeat_mode":"off","position_ms":0}"#;
+        let saved: SavedQueue = serde_json::from_str(kept).unwrap();
+        assert_eq!(saved.items[0].uri, "a");
     }
 
     #[test]
@@ -272,8 +279,8 @@ mod tests {
         assert!(queue.shuffle_enabled);
         assert_eq!(queue.repeat_mode, RepeatMode::All);
         assert_eq!(
-            queue.items[2].path,
-            PathBuf::from("/new/c.flac"),
+            queue.items[2].input,
+            Input::File(PathBuf::from("/new/c.flac")),
             "as the library has it"
         );
         assert_eq!(
@@ -304,7 +311,7 @@ mod tests {
         let mut queue = saved(None).restore(resolve_all_but(&[]));
         let mut rng = rand::rng();
         queue.enqueue(
-            vec![(track("d"), PathBuf::from("/d.flac"))],
+            vec![(track("d"), PathBuf::from("/d.flac").into())],
             crate::QueueOption::Add,
             &mut rng,
         );

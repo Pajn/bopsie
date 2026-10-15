@@ -112,7 +112,12 @@ async fn a_speaker_whose_process_dies_mid_song_rejoins() {
     eventually(|| playback.player(ID, None).is_some()).await;
 
     playback
-        .play_media(ID, vec![(track("a"), path)], QueueOption::Replace, None)
+        .play_media(
+            ID,
+            vec![(track("a"), path.into())],
+            QueueOption::Replace,
+            None,
+        )
         .unwrap();
     eventually(|| starts(&capture) == 1).await;
     eventually(|| capture.join("exited").exists()).await;
