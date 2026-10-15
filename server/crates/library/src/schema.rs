@@ -161,5 +161,20 @@ pub const MIGRATIONS: Migrations = Migrations {
             UNIQUE (media_type, a, b)
         ) STRICT;
     ",
+        "
+        -- When a metadata service such as MusicBrainz was last asked about each album.
+        ALTER TABLE albums ADD COLUMN metadata_checked INTEGER;
+
+        -- A release an album looks like but was not certain enough to take, for a person to
+        -- accept or reject: 'accept' or 'reject'.
+        CREATE TABLE release_suggestions (
+            album_id INTEGER PRIMARY KEY,
+            release_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            distance REAL NOT NULL,
+            decision TEXT,
+            created INTEGER NOT NULL
+        ) STRICT;
+    ",
     ],
 };

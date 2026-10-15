@@ -3,6 +3,7 @@
 
 pub mod catalog;
 pub mod edit;
+pub mod enrich;
 pub mod ids;
 pub mod matching;
 pub mod provider;
@@ -552,6 +553,88 @@ impl Library {
             .await?;
         self.publish(&changes, false).await?;
         Ok(album)
+    }
+
+    /// Albums a metadata service was not asked about since `before`, those with files first.
+    pub async fn albums_due(&self, before: i64, limit: usize) -> Result<Vec<i64>> {
+        self.read(move |conn| enrich::due(conn, before, limit))
+            .await
+    }
+
+    /// What is known of album `id` to find it on a metadata service by.
+    pub async fn album_to_match(&self, id: i64) -> Result<Option<enrich::AlbumToMatch>> {
+        self.read(move |conn| enrich::album_to_match(conn, id))
+            .await
+    }
+
+    /// The release a person decided on for album `id`, and their decision.
+    pub async fn release_decision(&self, id: i64) -> Result<Option<(String, String)>> {
+        self.read(move |conn| enrich::release_decision(conn, id))
+            .await
+    }
+
+    /// Records that album `id` was asked about now, and what it looks like but was not certain
+    /// enough to take, if anything.
+    pub async fn album_checked(
+        &self,
+        id: i64,
+        suggestion: Option<(String, String, f64)>,
+    ) -> Result<()> {
+        self.db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                if let Some((release, title, distance)) = suggestion {
+                    enrich::suggest_release(&tx, id, &release, &title, distance, now())?;
+                }
+                enrich::checked(&tx, id, now())?;
+                tx.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(Error::from)
+    }
+
+    /// Keeps what album `id` was identified as, then merges what its new ids tie it to.
+    pub async fn identify(&self, id: i64, identified: enrich::Identified) -> Result<()> {
+        let _syncing = self.syncing.lock().await;
+        let changes = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut changes = Changes::default();
+                enrich::identify(&tx, id, &identified, now(), &mut changes)?;
+                reconcile::reconcile(&tx, now(), &mut changes)?;
+                edit::apply_all(&tx)?;
+                scan::prune(&tx, &mut changes)?;
+                tx.commit()?;
+                Ok(changes)
+            })
+            .await?;
+        self.publish(&changes, false).await
+    }
+
+    /// Releases suggested for albums; with decided ones too when `all`.
+    pub async fn release_suggestions(&self, all: bool) -> Result<Vec<enrich::ReleaseSuggestion>> {
+        self.read(move |conn| enrich::release_suggestions(conn, all))
+            .await
+    }
+
+    /// Accepts or rejects the release suggested for album `id`. An accepted one is taken the
+    /// next time metadata is looked up.
+    pub async fn decide_release(&self, id: i64, decision: String) -> Result<()> {
+        if ![enrich::ACCEPT, enrich::REJECT].contains(&decision.as_str()) {
+            return Err(Error::invalid_data(format!("No decision {decision}")));
+        }
+        self.db
+            .call(move |conn| Ok(enrich::decide_release(conn, id, &decision)?))
+            .await?
+            .map(|_| ())
+            .ok_or_else(|| {
+                Error::new(
+                    bopsie_core::ErrorCode::MediaNotFound,
+                    format!("No release suggested for album {id}"),
+                )
+            })
     }
 
     /// Whether a sync is running now.

@@ -4,6 +4,7 @@ members = [
     "crates/core",
     "crates/audio",
     "crates/library",
+    "crates/metadata",
     "crates/providers/filesystem",
     "crates/players",
     "crates/players/airplay",
@@ -26,6 +27,7 @@ publish = false
 bopsie-core = { path = "crates/core" }
 bopsie-audio = { path = "crates/audio" }
 bopsie-library = { path = "crates/library" }
+bopsie-metadata = { path = "crates/metadata" }
 bopsie-providers-filesystem = { path = "crates/providers/filesystem" }
 bopsie-players = { path = "crates/players" }
 bopsie-players-airplay = { path = "crates/players/airplay" }

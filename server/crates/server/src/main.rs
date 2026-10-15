@@ -18,6 +18,8 @@ use bopsie_core::events::EventBus;
 use bopsie_core::logtail::Tail;
 use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
+use bopsie_metadata::job::Enricher;
+use bopsie_metadata::musicbrainz::{self, MusicBrainz};
 use bopsie_players::planner::Policy;
 use bopsie_players::{Devices, Players};
 use bopsie_players_airplay::{AirplayProvider, Config as AirplayConfig};
@@ -89,6 +91,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         bopsie_api::MIGRATIONS,
         &[
             bopsie_library::MIGRATIONS,
+            bopsie_metadata::MIGRATIONS,
             bopsie_players_airplay::MIGRATIONS,
             bopsie_players::devices::MIGRATIONS,
             bopsie_queues::store::MIGRATIONS,
@@ -170,7 +173,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         ffmpeg: ffmpeg_found,
         logs,
     };
-    let api = Api::new(db, config.clone(), services, commands::registry()).await?;
+    let api = Api::new(db.clone(), config.clone(), services, commands::registry()).await?;
     let spotify = config.spotify.enabled.then(|| {
         SpotifyConnect::start(
             SpotifyConfig {
@@ -214,6 +217,20 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         .into_future(),
     );
 
+    // Albums are looked up on MusicBrainz after each sync, in the background: at a request a
+    // second, a large library takes a while the first time.
+    let enricher = config.metadata.musicbrainz.then(|| {
+        Enricher::new(
+            library.clone(),
+            MusicBrainz::new(
+                db.clone(),
+                musicbrainz::BASE,
+                config.metadata.contact.as_deref(),
+            ),
+        )
+    });
+    let enriching = Arc::new(tokio::sync::Mutex::new(()));
+
     // The API serves the library as it was while the scan catches up. Spotify's saved music
     // changes without the server hearing of it, so the library syncs again now and then.
     tokio::spawn(async move {
@@ -222,6 +239,14 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
             every.tick().await;
             if let Err(error) = library.sync().await {
                 tracing::error!(%error, "library sync failed");
+            }
+            if let (Some(enricher), Ok(running)) =
+                (enricher.clone(), enriching.clone().try_lock_owned())
+            {
+                tokio::spawn(async move {
+                    enricher.run().await;
+                    drop(running);
+                });
             }
         }
     });

@@ -603,6 +603,19 @@ async fn suggestions_decisions_and_separating_are_for_admins() {
     assert_eq!(code, 3, "invalid data");
     let albums = client.result("music/albums/library_items", json!({})).await;
     let first = albums[0]["item_id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        client
+            .result("admin/library/release_suggestions", json!({}))
+            .await,
+        json!([])
+    );
+    let code = client
+        .error_code(
+            "admin/library/decide_release",
+            json!({"item_id": first, "decision": "accept"}),
+        )
+        .await;
+    assert_eq!(code, 2, "nothing suggested");
     // Held by the files alone, there is nothing to separate.
     assert_eq!(
         client

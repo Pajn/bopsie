@@ -10,6 +10,7 @@ rustls.workspace = true
 bopsie-core.workspace = true
 bopsie-audio.workspace = true
 bopsie-library.workspace = true
+bopsie-metadata.workspace = true
 bopsie-providers-filesystem.workspace = true
 bopsie-players.workspace = true
 bopsie-players-airplay.workspace = true

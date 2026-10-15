@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bopsie_core::db::{self, Database};
+use bopsie_core::pace::Pacer;
 use futures::StreamExt;
 use librespot_core::cache::Cache;
 use librespot_core::config::DeviceType;
@@ -32,7 +33,7 @@ const CLIENT_ID: &str = "spotify.client_id";
 const REFRESH_TOKEN: &str = "spotify.refresh_token";
 const WEB_USER: &str = "spotify.web_user";
 /// How many calls may go at once before pacing starts, and how often one may go after.
-const BURST: f64 = 5.0;
+const BURST: u32 = 5;
 const PACE: Duration = Duration::from_secs(1);
 /// The longest a rate-limited call waits before it gives up.
 const LONGEST_WAIT: Duration = Duration::from_secs(120);
@@ -105,26 +106,6 @@ struct Web {
     pending: Option<Pending>,
 }
 
-struct Throttle {
-    tokens: f64,
-    at: Instant,
-}
-
-impl Throttle {
-    /// How long to wait before the next call, taking its turn.
-    fn take(&mut self, now: Instant) -> Duration {
-        let refilled = (now - self.at).as_secs_f64() / PACE.as_secs_f64();
-        self.tokens = (self.tokens + refilled).min(BURST);
-        self.at = now;
-        self.tokens -= 1.0;
-        if self.tokens >= 0.0 {
-            Duration::ZERO
-        } else {
-            PACE.mul_f64(-self.tokens)
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct SpotifyAccount {
     inner: Arc<Inner>,
@@ -136,7 +117,7 @@ struct Inner {
     endpoints: Endpoints,
     http: reqwest::Client,
     web: Mutex<Web>,
-    throttle: tokio::sync::Mutex<Throttle>,
+    throttle: tokio::sync::Mutex<Pacer>,
     session: tokio::sync::Mutex<Option<Session>>,
     pairing: Mutex<Option<JoinHandle<()>>>,
     error: Mutex<Option<String>>,
@@ -209,10 +190,7 @@ impl SpotifyAccount {
                 endpoints,
                 http: reqwest::Client::new(),
                 web: Mutex::new(web),
-                throttle: tokio::sync::Mutex::new(Throttle {
-                    tokens: BURST,
-                    at: Instant::now(),
-                }),
+                throttle: tokio::sync::Mutex::new(Pacer::new(PACE, BURST)),
                 session: tokio::sync::Mutex::default(),
                 pairing: Mutex::default(),
                 error: Mutex::default(),
@@ -418,8 +396,7 @@ impl SpotifyAccount {
         let mut refreshed = false;
         let mut retried = 0;
         loop {
-            let wait = self.inner.throttle.lock().await.take(Instant::now());
-            tokio::time::sleep(wait).await;
+            Pacer::wait(&self.inner.throttle).await;
             let token = self.access_token(false).await?;
             let response = self
                 .inner
@@ -616,22 +593,5 @@ mod tests {
         assert_eq!(base64url(b"foo"), "Zm9v");
         assert_eq!(base64url(b"foob"), "Zm9vYg");
         assert_eq!(base64url(&[0xfb, 0xff]), "-_8");
-    }
-
-    #[test]
-    fn calls_are_paced_after_a_burst() {
-        let start = Instant::now();
-        let mut throttle = Throttle {
-            tokens: BURST,
-            at: start,
-        };
-        for _ in 0..5 {
-            assert_eq!(throttle.take(start), Duration::ZERO);
-        }
-        assert_eq!(throttle.take(start), PACE);
-        assert_eq!(throttle.take(start), PACE * 2);
-        // Waiting refills it.
-        let later = start + PACE * 10;
-        assert_eq!(throttle.take(later), Duration::ZERO);
     }
 }

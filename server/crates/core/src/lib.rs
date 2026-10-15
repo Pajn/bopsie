@@ -9,6 +9,7 @@ pub mod error;
 pub mod events;
 pub mod logtail;
 pub mod media;
+pub mod pace;
 pub mod quirks;
 
 pub use error::{Error, ErrorCode, Result};

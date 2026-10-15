@@ -21,6 +21,7 @@ pub struct Config {
     pub linkplay: LinkplayConfig,
     pub spotify: SpotifyConfig,
     pub web: WebConfig,
+    pub metadata: MetadataConfig,
     /// Settings for one player, by player id.
     pub players: BTreeMap<String, PlayerConfig>,
     pub planner: PlannerConfig,
@@ -161,6 +162,36 @@ impl Default for LinkplayConfig {
         Self {
             enabled: true,
             certificate: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MetadataConfig {
+    /// Look albums up on MusicBrainz, for their ids, and the links between the same album on
+    /// different services. One request a second, in the background.
+    pub musicbrainz: bool,
+    /// Give an album without artwork its cover from the Cover Art Archive.
+    pub cover_art: bool,
+    /// Keep albums' and artists' genres from MusicBrainz.
+    pub genres: bool,
+    /// An email address or URL to reach whoever runs this server at, sent to MusicBrainz with
+    /// each request as it asks of the software that calls it.
+    pub contact: Option<String>,
+    /// An AcoustID application key, from acoustid.org: albums MusicBrainz cannot otherwise
+    /// find are then found by their tracks' sound. Needs `fpcalc` (Chromaprint).
+    pub acoustid_key: Option<String>,
+}
+
+impl Default for MetadataConfig {
+    fn default() -> Self {
+        Self {
+            musicbrainz: true,
+            cover_art: true,
+            genres: true,
+            contact: None,
+            acoustid_key: None,
         }
     }
 }

@@ -1,9 +1,14 @@
-import { decideSuggestion, librarySuggestions } from '@bopsie/client/api/endpoints/admin';
+import {
+  decideRelease,
+  decideSuggestion,
+  librarySuggestions,
+  releaseSuggestions,
+} from '@bopsie/client/api/endpoints/admin';
 import type { LibrarySuggestion } from '@bopsie/client/api/schemas/admin';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Linking, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { describeError } from '@/lib/errors';
@@ -24,7 +29,12 @@ export function Suggestions() {
   const queryClient = useQueryClient();
   const key = queryKeys.admin(account.id, 'suggestions');
   const suggestions = useQuery({ queryKey: key, queryFn: () => librarySuggestions(connection) });
-  const [busy, setBusy] = useState<number | null>(null);
+  const releasesKey = queryKeys.admin(account.id, 'release-suggestions');
+  const releases = useQuery({
+    queryKey: releasesKey,
+    queryFn: () => releaseSuggestions(connection),
+  });
+  const [busy, setBusy] = useState<number | string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const decide = async (id: number, decision: 'merge' | 'apart') => {
@@ -41,7 +51,21 @@ export function Suggestions() {
     }
   };
 
-  const error_ = error ?? (suggestions.error ? describeError(suggestions.error) : null);
+  const decideOnRelease = async (albumId: string, decision: 'accept' | 'reject') => {
+    setError(null);
+    setBusy(albumId);
+    try {
+      await decideRelease(connection, albumId, decision);
+      await queryClient.invalidateQueries({ queryKey: releasesKey });
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const failed = suggestions.error ?? releases.error;
+  const error_ = error ?? (failed ? describeError(failed) : null);
   return (
     <Stack gap="md">
       <Text variant="caption" muted>
@@ -49,7 +73,10 @@ export function Suggestions() {
         a sync finds it; these are close but not certain, such as another edition.
       </Text>
       <InlineError message={error_} />
-      {suggestions.isSuccess && suggestions.data.length === 0 ? (
+      {suggestions.isSuccess &&
+      suggestions.data.length === 0 &&
+      releases.isSuccess &&
+      releases.data.length === 0 ? (
         <Card>
           <Text muted>Nothing to decide.</Text>
         </Card>
@@ -82,10 +109,43 @@ export function Suggestions() {
           </Stack>
         </Card>
       ))}
+      {releases.data?.length ? (
+        <Text variant="caption" muted>
+          Albums that look like a release on MusicBrainz, though not closely enough to be sure. A
+          release used gives the album its ids, and ties it to the same album elsewhere.
+        </Text>
+      ) : null}
+      {releases.data?.map((suggestion) => (
+        <Card key={suggestion.album.uri}>
+          <ItemRow item={suggestion.album} />
+          <Text>Looks like {suggestion.title}</Text>
+          <Text
+            variant="caption"
+            style={styles.link}
+            onPress={() => void Linking.openURL(suggestion.url)}
+          >
+            {suggestion.url}
+          </Text>
+          <Stack horizontal gap="xs">
+            <Button
+              title="Use this release"
+              loading={busy === suggestion.album.item_id}
+              onPress={() => void decideOnRelease(suggestion.album.item_id, 'accept')}
+            />
+            <Button
+              title="Not this"
+              variant="secondary"
+              disabled={busy === suggestion.album.item_id}
+              onPress={() => void decideOnRelease(suggestion.album.item_id, 'reject')}
+            />
+          </Stack>
+        </Card>
+      ))}
     </Stack>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
   side: { gap: theme.spacing.xs },
+  link: { color: theme.colors.accent },
 }));

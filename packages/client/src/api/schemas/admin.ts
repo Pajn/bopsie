@@ -177,3 +177,14 @@ export const librarySuggestion = z.looseObject({
   decision: z.nullable(z.enum(['merge', 'apart'])),
 });
 export type LibrarySuggestion = z.infer<typeof librarySuggestion>;
+
+/** A MusicBrainz release an album looks like but was not certain enough to take. */
+export const releaseSuggestion = z.looseObject({
+  album,
+  release_id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  distance: z.number(),
+  decision: z.nullable(z.enum(['accept', 'reject'])),
+});
+export type ReleaseSuggestion = z.infer<typeof releaseSuggestion>;

@@ -629,6 +629,9 @@ pub(crate) fn delete_item(
         "DELETE FROM match_suggestions WHERE media_type = ?1 AND (a = ?2 OR b = ?2)",
         params![media_type.as_str(), id],
     )?;
+    if media_type == MediaType::Album {
+        tx.execute("DELETE FROM release_suggestions WHERE album_id = ?1", [id])?;
+    }
     unindex(tx, media_type, id)?;
     crate::edit::forget(tx, media_type, id)?;
     changes.delete((media_type, id));

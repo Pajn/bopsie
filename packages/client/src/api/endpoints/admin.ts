@@ -1,6 +1,13 @@
 import * as z from 'zod/mini';
 import type { MaConnection } from '../client';
-import { adminDevice, adminGroup, adminServer, librarySuggestion, logLine } from '../schemas/admin';
+import {
+  adminDevice,
+  adminGroup,
+  adminServer,
+  librarySuggestion,
+  logLine,
+  releaseSuggestion,
+} from '../schemas/admin';
 
 /** Every device and its endpoints, with all the server knows of each. Admins only. */
 export const adminDevices = (connection: MaConnection) =>
@@ -100,6 +107,21 @@ export const separateAlbum = (connection: MaConnection, itemId: string, provider
     { item_id: itemId, provider_instance: providerInstance },
     { schema: z.object({ item_id: z.nullable(z.string()) }) },
   );
+
+/** MusicBrainz releases albums look like; with decided ones too when `all`. */
+export const releaseSuggestions = (connection: MaConnection, all = false) =>
+  connection.command(
+    'admin/library/release_suggestions',
+    { all },
+    { schema: z.array(releaseSuggestion) },
+  );
+
+/** Accepts the release suggested for an album, taken at its next lookup, or rejects it. */
+export const decideRelease = (
+  connection: MaConnection,
+  albumId: string,
+  decision: 'accept' | 'reject',
+) => connection.command<void>('admin/library/decide_release', { item_id: albumId, decision });
 
 /** Asks an AirPlay speaker that pairs with a PIN to show one. */
 export const pairStart = (connection: MaConnection, playerId: string) =>

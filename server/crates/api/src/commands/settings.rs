@@ -339,3 +339,77 @@ impl Command for LibrarySeparate {
         })
     }
 }
+
+/// A MusicBrainz release an album looks like, for a person to accept or reject.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ReleaseSuggestion {
+    /// The album, as `music/albums/get` serves it.
+    pub album: Value,
+    pub release_id: String,
+    /// The release as a person reads it: "Artist – Title (year, country, format)".
+    pub title: String,
+    /// Its page on MusicBrainz.
+    pub url: String,
+    /// How far it is from the album: 0 is the same, 1 nothing alike.
+    pub distance: f64,
+    /// `accept`, `reject`, or `null` while undecided.
+    pub decision: Option<String>,
+}
+
+pub struct ReleaseSuggestions;
+impl Command for ReleaseSuggestions {
+    const NAME: &'static str = "admin/library/release_suggestions";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str =
+        "MusicBrainz releases albums look like but were not certain enough to take.";
+    type Args = LibrarySuggestionsArgs;
+    type Output = Vec<ReleaseSuggestion>;
+
+    async fn handle(ctx: Context, args: LibrarySuggestionsArgs) -> Result<Vec<ReleaseSuggestion>> {
+        let library = &ctx.api.library;
+        let mut out = Vec::new();
+        for suggestion in library.release_suggestions(args.all).await? {
+            let Some(album) = library
+                .item(bopsie_core::media::MediaType::Album, suggestion.album_id)
+                .await?
+            else {
+                continue;
+            };
+            out.push(ReleaseSuggestion {
+                album: super::music::to_value(album)?,
+                url: format!("https://musicbrainz.org/release/{}", suggestion.release_id),
+                release_id: suggestion.release_id,
+                title: suggestion.title,
+                distance: suggestion.distance,
+                decision: suggestion.decision,
+            });
+        }
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DecideReleaseArgs {
+    /// The album's library id.
+    pub item_id: String,
+    /// `accept` to take the suggested release at the next lookup, `reject` never to suggest it
+    /// again.
+    pub decision: String,
+}
+
+pub struct DecideRelease;
+impl Command for DecideRelease {
+    const NAME: &'static str = "admin/library/decide_release";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str =
+        "Accept or reject the MusicBrainz release suggested for an album.";
+    type Args = DecideReleaseArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: DecideReleaseArgs) -> Result<()> {
+        ctx.api
+            .library
+            .decide_release(item_id(&args.item_id)?, args.decision)
+            .await
+    }
+}

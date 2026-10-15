@@ -1,0 +1,26 @@
+[package]
+name = "bopsie-metadata"
+description = "What metadata services say of the library: MusicBrainz ids, links between services, cover art and genres."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+bopsie-core.workspace = true
+bopsie-library.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+bopsie-fixtures.workspace = true
+bopsie-providers-filesystem.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

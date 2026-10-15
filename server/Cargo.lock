@@ -460,6 +460,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "bopsie-metadata"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bopsie-core",
+ "bopsie-fixtures",
+ "bopsie-library",
+ "bopsie-providers-filesystem",
+ "reqwest 0.13.5",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "bopsie-players"
 version = "0.1.0"
 dependencies = [
@@ -589,6 +608,7 @@ dependencies = [
  "bopsie-audio",
  "bopsie-core",
  "bopsie-library",
+ "bopsie-metadata",
  "bopsie-players",
  "bopsie-players-airplay",
  "bopsie-players-linkplay",
