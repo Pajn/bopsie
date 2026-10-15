@@ -5,6 +5,7 @@
 //! that are apps, such as Bopsie's own, are not. The credentials of whoever picked a device
 //! are kept in the data directory, so it reconnects after a restart.
 
+pub mod account;
 mod device;
 mod events;
 
@@ -20,6 +21,7 @@ use bopsie_sources::Sources;
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast::error::RecvError;
 
+pub use account::{AccountError, AccountStatus, Endpoints, SpotifyAccount};
 pub use device::ConnectDevice;
 
 #[derive(Debug, Clone)]

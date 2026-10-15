@@ -7,6 +7,7 @@ pub mod music;
 pub mod players;
 pub mod queues;
 pub mod settings;
+pub mod spotify;
 
 use crate::command::Registry;
 
@@ -80,6 +81,12 @@ pub fn registry() -> Registry {
         .add::<settings::PlayerUpdate>()
         .add::<settings::EndpointUpdate>()
         .add::<settings::LibraryUpdate>()
-        .add::<settings::LibraryEdits>();
+        .add::<settings::LibraryEdits>()
+        .add::<spotify::Status>()
+        .add::<spotify::SetClientId>()
+        .add::<spotify::Login>()
+        .add::<spotify::PairStart>()
+        .add::<spotify::PairCancel>()
+        .add::<spotify::SignOut>();
     registry
 }

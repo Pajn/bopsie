@@ -1,9 +1,11 @@
+import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView } from 'react-native';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { useServer } from '@/data/admin';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
+import { SpotifyCard } from '@/features/spotify/SpotifyCard';
 import { describeError } from '@/lib/errors';
 import { duration } from '@/lib/time';
 import { Badge, Button, Card, Facts, InlineError, Stack, Text } from '@/ui/primitives';
@@ -20,6 +22,8 @@ export default function ServerScreen() {
   const info = connection.serverInfo;
   const view = server.data;
   const sync = view?.library.last_sync;
+  // A Spotify login comes back here, saying how it went.
+  const { spotify_error: spotifyError } = useLocalSearchParams<{ spotify_error?: string }>();
 
   const startSync = (force: boolean) => {
     setError(null);
@@ -88,6 +92,9 @@ export default function ServerScreen() {
           </Text>
           <InlineError message={error} />
         </Card>
+        <SpotifyCard
+          outcome={spotifyError ? `Logging in to Spotify failed: ${spotifyError}` : null}
+        />
         {view ? (
           <Card title="Config">
             <JsonTree value={JSON.parse(JSON.stringify(view.config))} colors={colors} />

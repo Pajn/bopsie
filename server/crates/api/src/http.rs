@@ -35,6 +35,7 @@ pub fn router(api: Arc<Api>) -> Router {
         .route("/ws", get(websocket))
         .route("/imageproxy/{proxy_id}", get(imageproxy::serve))
         .route("/sendspin", get(sendspin::upgrade))
+        .route("/spotify/callback", get(spotify_callback))
         .route(
             "/artwork",
             post(artwork).layer(axum::extract::DefaultBodyLimit::max(ARTWORK_LIMIT)),
@@ -48,6 +49,62 @@ pub fn router(api: Arc<Api>) -> Router {
 }
 
 type ApiState = State<Arc<Api>>;
+
+#[derive(Deserialize)]
+struct SpotifyCallback {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+}
+
+/// Where Spotify sends the listener back to after logging in to the Web API. It needs no
+/// token: the login's `state`, which only this server knows, vouches for it. Answers by going
+/// back to the web UI's server page, saying how it went.
+async fn spotify_callback(
+    State(api): ApiState,
+    axum::extract::Query(answer): axum::extract::Query<SpotifyCallback>,
+) -> Response {
+    let outcome = match (&api.spotify, answer) {
+        (None, _) => Err("Spotify is turned off".to_owned()),
+        (
+            _,
+            SpotifyCallback {
+                error: Some(error), ..
+            },
+        ) => Err(error),
+        (
+            Some(account),
+            SpotifyCallback {
+                code: Some(code),
+                state: Some(state),
+                ..
+            },
+        ) => account
+            .callback(&code, &state)
+            .await
+            .map_err(|error| error.to_string()),
+        _ => Err("Spotify sent no code".to_owned()),
+    };
+    let to = match outcome {
+        Ok(()) => "/server?spotify=ok".to_owned(),
+        Err(error) => {
+            tracing::warn!(error, "logging in to Spotify failed");
+            format!("/server?spotify_error={}", percent(&error))
+        }
+    };
+    (StatusCode::SEE_OTHER, [(header::LOCATION, to)]).into_response()
+}
+
+fn percent(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
 
 fn text(status: StatusCode, body: impl Into<String>) -> Response {
     (status, body.into()).into_response()

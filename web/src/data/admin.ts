@@ -1,5 +1,6 @@
 import { adminDevices, adminGroups, adminServerInfo } from '@bopsie/client/api/endpoints/admin';
 import { listPlayers } from '@bopsie/client/api/endpoints/players';
+import { getSpotifyStatus } from '@bopsie/client/api/endpoints/spotify';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useConnection } from '@/connection/ConnectionProvider';
@@ -41,6 +42,15 @@ export function useServer() {
   return useQuery({
     queryKey: queryKeys.admin(account.id, 'server'),
     queryFn: () => adminServerInfo(connection),
+    refetchInterval: POLL_MS,
+  });
+}
+
+export function useSpotify() {
+  const { account, connection } = useConnection();
+  return useQuery({
+    queryKey: queryKeys.admin(account.id, 'spotify'),
+    queryFn: () => getSpotifyStatus(connection),
     refetchInterval: POLL_MS,
   });
 }

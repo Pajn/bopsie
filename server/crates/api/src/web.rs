@@ -25,6 +25,7 @@ const RESERVED: &[&str] = &[
     "/api",
     "/api-docs",
     "/artwork",
+    "/spotify",
     "/auth",
     "/imageproxy",
     "/info",

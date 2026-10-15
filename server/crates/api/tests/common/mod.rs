@@ -46,15 +46,24 @@ pub async fn start() -> Server {
 
 /// A server over the fixture library with tracks `seconds` long, not yet scanned.
 pub async fn start_with(seconds: u32) -> Server {
-    start_full(seconds, Web::default()).await
+    start_full(seconds, Web::default(), false).await
 }
 
 /// A server whose web UI comes from `web`.
 pub async fn start_serving(web: Web) -> Server {
-    start_full(1, web).await
+    start_full(1, web, false).await
 }
 
-async fn start_full(seconds: u32, web: Web) -> Server {
+/// A set-up server with a Spotify account whose Spotify is nowhere to be reached, and a
+/// session token.
+pub async fn start_set_up_with_spotify() -> (Server, String) {
+    let server = start_full(1, Web::default(), true).await;
+    server.api.library.sync().await.unwrap();
+    let token = set_up(&server).await;
+    (server, token)
+}
+
+async fn start_full(seconds: u32, web: Web, spotify: bool) -> Server {
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     bopsie_fixtures::write_library(&music, seconds).unwrap();
@@ -84,6 +93,22 @@ async fn start_full(seconds: u32, web: Web) -> Server {
         players: players.clone(),
         playback,
         sources: sources.clone(),
+        spotify: if spotify {
+            Some(
+                bopsie_sources_spotify::SpotifyAccount::open(
+                    db.clone(),
+                    dir.path().into(),
+                    bopsie_sources_spotify::Endpoints {
+                        accounts: "http://127.0.0.1:9".into(),
+                        api: "http://127.0.0.1:9/v1".into(),
+                    },
+                )
+                .await
+                .unwrap(),
+            )
+        } else {
+            None
+        },
         airplay: None,
         linkplay: None,
         web,
@@ -114,6 +139,12 @@ pub async fn start_set_up() -> (Server, String) {
 pub async fn start_set_up_with(seconds: u32) -> (Server, String) {
     let server = start_with(seconds).await;
     server.api.library.sync().await.unwrap();
+    let token = set_up(&server).await;
+    (server, token)
+}
+
+/// Creates the test user, and returns a session token for them.
+async fn set_up(server: &Server) -> String {
     let (status, body) = server
         .post(
             "/setup",
@@ -122,8 +153,7 @@ pub async fn start_set_up_with(seconds: u32) -> (Server, String) {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let token = body["token"].as_str().unwrap().to_owned();
-    (server, token)
+    body["token"].as_str().unwrap().to_owned()
 }
 
 impl Server {

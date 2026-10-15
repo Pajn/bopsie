@@ -28,6 +28,7 @@ use bopsie_players_linkplay::LinkplayProvider;
 use bopsie_players_sendspin::SendspinServer;
 use bopsie_queues::Playback;
 use bopsie_sources::Sources;
+use bopsie_sources_spotify::SpotifyAccount;
 
 use auth::Auth;
 use command::Registry;
@@ -43,6 +44,8 @@ pub struct Services {
     pub playback: Playback,
     /// Audio from outside the queue, such as Spotify Connect.
     pub sources: Sources,
+    /// The Spotify account, unless the config file turns Spotify off.
+    pub spotify: Option<SpotifyAccount>,
     /// AirPlay, when `cliairplay` is installed.
     pub airplay: Option<AirplayProvider>,
     /// LinkPlay, unless the config file turns it off.
@@ -62,6 +65,7 @@ pub struct Api {
     pub events: EventBus,
     pub playback: Playback,
     pub sources: Sources,
+    pub spotify: Option<SpotifyAccount>,
     pub airplay: Option<AirplayProvider>,
     pub linkplay: Option<LinkplayProvider>,
     /// The Sendspin server role, which `/sendspin` and the direct listener hand clients to.
@@ -104,6 +108,7 @@ impl Api {
             events: services.events,
             playback: services.playback,
             sources: services.sources,
+            spotify: services.spotify,
             airplay: services.airplay,
             linkplay: services.linkplay,
             sendspin,
@@ -145,6 +150,7 @@ pub(crate) mod tests {
                 bopsie_queues::Config::default(),
             ),
             sources: Sources::default(),
+            spotify: None,
             events,
             players,
             airplay: None,

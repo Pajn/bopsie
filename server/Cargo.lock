@@ -379,6 +379,7 @@ dependencies = [
  "bopsie-providers-filesystem",
  "bopsie-queues",
  "bopsie-sources",
+ "bopsie-sources-spotify",
  "futures",
  "image",
  "jsonwebtoken",
@@ -611,6 +612,7 @@ dependencies = [
 name = "bopsie-sources-spotify"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "bopsie-audio",
  "bopsie-core",
  "bopsie-players",
@@ -626,11 +628,15 @@ dependencies = [
  "librespot-protocol",
  "nix",
  "protobuf",
+ "rand 0.10.3",
  "reqwest 0.13.5",
  "rustls 0.23.46",
+ "serde",
  "serde_json",
  "sha2 0.11.1",
  "symphonia 0.6.1",
+ "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "tracing-subscriber",

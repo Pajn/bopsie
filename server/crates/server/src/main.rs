@@ -27,7 +27,7 @@ use bopsie_players_linkplay::{
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use bopsie_sources::Sources;
-use bopsie_sources_spotify::{Config as SpotifyConfig, SpotifyConnect};
+use bopsie_sources_spotify::{Config as SpotifyConfig, Endpoints, SpotifyAccount, SpotifyConnect};
 use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -130,12 +130,25 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     playback.follow_sources(sources.clone());
     let airplay = start_airplay(&config, players.clone(), db.clone()).await;
     let linkplay = start_linkplay(&config, players.clone());
+    let spotify_account = if config.spotify.enabled {
+        Some(
+            SpotifyAccount::open(
+                db.clone(),
+                config.storage.data_dir.clone(),
+                Endpoints::default(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     let services = Services {
         library: library.clone(),
         events,
         players,
         playback: playback.clone(),
         sources,
+        spotify: spotify_account,
         airplay: airplay.clone(),
         linkplay: linkplay.clone(),
         web: config.web.dir.clone().map_or(Web::Embedded, Web::Dir),

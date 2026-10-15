@@ -159,6 +159,19 @@ pub fn setting(conn: &Connection, key: &str) -> rusqlite::Result<Option<String>>
     .optional()
 }
 
+/// Stores a server-wide setting, or forgets it when `value` is `None`.
+pub fn set_setting(conn: &Connection, key: &str, value: Option<&str>) -> rusqlite::Result<()> {
+    match value {
+        Some(value) => conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2)
+             ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )?,
+        None => conn.execute("DELETE FROM settings WHERE key = ?1", [key])?,
+    };
+    Ok(())
+}
+
 /// Returns a setting, storing the value `init` makes the first time it is asked for.
 pub fn setting_or_init(
     conn: &Connection,
