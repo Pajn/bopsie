@@ -4,10 +4,10 @@ import { Pressable, View } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { Artwork } from '@/features/library/Artwork';
 import { useOutputs } from '@/features/outputs/useOutputs';
 import { Icon } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
+import { MINI_COVER, useCoverSlot } from './FlyingCover';
 import { nowPlaying } from './nowPlaying';
 import { expandPlayer, setDockHeight } from './sheetStore';
 import { usePlaybackActions, useQueue } from './usePlayback';
@@ -27,6 +27,7 @@ export function MiniPlayer({ travel }: { travel: number }) {
   const active = useOutputs()?.active;
   const current = queue ? nowPlaying(queue) : null;
   const pull = useSheetDrag(travel, 'up');
+  const cover = useCoverSlot('mini');
   const measure = useReportedHeight(setDockHeight);
   // With nothing docked the tab bar leaves no gap; a dock that has gone never lays out again
   // to say so.
@@ -49,7 +50,8 @@ export function MiniPlayer({ travel }: { travel: number }) {
         accessibilityLabel={`Now playing: ${current.title}`}
         testID="mini-player"
       >
-        <Artwork item={current.artwork} size={40} imageSize={80} />
+        {/* The artwork is drawn over this, by the sheet, to carry it into the full player. */}
+        <View ref={cover.ref} onLayout={cover.onLayout} style={styles.cover} />
         <View style={styles.text}>
           <Text numberOfLines={1} testID="mini-player-title">
             {current.title}
@@ -95,4 +97,5 @@ const styles = StyleSheet.create((theme) => ({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   text: { flex: 1, gap: 2 },
+  cover: { width: MINI_COVER, height: MINI_COVER },
 }));

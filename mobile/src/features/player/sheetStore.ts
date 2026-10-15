@@ -12,6 +12,13 @@ import { createStore } from 'zustand/vanilla';
 export const expansion = makeMutable(0);
 
 /**
+ * How far a panel in the player, such as the queue, has grown over it, from 0 to 1. The
+ * artwork, which is drawn above the player so it can fly in from the mini player, fades
+ * under a panel by it.
+ */
+export const panelCoverage = makeMutable(0);
+
+/**
  * Firm enough to feel placed rather than thrown. Critically damped, at 2√(stiffness × mass),
  * so it arrives without sailing past; the clamp keeps it so if the others are nudged.
  */

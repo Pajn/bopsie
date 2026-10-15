@@ -1,8 +1,9 @@
 import { useSegments } from 'expo-router';
-import { useEffect } from 'react';
-import { BackHandler, useWindowDimensions } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { BackHandler, useWindowDimensions, View } from 'react-native';
 import Animated, { interpolate, useAnimatedStyle } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
+import { CoverPlacesProvider, FlyingCover, useCoverPlaces } from './FlyingCover';
 import { MiniPlayer } from './MiniPlayer';
 import { nowPlaying } from './nowPlaying';
 import { PlayerBody } from './PlayerBody';
@@ -31,7 +32,10 @@ export function PlayerSheet() {
   const queue = useQueue().data;
   // Known to have nothing loaded: a queue still loading, as after choosing another group to
   // control, may well have something.
-  const empty = queue === null || (queue !== undefined && nowPlaying(queue) === null);
+  const current = queue ? nowPlaying(queue) : null;
+  const empty = queue === null || (queue !== undefined && current === null);
+  const frame = useRef<View>(null);
+  const covers = useCoverPlaces(frame);
   const open = usePlayerOpen();
   const dockHeight = useDockHeight();
   const tabBarHeight = useTabBarHeight();
@@ -86,27 +90,40 @@ export function PlayerSheet() {
       pointerEvents="box-none"
       testID="player-sheet"
     >
-      <Animated.View style={[styles.backdrop, backdropStyle]} pointerEvents="none" />
-      <Animated.View
-        style={[styles.body, bodyStyle]}
-        pointerEvents={open ? 'auto' : 'none'}
-        accessibilityElementsHidden={!open}
-        importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
-      >
-        <PlayerBody open={open} travel={travel} />
-      </Animated.View>
-      <Animated.View
-        style={[styles.dock, { height: dockHeight || undefined }, dockStyle]}
-        pointerEvents={open ? 'none' : 'box-none'}
-      >
-        <MiniPlayer travel={travel} />
-      </Animated.View>
+      <View ref={frame} style={styles.frame} pointerEvents="box-none">
+        <CoverPlacesProvider value={covers.value}>
+          <Animated.View style={[styles.backdrop, backdropStyle]} pointerEvents="none" />
+          <Animated.View
+            style={[styles.body, bodyStyle]}
+            pointerEvents={open ? 'auto' : 'none'}
+            accessibilityElementsHidden={!open}
+            importantForAccessibility={open ? 'auto' : 'no-hide-descendants'}
+          >
+            <PlayerBody open={open} travel={travel} />
+          </Animated.View>
+          <Animated.View
+            style={[styles.dock, { height: dockHeight || undefined }, dockStyle]}
+            pointerEvents={open ? 'none' : 'box-none'}
+          >
+            <MiniPlayer travel={travel} />
+          </Animated.View>
+          {current && covers.places.mini && covers.places.full ? (
+            <FlyingCover
+              artwork={current.artwork}
+              mini={covers.places.mini}
+              full={covers.places.full}
+            />
+          ) : null}
+        </CoverPlacesProvider>
+      </View>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
   sheet: { position: 'absolute', left: 0, right: 0 },
+  /** What the artwork's places are measured against. */
+  frame: { ...StyleSheet.absoluteFillObject },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.colors.background },
   body: { ...StyleSheet.absoluteFillObject },
   /** The mini player the sheet rests as, held at its top edge. */

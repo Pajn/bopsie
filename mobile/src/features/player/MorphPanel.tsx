@@ -6,6 +6,7 @@ import Animated, {
   Easing,
   interpolate,
   interpolateColor,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -15,6 +16,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { dragged, settlesOpen } from './settle';
+import { panelCoverage } from './sheetStore';
 
 /** Where something sits in the player. */
 export interface Frame {
@@ -131,6 +133,14 @@ export function MorphPanel({
     .onEnd((event) => {
       scheduleOnRN(toggle, settlesOpen(progress.value, event.velocityY, travel));
     });
+
+  // Only the panel moving reports, so a closed one leaves the other's coverage alone.
+  useAnimatedReaction(
+    () => progress.value,
+    (value, previous) => {
+      if (previous !== null && value !== previous) panelCoverage.value = value;
+    },
+  );
 
   const panelStyle = useAnimatedStyle(() => {
     const p = progress.value;

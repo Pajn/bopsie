@@ -5,11 +5,11 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { Artwork } from '@/features/library/Artwork';
 import { useOutputs } from '@/features/outputs/useOutputs';
 import { formatDuration, queuePosition } from '@/player/progress';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
+import { FULL_COVER, useCoverSlot } from './FlyingCover';
 import type { Frame } from './MorphPanel';
 import { itemLinks, nowPlaying } from './nowPlaying';
 import { OutputsPanel, PILL_CHEVRON, PillContent } from './OutputsPanel';
@@ -34,6 +34,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
   const now = useNow(playing && open);
   const grip = useSheetDrag(travel, 'down');
   const artworkGrip = useSheetDrag(travel, 'down');
+  const cover = useCoverSlot('full');
   const [dragging, setDragging] = useState<number | null>(null);
   const current = queue ? nowPlaying(queue) : null;
   const router = useRouter();
@@ -85,7 +86,8 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
       <View style={styles.main}>
         <GestureDetector gesture={artworkGrip}>
           <View style={styles.artwork}>
-            <Artwork item={current.artwork} size={300} imageSize={1024} />
+            {/* The artwork is drawn over this, by the sheet, having flown in from the mini player. */}
+            <View ref={cover.ref} onLayout={cover.onLayout} style={styles.cover} />
           </View>
         </GestureDetector>
         <View style={styles.names}>
@@ -311,6 +313,7 @@ const styles = StyleSheet.create((theme, rt) => ({
   main: { flex: 1, justifyContent: 'center', gap: theme.spacing.xl },
   barSpace: { height: QUEUE_BAR_HEIGHT },
   artwork: { alignItems: 'center' },
+  cover: { width: FULL_COVER, height: FULL_COVER },
   names: { gap: theme.spacing.xs },
   center: { textAlign: 'center' },
   times: { flexDirection: 'row', justifyContent: 'space-between' },
