@@ -172,6 +172,8 @@ is suggested on the web UI's library page, to use or reject. What is taken:
   [Cover Art Archive](https://coverartarchive.org). Art its own files bring later replaces it.
 - **Artist photos:** from Spotify, for artists Spotify's tracks credit and those MusicBrainz
   links to Spotify, served as the artist's `thumb` image and fetched from Spotify as shown.
+  An artist Spotify has no photo of gets the one Wikidata, as MusicBrainz links it, has on
+  [Wikimedia Commons](https://commons.wikimedia.org), at 500 px; its licence is the file's.
 - **Genres:** the release group's three most voted, served as the album's and its tracks'
   `metadata.genres`. An artist's are the most common among its albums'.
 

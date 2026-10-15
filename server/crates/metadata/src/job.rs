@@ -6,16 +6,19 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bopsie_core::media::MediaType;
-use bopsie_library::enrich::{ACCEPT, AlbumToMatch, Identified, REJECT};
+use bopsie_library::enrich::{ACCEPT, AlbumToMatch, ArtistToIllustrate, Identified, REJECT};
 use bopsie_library::ids::IdKind;
 use bopsie_library::{ItemImage, Library};
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::fingerprint::{AcoustId, Heard};
-use crate::musicbrainz::{MbError, MusicBrainz, Release, phrase};
+use crate::musicbrainz::{ArtistLinks, MbError, MusicBrainz, Release, phrase};
 use crate::score::{Scored, score};
+use crate::wikimedia::Wikimedia;
 
+/// The source an artist's photo from Wikimedia Commons is kept as.
+pub const WIKIMEDIA: &str = "wikimedia";
 /// How long until an album is looked up again.
 pub const REFRESH: Duration = Duration::from_secs(90 * 24 * 3600);
 /// Closer than this, with every track on both sides, is the release.
@@ -60,6 +63,8 @@ pub struct Enricher {
     acoustid: Option<AcoustId>,
     /// Looks for artists' images.
     artist_images: bool,
+    /// Where artists no catalog has a photo of get theirs, if wanted.
+    wikimedia: Option<Wikimedia>,
 }
 
 fn now() -> i64 {
@@ -153,7 +158,14 @@ impl Enricher {
             genres: true,
             acoustid: None,
             artist_images: true,
+            wikimedia: None,
         }
+    }
+
+    /// Gives artists no catalog has a photo of theirs from Wikimedia Commons, with `wikimedia`.
+    pub fn wikimedia(mut self, wikimedia: Option<Wikimedia>) -> Self {
+        self.wikimedia = wikimedia;
+        self
     }
 
     /// Looks for artists' images, or not.
@@ -226,6 +238,23 @@ impl Enricher {
         self.report(summary)
     }
 
+    /// Where an artist is on other services, as MusicBrainz links its first id: `None` for
+    /// one without, or whose links cannot be read. Fails only when MusicBrainz cannot be
+    /// reached or stays busy, for the run to stop and try again later.
+    async fn links(&self, artist: &ArtistToIllustrate) -> Result<Option<ArtistLinks>, MbError> {
+        let Some(mbid) = artist.musicbrainz.first() else {
+            return Ok(None);
+        };
+        match self.musicbrainz.artist_links(mbid).await {
+            Ok(links) => Ok(Some(links)),
+            Err(error @ (MbError::Unreachable(_) | MbError::Busy)) => Err(error),
+            Err(error) => {
+                tracing::debug!(artist = artist.id, %error, "no links for an artist");
+                Ok(None)
+            }
+        }
+    }
+
     /// Gives artists not looked at since `started` less [`REFRESH`] their images: their photo
     /// from a catalog such as Spotify's, by the catalog's id for them, which MusicBrainz links
     /// an artist kept only as files to. Returns how many were given one.
@@ -244,34 +273,34 @@ impl Enricher {
                 Ok(due) if !due.is_empty() => due,
                 _ => return illustrated,
             };
-            let mut batch: Vec<(i64, Vec<String>)> = Vec::with_capacity(due.len());
+            let mut batch: Vec<(ArtistToIllustrate, Option<ArtistLinks>)> =
+                Vec::with_capacity(due.len());
             for id in due {
-                let Ok(Some(artist)) = self.library.artist_to_illustrate(id).await else {
+                let Ok(Some(mut artist)) = self.library.artist_to_illustrate(id).await else {
                     continue;
                 };
-                let mut spotify = artist.spotify.clone();
-                if spotify.is_empty()
-                    && let Some(mbid) = artist.musicbrainz.first()
-                {
-                    match self.musicbrainz.artist_links(mbid).await {
-                        Ok(links) => {
-                            if let Some(id) = links.spotify {
+                let mut links = None;
+                if artist.spotify.is_empty() {
+                    match self.links(&artist).await {
+                        Ok(found) => {
+                            if let Some(id) = found.as_ref().and_then(|l| l.spotify.clone()) {
                                 let _ = self
                                     .library
                                     .link_artist(artist.id, vec![(IdKind::Spotify, id.clone())])
                                     .await;
-                                spotify.push(id);
+                                artist.spotify.push(id);
                             }
+                            links = found;
                         }
-                        Err(MbError::Unreachable(_) | MbError::Busy) => return illustrated,
-                        Err(error) => {
-                            tracing::debug!(artist = artist.id, %error, "no links for an artist");
-                        }
+                        Err(_) => return illustrated,
                     }
                 }
-                batch.push((artist.id, spotify));
+                batch.push((artist, links));
             }
-            let ids: Vec<String> = batch.iter().flat_map(|(_, ids)| ids.clone()).collect();
+            let ids: Vec<String> = batch
+                .iter()
+                .flat_map(|(artist, _)| artist.spotify.clone())
+                .collect();
             let mut found: Vec<(String, String, String)> = Vec::new();
             for catalog in &catalogs {
                 match catalog.artist_images(&ids).await {
@@ -287,31 +316,63 @@ impl Enricher {
                     }
                 }
             }
-            for (artist, spotify) in batch {
+            for (artist, mut links) in batch {
                 let photo = found
                     .iter()
-                    .find(|(_, id, _)| spotify.contains(id))
+                    .find(|(_, id, _)| artist.spotify.contains(id))
                     .cloned();
+                let mut given = false;
                 if let Some((catalog, _, url)) = photo {
                     let image = ItemImage::Url {
                         provider: catalog.clone(),
                         url,
                     };
-                    if self
+                    given = self
                         .library
                         .set_item_images(
                             MediaType::Artist,
-                            artist,
+                            artist.id,
                             catalog,
                             vec![("thumb".to_owned(), image)],
                         )
                         .await
-                        .is_ok()
-                    {
-                        illustrated += 1;
+                        .is_ok();
+                } else if let Some(wikimedia) = &self.wikimedia {
+                    // No catalog has a photo: Wikimedia Commons may, by Wikidata's entity.
+                    if links.is_none() {
+                        match self.links(&artist).await {
+                            Ok(found) => links = found,
+                            Err(_) => return illustrated,
+                        }
+                    }
+                    if let Some(entity) = links.as_ref().and_then(|l| l.wikidata.as_deref()) {
+                        match wikimedia.photo(entity).await {
+                            Ok(Some((bytes, extension))) => {
+                                given = self
+                                    .library
+                                    .set_item_images(
+                                        MediaType::Artist,
+                                        artist.id,
+                                        WIKIMEDIA.to_owned(),
+                                        vec![(
+                                            "thumb".to_owned(),
+                                            ItemImage::Data { bytes, extension },
+                                        )],
+                                    )
+                                    .await
+                                    .is_ok();
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::debug!(artist = artist.id, %error, "no Wikimedia photo");
+                            }
+                        }
                     }
                 }
-                let _ = self.library.artist_checked(artist).await;
+                if given {
+                    illustrated += 1;
+                }
+                let _ = self.library.artist_checked(artist.id).await;
             }
         }
     }

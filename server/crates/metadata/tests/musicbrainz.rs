@@ -219,9 +219,40 @@ async fn artist(
     .into_response()
 }
 
+/// Wikidata: entity Q42 has the photo `Test Artist.jpg`.
+async fn entity(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(file): Path<String>,
+) -> Response {
+    note(&stand, &headers, format!("wikidata {file}"));
+    if file != "Q42.json" {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    axum::Json(json!({"entities": {"Q42": {"claims": {"P18": [
+        {"mainsnak": {"datavalue": {"value": "Test Artist.jpg"}}}
+    ]}}}}))
+    .into_response()
+}
+
+/// Commons: the file, as a PNG.
+async fn commons(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(file): Path<String>,
+) -> Response {
+    note(&stand, &headers, format!("commons {file}"));
+    if file != "Test_Artist.jpg" {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    ([("content-type", "image/png")], PNG).into_response()
+}
+
 async fn stand_in() -> (String, Shared) {
     let stand = Shared::default();
     let app = Router::new()
+        .route("/wiki/Special:EntityData/{file}", get(entity))
+        .route("/wiki/Special:FilePath/{file}", get(commons))
         .route("/ws/2/artist/{id}", get(artist))
         .route("/v2/lookup", axum::routing::post(acoustid))
         .route("/ws/2/release", get(search))
@@ -821,4 +852,49 @@ async fn an_artist_kept_as_files_gets_its_photo_by_musicbrainzs_link() {
     .run()
     .await;
     assert_eq!(stand.lock().unwrap().requests.len(), asked);
+}
+
+#[tokio::test]
+async fn an_artist_no_catalog_has_a_photo_of_gets_wikimedias() {
+    use bopsie_metadata::wikimedia::Wikimedia;
+    let (base, _stand) = stand_in().await;
+    let root = base.trim_end_matches("/ws/2").to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    let db = database();
+    let library = Library::new(
+        db.clone(),
+        EventBus::default(),
+        vec![Arc::new(FilesystemProvider::new(music))],
+        dir.path().join("artwork"),
+    );
+    library.sync().await.unwrap();
+    let summary = Enricher::new(
+        library.clone(),
+        MusicBrainz::new(db, base, None).paced(Duration::from_millis(10)),
+    )
+    .cover_art(None)
+    .wikimedia(Some(Wikimedia::new(&root, &root, None)))
+    .run()
+    .await;
+    assert_eq!(summary.artists, 1, "{summary:?}");
+    let artists = library
+        .list(MediaType::Artist, ListQuery::default())
+        .await
+        .unwrap();
+    let test_artist = artists
+        .iter()
+        .find(|a| a.fields().name == "Test Artist")
+        .unwrap();
+    let photo = &test_artist.fields().metadata.images.clone().unwrap()[0];
+    assert_eq!(photo.kind, "thumb");
+    assert_eq!(
+        library
+            .image(photo.proxy_id.clone())
+            .await
+            .unwrap()
+            .unwrap(),
+        PNG
+    );
 }

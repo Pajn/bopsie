@@ -67,7 +67,8 @@ musicbrainz = true
 cover_art = true
 # Keep albums' genres from MusicBrainz.
 genres = true
-# Give artists their photo from Spotify, found by Spotify's or MusicBrainz's link to them.
+# Give artists their photo from Spotify, found by Spotify's or MusicBrainz's link to them,
+# else from Wikimedia Commons by MusicBrainz's link to Wikidata.
 artist_images = true
 # An email address or URL MusicBrainz can reach whoever runs this server at, sent with each
 # request as it asks.

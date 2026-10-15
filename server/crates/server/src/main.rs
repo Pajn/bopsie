@@ -21,6 +21,7 @@ use bopsie_library::provider::MusicProvider;
 use bopsie_metadata::fingerprint::{self, AcoustId};
 use bopsie_metadata::job::Enricher;
 use bopsie_metadata::musicbrainz::{self, MusicBrainz};
+use bopsie_metadata::wikimedia::{self, Wikimedia};
 use bopsie_players::planner::Policy;
 use bopsie_players::{Devices, Players};
 use bopsie_players_airplay::{AirplayProvider, Config as AirplayConfig};
@@ -248,6 +249,13 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         )
         .genres(config.metadata.genres)
         .artist_images(config.metadata.artist_images)
+        .wikimedia(config.metadata.artist_images.then(|| {
+            Wikimedia::new(
+                wikimedia::WIKIDATA,
+                wikimedia::COMMONS,
+                config.metadata.contact.as_deref(),
+            )
+        }))
         .by_sound_with(acoustid)
     });
     // Albums are looked up in the background, a while after the first sync starts and every

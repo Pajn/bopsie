@@ -176,7 +176,8 @@ pub struct MetadataConfig {
     pub cover_art: bool,
     /// Keep albums' and artists' genres from MusicBrainz.
     pub genres: bool,
-    /// Give artists their photo from Spotify, found by Spotify's or MusicBrainz's link.
+    /// Give artists their photo from Spotify, found by Spotify's or MusicBrainz's link, else
+    /// from Wikimedia Commons by MusicBrainz's link to Wikidata.
     pub artist_images: bool,
     /// An email address or URL to reach whoever runs this server at, sent to MusicBrainz with
     /// each request as it asks of the software that calls it.

@@ -6,6 +6,7 @@ pub mod fingerprint;
 pub mod job;
 pub mod musicbrainz;
 pub mod score;
+pub mod wikimedia;
 
 use bopsie_core::db::Migrations;
 
