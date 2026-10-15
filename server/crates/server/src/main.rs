@@ -228,6 +228,13 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
                 config.metadata.contact.as_deref(),
             ),
         )
+        .cover_art(
+            config
+                .metadata
+                .cover_art
+                .then(|| musicbrainz::COVER_ART_BASE.to_owned()),
+        )
+        .genres(config.metadata.genres)
     });
     let enriching = Arc::new(tokio::sync::Mutex::new(()));
 

@@ -233,6 +233,7 @@ mod tests {
             },
             track_ids: (1..=tracks.len() as i64).collect(),
             year: Some(2021),
+            needs_art: false,
         }
     }
 

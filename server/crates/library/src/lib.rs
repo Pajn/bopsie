@@ -337,7 +337,7 @@ impl Library {
         else {
             return Ok(None);
         };
-        if image.provider == ARTWORK_CACHE {
+        if image.provider == ARTWORK_CACHE || image.provider == scan::COVER_ART {
             let path = self.artwork_dir.join(&image.path);
             return Ok(blocking(move || std::fs::read(path)).await?.ok());
         }
@@ -607,6 +607,51 @@ impl Library {
                 edit::apply_all(&tx)?;
                 scan::prune(&tx, &mut changes)?;
                 tx.commit()?;
+                Ok(changes)
+            })
+            .await?;
+        self.publish(&changes, false).await
+    }
+
+    /// Gives album `id` cover art from a metadata service, unless it has art of its own.
+    pub async fn set_cover_art(
+        &self,
+        id: i64,
+        data: Vec<u8>,
+        extension: &'static str,
+    ) -> Result<()> {
+        let artwork_dir = self.artwork_dir.clone();
+        let Some(mut image) = blocking(move || {
+            prepare_image(
+                ARTWORK_CACHE,
+                &artwork_dir,
+                Some(ScannedImage::Embedded {
+                    data,
+                    extension: extension.to_owned(),
+                }),
+            )
+        })
+        .await?
+        else {
+            return Ok(());
+        };
+        image.provider = scan::COVER_ART.to_owned();
+        let changes = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let proxy_id = scan::store_image(&tx, Some(&image))?;
+                let set = tx.execute(
+                    "UPDATE albums SET image = ?2
+                     WHERE id = ?1 AND (image IS NULL
+                         OR image IN (SELECT proxy_id FROM images WHERE provider = ?3))",
+                    rusqlite::params![id, proxy_id, scan::COVER_ART],
+                )?;
+                tx.commit()?;
+                let mut changes = Changes::default();
+                if set > 0 {
+                    changes.update((MediaType::Album, id));
+                }
                 Ok(changes)
             })
             .await?;

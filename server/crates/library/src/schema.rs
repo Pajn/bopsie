@@ -176,5 +176,16 @@ pub const MIGRATIONS: Migrations = Migrations {
             created INTEGER NOT NULL
         ) STRICT;
     ",
+        "
+        -- Genres, most voted first, as a metadata service such as MusicBrainz has them.
+        CREATE TABLE item_genres (
+            media_type TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            provider_instance TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            genre TEXT NOT NULL,
+            PRIMARY KEY (media_type, item_id, provider_instance, position)
+        ) STRICT;
+    ",
     ],
 };

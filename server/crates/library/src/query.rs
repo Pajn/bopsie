@@ -227,12 +227,41 @@ fn fields(
         provider_mappings: mappings(conn, media_type, id)?,
         metadata: Metadata {
             images: image.map(|image| vec![image]),
+            genres: genres(conn, media_type, id)?,
             ..Metadata::default()
         },
         favorite: common.favorite,
         position: None,
         date_added: date(common.date_added),
     })
+}
+
+/// An album's genres, most voted first; an artist's, the most common among its albums'; a
+/// track's, its album's. `None` when there are none.
+fn genres(conn: &Connection, media_type: MediaType, id: i64) -> Result<Option<Vec<String>>> {
+    let sql = match media_type {
+        MediaType::Album => {
+            "SELECT genre FROM item_genres WHERE media_type = 'album' AND item_id = ?1
+             GROUP BY genre ORDER BY min(position)"
+        }
+        MediaType::Track => {
+            "SELECT genre FROM item_genres
+             WHERE media_type = 'album' AND item_id = (SELECT album_id FROM tracks WHERE id = ?1)
+             GROUP BY genre ORDER BY min(position)"
+        }
+        MediaType::Artist => {
+            "SELECT genre FROM item_genres
+             WHERE media_type = 'album'
+                 AND item_id IN (SELECT album_id FROM album_artists WHERE artist_id = ?1)
+             GROUP BY genre ORDER BY count(*) DESC, min(position) LIMIT 3"
+        }
+        MediaType::Playlist => return Ok(None),
+    };
+    let mut statement = conn.prepare_cached(sql)?;
+    let genres: Vec<String> = statement
+        .query_map([id], |row| row.get(0))?
+        .collect::<Result<_>>()?;
+    Ok((!genres.is_empty()).then_some(genres))
 }
 
 /// The item's external ids as Music Assistant lists them, `["isrc", "…"]`; links to a service,

@@ -1307,3 +1307,40 @@ async fn a_merged_album_separates_and_stays_apart() {
     assert_eq!(sources(&library, MediaType::Track, track).await.len(), 1);
     assert!(library.suggestions(false).await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn art_the_files_bring_replaces_the_cover_art_archives() {
+    let f = fixture();
+    let album_dir = f.dir.path().join("music/Other Artist/Second Album");
+    let cover = fs::read(album_dir.join("cover.jpg")).unwrap();
+    fs::remove_file(album_dir.join("cover.jpg")).unwrap();
+    f.library.sync().await.unwrap();
+    let album = id(&f.library, MediaType::Album, "Second Album").await;
+    let provider = async || match f.library.item(MediaType::Album, album).await.unwrap() {
+        Some(MediaItem::Album(album)) => album
+            .fields
+            .metadata
+            .images
+            .and_then(|images| images.first().map(|image| image.provider.clone())),
+        _ => None,
+    };
+    assert_eq!(provider().await, None);
+    f.library
+        .set_cover_art(album, b"not really a png".to_vec(), "png")
+        .await
+        .unwrap();
+    assert_eq!(provider().await.as_deref(), Some("coverartarchive"));
+
+    // The folder gains a cover, and a track is read again.
+    fs::write(album_dir.join("cover.jpg"), cover).unwrap();
+    let path = album_dir.join("01 - Alpha.wav");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Alpha".to_owned());
+    tag.set_artist("Other Artist".to_owned());
+    tag.set_album("Second Album".to_owned());
+    tag.insert_text(ItemKey::AlbumArtist, "Other Artist".to_owned());
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    f.library.sync().await.unwrap();
+    let provider = provider().await.unwrap();
+    assert!(provider.starts_with("filesystem_local"), "{provider}");
+}

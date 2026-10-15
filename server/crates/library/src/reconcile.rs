@@ -376,7 +376,7 @@ fn merge_item(
     into: i64,
     changes: &mut Changes,
 ) -> Result<()> {
-    for linked in ["provider_mappings", "external_ids"] {
+    for linked in ["provider_mappings", "external_ids", "item_genres"] {
         tx.execute(
             &format!(
                 "UPDATE OR IGNORE {linked} SET item_id = ?3 WHERE media_type = ?1 AND item_id = ?2"

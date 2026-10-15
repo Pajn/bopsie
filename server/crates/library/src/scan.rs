@@ -75,6 +75,9 @@ pub struct ImageRef {
 
 /// The provider name images in the artwork cache are stored under.
 pub const ARTWORK_CACHE: &str = "artwork";
+/// Art from the Cover Art Archive, kept with [`ARTWORK_CACHE`]'s, for an album that had none:
+/// art its own files bring replaces it.
+pub const COVER_ART: &str = "coverartarchive";
 
 /// Music Assistant's image proxy id: the SHA-256 of `provider/path`, in hex
 /// (`create_thumb_hash` in its `helpers/images.py`).
@@ -397,12 +400,24 @@ fn album(
         Some((id, year, current_image)) => {
             // The first track to know the year or have art fills it in.
             let fill_year = year.is_none() && track.year.is_some();
-            let fill_image = current_image.is_none() && image.is_some();
+            let fallback = match &current_image {
+                Some(current) => tx
+                    .query_row(
+                        "SELECT provider = ?2 FROM images WHERE proxy_id = ?1",
+                        params![current, COVER_ART],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .optional()?
+                    .unwrap_or(false),
+                None => true,
+            };
+            let fill_image = fallback && image.is_some() && current_image.as_deref() != image;
             if fill_year || fill_image {
                 tx.execute(
-                    "UPDATE albums SET year = coalesce(year, ?2), image = coalesce(image, ?3)
+                    "UPDATE albums SET year = coalesce(year, ?2),
+                         image = CASE WHEN ?4 THEN ?3 ELSE image END
                      WHERE id = ?1",
-                    params![id, track.year, image],
+                    params![id, track.year, image, fill_image],
                 )?;
                 changes.update((MediaType::Album, id));
             }
@@ -619,7 +634,7 @@ pub(crate) fn delete_item(
         &format!("DELETE FROM {} WHERE id = ?1", table(media_type)),
         [id],
     )?;
-    for linked in ["provider_mappings", "external_ids"] {
+    for linked in ["provider_mappings", "external_ids", "item_genres"] {
         tx.execute(
             &format!("DELETE FROM {linked} WHERE media_type = ?1 AND item_id = ?2"),
             params![media_type.as_str(), id],

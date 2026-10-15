@@ -43,6 +43,9 @@ enum Outcome {
 pub struct Enricher {
     library: Library,
     musicbrainz: MusicBrainz,
+    /// Where cover art comes from, if it is wanted.
+    cover_art: Option<String>,
+    genres: bool,
 }
 
 fn now() -> i64 {
@@ -51,8 +54,16 @@ fn now() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
+/// How many of a release group's genres are kept.
+const GENRES: usize = 3;
+
 /// What is kept of `release` for `album`, its tracks paired as `scored` paired them.
-fn identified(album: &AlbumToMatch, release: &Release, scored: &Scored) -> Identified {
+fn identified(
+    album: &AlbumToMatch,
+    release: &Release,
+    scored: &Scored,
+    genres: bool,
+) -> Identified {
     let mut ids = vec![(IdKind::MbRelease, release.id.clone())];
     if let Some(group) = &release.release_group {
         ids.push((IdKind::MbReleaseGroup, group.id.clone()));
@@ -67,7 +78,23 @@ fn identified(album: &AlbumToMatch, release: &Release, scored: &Scored) -> Ident
             .map(|id| (IdKind::Spotify, id)),
     );
     let tracks: Vec<_> = release.media.iter().flat_map(|m| m.tracks.iter()).collect();
+    let mut voted: Vec<_> = release
+        .release_group
+        .iter()
+        .flat_map(|group| group.genres.iter())
+        .filter(|genre| genre.count > 0)
+        .collect();
+    voted.sort_by_key(|genre| std::cmp::Reverse(genre.count));
     Identified {
+        genres: if genres {
+            voted
+                .into_iter()
+                .take(GENRES)
+                .map(|genre| genre.name.clone())
+                .collect()
+        } else {
+            Vec::new()
+        },
         album: ids,
         artists: release
             .artist_credit
@@ -102,11 +129,27 @@ fn identified(album: &AlbumToMatch, release: &Release, scored: &Scored) -> Ident
 }
 
 impl Enricher {
+    /// Looks albums up, keeping their ids and genres, and giving the albums without art
+    /// theirs from the Cover Art Archive.
     pub fn new(library: Library, musicbrainz: MusicBrainz) -> Self {
         Self {
             library,
             musicbrainz,
+            cover_art: Some(crate::musicbrainz::COVER_ART_BASE.to_owned()),
+            genres: true,
         }
+    }
+
+    /// Takes cover art from the archive at `base`, or none.
+    pub fn cover_art(mut self, base: Option<String>) -> Self {
+        self.cover_art = base.map(|base| base.trim_end_matches('/').to_owned());
+        self
+    }
+
+    /// Keeps genres, or not.
+    pub fn genres(mut self, genres: bool) -> Self {
+        self.genres = genres;
+        self
     }
 
     /// Looks up every album that is due, and logs what came of it.
@@ -167,9 +210,21 @@ impl Enricher {
         scored: &Scored,
     ) -> Result<Outcome, MbError> {
         self.library
-            .identify(album.id, identified(album, release, scored))
+            .identify(album.id, identified(album, release, scored, self.genres))
             .await
             .map_err(|e| MbError::Refused(e.to_string()))?;
+        if let (Some(base), Some(group), true) =
+            (&self.cover_art, &release.release_group, album.needs_art)
+            && let Some((data, extension)) = self
+                .musicbrainz
+                .image(&format!("{base}/release-group/{}/front-500", group.id))
+                .await?
+        {
+            self.library
+                .set_cover_art(album.id, data, extension)
+                .await
+                .map_err(|e| MbError::Refused(e.to_string()))?;
+        }
         Ok(Outcome::Matched)
     }
 

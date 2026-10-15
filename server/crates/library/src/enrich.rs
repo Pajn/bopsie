@@ -26,6 +26,8 @@ pub struct AlbumToMatch {
     /// Its tracks' library ids, in the order of `facts.tracks`.
     pub track_ids: Vec<i64>,
     pub year: Option<i32>,
+    /// It has no artwork, or only what a metadata service gave it.
+    pub needs_art: bool,
 }
 
 /// What a metadata service identified an album as.
@@ -37,6 +39,8 @@ pub struct Identified {
     pub artists: Vec<(String, String)>,
     /// Ids for the album's tracks, by library id.
     pub tracks: Vec<(i64, Vec<(IdKind, String)>)>,
+    /// Its genres, most voted first; none to leave what it has.
+    pub genres: Vec<String>,
 }
 
 /// Albums not asked about since `before`, those with files first, at most `limit`.
@@ -55,10 +59,13 @@ pub fn due(conn: &Connection, before: i64, limit: usize) -> Result<Vec<i64>> {
 
 /// What is known of album `id` to match it by, if it is still in the library.
 pub fn album_to_match(conn: &Connection, id: i64) -> Result<Option<AlbumToMatch>> {
-    let Some(year) = conn
-        .query_row("SELECT year FROM albums WHERE id = ?1", [id], |row| {
-            row.get::<_, Option<i32>>(0)
-        })
+    let Some((year, needs_art)) = conn
+        .query_row(
+            "SELECT year, image IS NULL OR image IN (SELECT proxy_id FROM images WHERE provider = ?2)
+             FROM albums WHERE id = ?1",
+            params![id, crate::scan::COVER_ART],
+            |row| Ok((row.get::<_, Option<i32>>(0)?, row.get::<_, bool>(1)?)),
+        )
         .optional()?
     else {
         return Ok(None);
@@ -69,6 +76,7 @@ pub fn album_to_match(conn: &Connection, id: i64) -> Result<Option<AlbumToMatch>
         facts,
         track_ids,
         year,
+        needs_art,
     }))
 }
 
@@ -118,6 +126,20 @@ pub fn identify(
         return Ok(());
     }
     replace_ids(tx, MediaType::Album, id, &identified.album)?;
+    if !identified.genres.is_empty() {
+        tx.execute(
+            "DELETE FROM item_genres
+             WHERE media_type = 'album' AND item_id = ?1 AND provider_instance = ?2",
+            params![id, MUSICBRAINZ],
+        )?;
+        for (position, genre) in identified.genres.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO item_genres (media_type, item_id, provider_instance, position, genre)
+                 VALUES ('album', ?1, ?2, ?3, ?4)",
+                params![id, MUSICBRAINZ, position as i64, genre],
+            )?;
+        }
+    }
     changes.update((MediaType::Album, id));
     for (track, ids) in &identified.tracks {
         let on_album: bool = tx.query_row(

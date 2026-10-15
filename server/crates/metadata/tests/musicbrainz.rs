@@ -142,11 +142,30 @@ async fn search(
     axum::Json(json!({"releases": found})).into_response()
 }
 
+/// A one-pixel PNG.
+const PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+    0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+async fn cover(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    note(&stand, &headers, format!("cover {id}"));
+    ([("content-type", "image/png")], PNG).into_response()
+}
+
 async fn stand_in() -> (String, Shared) {
     let stand = Shared::default();
     let app = Router::new()
         .route("/ws/2/release", get(search))
         .route("/ws/2/release/{id}", get(lookup))
+        .route("/release-group/{id}/front-500", get(cover))
         .with_state(stand.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}/ws/2", listener.local_addr().unwrap());
@@ -240,6 +259,8 @@ async fn albums_are_identified_suggested_and_accepted() {
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     bopsie_fixtures::write_library(&music, 1).unwrap();
+    // The second album's files bring no art.
+    std::fs::remove_file(music.join("Other Artist/Second Album/cover.jpg")).unwrap();
     let db = database();
     let library = Library::new(
         db.clone(),
@@ -248,10 +269,18 @@ async fn albums_are_identified_suggested_and_accepted() {
         dir.path().join("artwork"),
     );
     library.sync().await.unwrap();
+    let first_art = album(&library, "First Album")
+        .await
+        .fields()
+        .metadata
+        .images
+        .clone();
+    assert!(first_art.is_some());
     let enricher = Enricher::new(
         library.clone(),
-        MusicBrainz::new(db, base, None).paced(Duration::from_millis(10)),
-    );
+        MusicBrainz::new(db, base.clone(), None).paced(Duration::from_millis(10)),
+    )
+    .cover_art(Some(base.trim_end_matches("/ws/2").to_owned()));
 
     assert_eq!(
         enricher.run().await,
@@ -273,6 +302,9 @@ async fn albums_are_identified_suggested_and_accepted() {
             "{ids:?}"
         );
     }
+    // Its own art stays; it gains the release group's genres, as do its artist and tracks.
+    assert_eq!(first.fields().metadata.images, first_art);
+    assert_eq!(first.fields().metadata.genres, Some(vec!["pop".to_owned()]));
     let first_id: i64 = first.fields().item_id.parse().unwrap();
     let tracks = library.album_tracks(first_id).await.unwrap();
     let opening = library
@@ -303,6 +335,14 @@ async fn albums_are_identified_suggested_and_accepted() {
         .unwrap()
         .unwrap();
     assert!(served_ids(&artist).contains(&("musicbrainz_artistid".to_owned(), ARTIST.to_owned())));
+    assert_eq!(
+        artist.fields().metadata.genres,
+        Some(vec!["pop".to_owned()])
+    );
+    assert_eq!(
+        opening.fields().metadata.genres,
+        Some(vec!["pop".to_owned()])
+    );
 
     // The second is close but lacks a track: suggested, not taken.
     let suggestions = library.release_suggestions(false).await.unwrap();
@@ -328,6 +368,19 @@ async fn albums_are_identified_suggested_and_accepted() {
     assert_eq!(enricher.run().await.matched, 1);
     let second = album(&library, "Second Album").await;
     assert!(served_ids(&second).contains(&("musicbrainz_albumid".to_owned(), SECOND.to_owned())));
+    // Without art of its own, it has the Cover Art Archive's.
+    let images = second.fields().metadata.images.clone().unwrap();
+    assert_eq!(images[0].provider, "coverartarchive");
+    let proxy_id = images[0].proxy_id.clone();
+    assert_eq!(library.image(proxy_id).await.unwrap().unwrap(), PNG);
+    let covers = stand
+        .lock()
+        .unwrap()
+        .requests
+        .iter()
+        .filter(|(request, _)| request.starts_with("cover "))
+        .count();
+    assert_eq!(covers, 1, "only for the album without art");
     assert!(library.release_suggestions(false).await.unwrap().is_empty());
 }
 

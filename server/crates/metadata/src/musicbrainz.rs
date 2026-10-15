@@ -13,6 +13,8 @@ use serde_json::Value;
 
 /// MusicBrainz's own server.
 pub const BASE: &str = "https://musicbrainz.org/ws/2";
+/// The Cover Art Archive's.
+pub const COVER_ART_BASE: &str = "https://coverartarchive.org";
 /// How long an answer is used before it is asked for again.
 const FRESH: Duration = Duration::from_secs(30 * 24 * 3600);
 /// Tries after MusicBrainz says it is busy, waiting longer each time.
@@ -155,6 +157,35 @@ impl MusicBrainz {
             .get(&format!("release/{id}?inc={RELEASE_INCLUDES}"))
             .await?;
         Ok(answer.and_then(|value| serde_json::from_value(value).ok()))
+    }
+
+    /// The image at `url`, following redirects, with its file extension: `None` when there is
+    /// none, or it is not a JPEG or PNG.
+    pub async fn image(&self, url: &str) -> Result<Option<(Vec<u8>, &'static str)>, MbError> {
+        Pacer::wait(&self.pacer).await;
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| MbError::Unreachable(e.to_string()))?;
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        let extension = match response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+        {
+            Some(t) if t.starts_with("image/jpeg") => "jpg",
+            Some(t) if t.starts_with("image/png") => "png",
+            _ => return Ok(None),
+        };
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| MbError::Unreachable(e.to_string()))?;
+        Ok(Some((bytes.to_vec(), extension)))
     }
 
     /// Releases matching a search such as `release:"…" AND artist:"…"`, best first.
