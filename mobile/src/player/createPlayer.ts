@@ -11,5 +11,7 @@ export function createPlayer(): LocalPlayer {
       listener('unsupported');
       return () => {};
     },
+    showRemote: () => {},
+    onRemoteCommand: () => () => {},
   };
 }

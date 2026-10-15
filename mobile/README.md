@@ -14,11 +14,13 @@ phone itself. The phone joins Music Assistant as a player over Sendspin, so the 
 queue and other clients see it, with notification and lock-screen controls. iOS browses but does
 not play yet.
 
-The app also controls any other Music Assistant player. It works on one active group at a time —
-the phone until you choose another — and the speaker button on the mini player, or the pill under
-the full player's track, which grows into it, opens the list of players: set each member's volume or the group's, remove members, and for any other player choose
-to join it to the group, move the queue to it, or control it instead. On iOS this is how music
-plays.
+The app also controls any other Music Assistant player. It works on one active group at a time — the
+phone until you choose another — and the speaker button on the mini player, or the pill under the
+full player's track, which grows into it, opens the list of players: set each member's volume or the
+group's, remove members, and for any other player choose to join it to the group, move the queue to
+it, or control it instead. On iOS this is how music plays. On Android, the player the app controls
+shows in the notification and on the lock screen, as the phone's own playing does, and its volume
+follows the volume keys while it plays.
 
 Tap the mini player, or pull it up, to draw the full player up over the screen; drag its header
 or artwork down, or press back, to put it away again.

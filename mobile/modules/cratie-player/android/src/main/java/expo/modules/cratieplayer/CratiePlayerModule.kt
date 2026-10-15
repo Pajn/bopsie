@@ -60,6 +60,8 @@ class CratiePlayerModule : Module() {
     AsyncFunction("connect") { json: String -> player().connect(json) }.runOnQueue(Queues.MAIN)
     AsyncFunction("disconnect") { service?.disconnect() }.runOnQueue(Queues.MAIN)
     AsyncFunction("snapshot") { player().snapshot() }.runOnQueue(Queues.MAIN)
+    /** Shows another player in the media session, as JSON, or stops showing one with null. */
+    AsyncFunction("showRemote") { json: String? -> player().showRemote(json) }.runOnQueue(Queues.MAIN)
 
     OnDestroy {
       service?.listener = null

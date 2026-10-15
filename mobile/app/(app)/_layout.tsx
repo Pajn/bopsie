@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
 import { ConnectionProvider } from '@/connection/ConnectionProvider';
 import { ActiveGroupProvider } from '@/features/outputs/ActiveGroupProvider';
+import { RemoteSession } from '@/features/player/RemoteSession';
 import { modalScreenOptions, sheetScreenOptions, stackScreenOptions } from '@/ui/stackOptions';
 
 export default function AppLayout() {
@@ -9,6 +10,7 @@ export default function AppLayout() {
   return (
     <ConnectionProvider>
       <ActiveGroupProvider>
+        <RemoteSession />
         <Stack screenOptions={stackScreenOptions(theme)}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="outputs" options={{ title: 'Play on', ...modalScreenOptions }} />

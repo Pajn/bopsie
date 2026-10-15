@@ -22,6 +22,14 @@ A local Expo module that makes the phone a Music Assistant player. Expo autolink
   controls sent back as Sendspin controller commands. Notification, lock-screen and media-button
   controls therefore work without the JavaScript runtime.
 
+When the app controls another player, and the phone plays nothing itself, the session shows that
+player instead. The app follows it through the Music Assistant API and hands its state over with
+`showRemote`; there is no Sendspin connection to that player for the service to follow. The
+session declares remote playback with the player's volume in twenty steps of five, so Android
+can give it the volume keys, and its controls come back to the app as `command` events for it to
+send. These controls need the JavaScript runtime, so the service stops showing the other player
+when the app's task is removed.
+
 The service also takes audio focus when a stream starts, pauses on the server when focus is lost
 or headphones are unplugged, and holds a partial wake lock and a Wi-Fi lock while streaming.
 
@@ -35,7 +43,7 @@ The wire format, and how Music Assistant's releases differ, is described in
 
 ```sh
 pnpm prebuild
-pnpm test:native            # protocol, time filter, scheduler and metadata
+pnpm test:native            # protocol, time filter, scheduler, metadata and remote state
 pnpm test:integration       # the server's side of the same protocol, against a container
 pnpm e2e:build:android && pnpm e2e:android
 ```

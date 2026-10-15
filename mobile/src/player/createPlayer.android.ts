@@ -1,5 +1,6 @@
 import { requireNativeModule } from 'expo';
 import type { LocalPlayer, PlayerStatus } from './Player';
+import { parseRemoteCommand } from './remoteCommand';
 
 interface CratiePlayerModule {
   clientId(): string;
@@ -7,6 +8,7 @@ interface CratiePlayerModule {
   connect(json: string): Promise<void>;
   disconnect(): Promise<void>;
   snapshot(): Promise<string>;
+  showRemote(json: string | null): Promise<void>;
   addListener(event: 'player', listener: (event: { json: string }) => void): { remove(): void };
 }
 
@@ -54,6 +56,19 @@ export function createPlayer(): LocalPlayer {
           if (parsed) listener(parsed.status, parsed.message);
         })
         .catch(() => listener('closed'));
+      return () => subscription.remove();
+    },
+    showRemote: (state) => {
+      void native
+        .setup()
+        .then(() => native.showRemote(state ? JSON.stringify(state) : null))
+        .catch(() => {});
+    },
+    onRemoteCommand: (listener) => {
+      const subscription = native.addListener('player', ({ json }) => {
+        const command = parseRemoteCommand(json);
+        if (command) listener(command);
+      });
       return () => subscription.remove();
     },
   };

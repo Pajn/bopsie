@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import androidx.media3.common.DeviceInfo
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -35,6 +36,10 @@ import org.json.JSONObject
  * output and the media session that gives it a notification, lock-screen
  * controls and media buttons. Those controls go to the server as Sendspin
  * controller commands, so they work without the JavaScript runtime.
+ *
+ * While the phone plays nothing itself and the app controls another player,
+ * the session shows that player instead, as the app hands it over, with its
+ * volume on the volume keys; its controls then go back to the app to send.
  */
 @UnstableApi
 class PlayerService : MediaSessionService() {
@@ -92,6 +97,8 @@ class PlayerService : MediaSessionService() {
     if (intent?.action == LOCAL_BIND) binder else super.onBind(intent)
 
   override fun onTaskRemoved(rootIntent: Intent?) {
+    // Another player is controlled through the app, which is going away.
+    player.showRemote(null)
     if (!player.playWhenReady) {
       disconnect()
       stopSelf()
@@ -132,6 +139,16 @@ class PlayerService : MediaSessionService() {
     output = null
     streamEnded()
     main.post { player.reset() }
+  }
+
+  /** Shows another player in the session, as the app follows it, or stops showing one. */
+  fun showRemote(json: String?) {
+    player.showRemote(json?.let(RemoteNowPlaying::parse))
+  }
+
+  /** A command from the session for the app to send to the player it controls. */
+  private fun remoteCommand(command: String, build: JSONObject.() -> Unit = {}) {
+    listener?.invoke(JSONObject().put("type", "command").put("command", command).apply(build).toString())
   }
 
   fun snapshot(): String = JSONObject().put("type", "status").put("status", status.name.lowercase()).toString()
@@ -229,13 +246,22 @@ class PlayerService : MediaSessionService() {
 
   /**
    * The stream as Media3 sees it: one item whose metadata and position come
-   * from the server, and commands that go back to it.
+   * from the server, and commands that go back to it. Or, while the phone
+   * streams nothing, the other player the app controls.
    */
   private inner class StreamPlayer : SimpleBasePlayer(Looper.getMainLooper()) {
     private var nowPlaying = NowPlaying()
     private var playing = false
     private var streaming = false
     private var commands = emptySet<String>()
+    private var remote: RemoteNowPlaying? = null
+    /** The other player, unless the phone is playing itself. */
+    private val remoting get() = remote.takeIf { !streaming }
+
+    fun showRemote(remote: RemoteNowPlaying?) {
+      this.remote = remote
+      invalidateState()
+    }
 
     fun update(nowPlaying: NowPlaying? = null, playing: Boolean? = null, streaming: Boolean? = null, commands: Set<String>? = null) {
       nowPlaying?.let { this.nowPlaying = it }
@@ -254,6 +280,7 @@ class PlayerService : MediaSessionService() {
     }
 
     override fun getState(): State {
+      remoting?.let { return remoteState(it) }
       val available = Player.Commands.Builder()
         .addAll(Player.COMMAND_PLAY_PAUSE, Player.COMMAND_STOP, Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
           Player.COMMAND_GET_METADATA, Player.COMMAND_GET_TIMELINE)
@@ -288,23 +315,100 @@ class PlayerService : MediaSessionService() {
         .build()
     }
 
+    /** The other player: one item, seekable when its length is known, its volume remote. */
+    private fun remoteState(remote: RemoteNowPlaying): State {
+      val available = Player.Commands.Builder()
+        .addAll(Player.COMMAND_PLAY_PAUSE, Player.COMMAND_STOP, Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+          Player.COMMAND_GET_METADATA, Player.COMMAND_GET_TIMELINE, Player.COMMAND_SEEK_TO_NEXT,
+          Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+      if (remote.durationMs != null) available.add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+      val builder = State.Builder()
+      remote.deviceVolume?.let { volume ->
+        available.addAll(Player.COMMAND_GET_DEVICE_VOLUME, Player.COMMAND_SET_DEVICE_VOLUME,
+          Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS, Player.COMMAND_ADJUST_DEVICE_VOLUME,
+          Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS)
+        // Remote playback with its own volume is what sends the volume keys here.
+        builder
+          .setDeviceInfo(DeviceInfo.Builder(DeviceInfo.PLAYBACK_TYPE_REMOTE).setMaxVolume(RemoteNowPlaying.STEPS).build())
+          .setDeviceVolume(volume)
+      }
+      val metadata = MediaMetadata.Builder()
+        .setTitle(remote.title)
+        .setArtist(remote.artist)
+        .setAlbumTitle(remote.album)
+        .setArtworkUri(remote.artworkUrl?.let(Uri::parse))
+        .build()
+      val item = MediaItemData.Builder("remote")
+        .setMediaItem(MediaItem.Builder().setMediaId("remote").setMediaMetadata(metadata).build())
+        .setMediaMetadata(metadata)
+        .setDurationUs(remote.durationMs?.let { it * 1000 } ?: androidx.media3.common.C.TIME_UNSET)
+        .setIsSeekable(remote.durationMs != null)
+        .build()
+      return builder
+        .setAvailableCommands(available.build())
+        .setPlayWhenReady(remote.playing, Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE)
+        .setPlaylist(listOf(item))
+        .setCurrentMediaItemIndex(0)
+        .setPlaybackState(Player.STATE_READY)
+        .setContentPositionMs(PositionSupplier.getExtrapolating(
+          remote.positionMs(System.currentTimeMillis()), if (remote.playing) 1f else 0f))
+        .build()
+    }
+
+    /** Sends a transport command where the session's player is: the server, or the app. */
+    private fun send(command: String, positionMs: Long? = null) {
+      if (remoting != null) remoteCommand(command) { positionMs?.let { put("positionMs", it) } }
+      else if (positionMs != null) client?.command(command, positionMs)
+      else client?.command(command)
+    }
+
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
-      client?.command(if (playWhenReady) "play" else "pause")
+      send(if (playWhenReady) "play" else "pause")
       return Futures.immediateVoidFuture()
     }
 
     override fun handleStop(): ListenableFuture<*> {
-      client?.command("stop")
+      send("stop")
       return Futures.immediateVoidFuture()
     }
 
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
       when (seekCommand) {
-        Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> client?.command("next")
-        Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> client?.command("previous")
-        else -> client?.command("seek", positionMs)
+        Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> send("next")
+        Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> send("previous")
+        else -> send("seek", positionMs)
       }
       return Futures.immediateVoidFuture()
+    }
+
+    override fun handleSetDeviceVolume(deviceVolume: Int, flags: Int): ListenableFuture<*> {
+      setRemoteVolume(RemoteNowPlaying.volumeOf(deviceVolume))
+      return Futures.immediateVoidFuture()
+    }
+
+    override fun handleIncreaseDeviceVolume(flags: Int): ListenableFuture<*> {
+      remoting?.deviceVolume?.let { setRemoteVolume(RemoteNowPlaying.volumeOf(it + 1)) }
+      return Futures.immediateVoidFuture()
+    }
+
+    override fun handleDecreaseDeviceVolume(flags: Int): ListenableFuture<*> {
+      remoting?.deviceVolume?.let { setRemoteVolume(RemoteNowPlaying.volumeOf(it - 1)) }
+      return Futures.immediateVoidFuture()
+    }
+
+    // Muting is not offered for another player; the volume keys only step it.
+    override fun handleSetDeviceMuted(muted: Boolean, flags: Int): ListenableFuture<*> =
+      Futures.immediateVoidFuture()
+
+    /**
+     * Asks the app to set the other player's volume, and shows it at once, so presses in quick
+     * succession count from each other rather than from what the server last said.
+     */
+    private fun setRemoteVolume(level: Int) {
+      val remote = remoting ?: return
+      this.remote = remote.copy(volume = level)
+      invalidateState()
+      remoteCommand("volume") { put("level", level) }
     }
   }
 
