@@ -9,6 +9,7 @@ pub mod account;
 pub mod catalog;
 mod device;
 mod events;
+pub mod library;
 pub mod media;
 
 use std::collections::BTreeMap;

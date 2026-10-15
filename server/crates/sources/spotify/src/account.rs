@@ -458,6 +458,25 @@ impl SpotifyAccount {
         }
     }
 
+    /// The bytes at `url`, such as a cover's on Spotify's image server.
+    pub async fn download(&self, url: &str) -> Result<Vec<u8>, AccountError> {
+        let response = self
+            .inner
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| AccountError::Unreachable(e.to_string()))?;
+        if !response.status().is_success() {
+            return Err(AccountError::Refused(response.status().to_string()));
+        }
+        Ok(response
+            .bytes()
+            .await
+            .map_err(|e| AccountError::Unreachable(e.to_string()))?
+            .to_vec())
+    }
+
     /// Every item of a paged Web API list, following each page's `next`. `items` picks a
     /// page's paging object out of its answer, for answers that wrap it.
     pub async fn get_all(

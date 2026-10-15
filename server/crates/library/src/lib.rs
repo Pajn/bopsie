@@ -430,6 +430,7 @@ impl Library {
         let source = Source {
             domain: provider.domain(),
             instance: provider.instance_id().to_owned(),
+            separate_albums: provider.separate_albums(),
         };
         let lister = provider.clone();
         let listing = blocking(move || lister.list()).await?.map_err(|error| {

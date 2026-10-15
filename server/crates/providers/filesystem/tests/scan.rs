@@ -577,3 +577,110 @@ async fn edits_that_make_no_sense_are_refused() {
         ["First Album", "Second Album"]
     );
 }
+
+/// A streaming service's saved music: one album named as a local one, by the same artist.
+struct Streamed;
+
+impl bopsie_library::provider::MusicProvider for Streamed {
+    fn domain(&self) -> &'static str {
+        "streamed"
+    }
+    fn instance_id(&self) -> &str {
+        "streamed"
+    }
+    fn list(
+        &self,
+    ) -> Result<bopsie_library::provider::Listing, bopsie_library::provider::ProviderError> {
+        use bopsie_library::provider::{Entry, EntryKind, Listing};
+        Ok(Listing {
+            entries: vec![Entry {
+                id: "s1".to_owned(),
+                kind: EntryKind::Track,
+                stamp: "1".to_owned(),
+            }],
+            unreadable: Vec::new(),
+        })
+    }
+    fn read_track(
+        &self,
+        _id: &str,
+    ) -> Result<bopsie_library::provider::ScannedTrack, bopsie_library::provider::ProviderError>
+    {
+        Ok(bopsie_library::provider::ScannedTrack {
+            title: "Opening (Remastered)".to_owned(),
+            artists: vec!["Test Artist".to_owned()],
+            album: Some("First Album".to_owned()),
+            album_artists: vec!["Test Artist".to_owned()],
+            year: Some(2020),
+            track_number: Some(1),
+            disc_number: Some(1),
+            duration_secs: 60,
+            audio_format: bopsie_core::media::AudioFormat::unknown(),
+            image: None,
+            album_id: Some("streamed-album".to_owned()),
+        })
+    }
+    fn read_playlist(
+        &self,
+        id: &str,
+    ) -> Result<bopsie_library::provider::ScannedPlaylist, bopsie_library::provider::ProviderError>
+    {
+        Err(bopsie_library::provider::ProviderError::Unreadable(
+            id.to_owned(),
+        ))
+    }
+    fn image(&self, path: &str) -> Result<Vec<u8>, bopsie_library::provider::ProviderError> {
+        Err(bopsie_library::provider::ProviderError::Unreadable(
+            path.to_owned(),
+        ))
+    }
+    fn file(&self, _id: &str) -> Option<std::path::PathBuf> {
+        None
+    }
+    fn separate_albums(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test]
+async fn a_streaming_services_album_stays_apart_from_a_local_one_of_the_same_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    let db = Database::open_in_memory(&[bopsie_library::MIGRATIONS]).unwrap();
+    let library = Library::new(
+        db,
+        EventBus::default(),
+        vec![Arc::new(FilesystemProvider::new(music)), Arc::new(Streamed)],
+        dir.path().join("artwork"),
+    );
+    library.sync().await.unwrap();
+    let albums = list(&library, MediaType::Album).await;
+    assert_eq!(
+        albums.iter().filter(|name| *name == "First Album").count(),
+        2,
+        "{albums:?}"
+    );
+    // The artist is one, with both albums.
+    let artists = list(&library, MediaType::Artist).await;
+    assert_eq!(
+        artists.iter().filter(|name| *name == "Test Artist").count(),
+        1
+    );
+    let artist = id(&library, MediaType::Artist, "Test Artist").await;
+    let first_albums: Vec<_> = library
+        .artist_albums(artist)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|album| album.fields.name == "First Album")
+        .collect();
+    assert_eq!(first_albums.len(), 2);
+    // The streamed one is found by the service's own id for it, as search finds it.
+    let held = library
+        .by_mapping("streamed", MediaType::Album, "streamed-album")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(held.fields().name, "First Album");
+}

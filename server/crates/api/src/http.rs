@@ -86,7 +86,16 @@ async fn spotify_callback(
         _ => Err("Spotify sent no code".to_owned()),
     };
     let to = match outcome {
-        Ok(()) => "/server?spotify=ok".to_owned(),
+        Ok(()) => {
+            // The saved library comes in now rather than at the next sync.
+            let library = api.library.clone();
+            tokio::spawn(async move {
+                if let Err(error) = library.sync().await {
+                    tracing::warn!(%error, "library sync after logging in to Spotify failed");
+                }
+            });
+            "/server?spotify=ok".to_owned()
+        }
         Err(error) => {
             tracing::warn!(error, "logging in to Spotify failed");
             format!("/server?spotify_error={}", percent(&error))

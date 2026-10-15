@@ -95,6 +95,11 @@ pub trait MusicProvider: Send + Sync + 'static {
     fn image(&self, path: &str) -> Result<Vec<u8>, ProviderError>;
     /// The local file a track plays from, if the provider has one.
     fn file(&self, id: &str) -> Option<std::path::PathBuf>;
+    /// Whether its albums stay its own rather than merge with another provider's of the same
+    /// name and artists, as a streaming service's do beside local files.
+    fn separate_albums(&self) -> bool {
+        false
+    }
     /// What a track plays from: its file, or, for a provider that streams, its stream.
     fn media(&self, id: &str) -> Option<Input> {
         self.file(id).map(Input::File)

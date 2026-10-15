@@ -15,6 +15,8 @@ use crate::query::encode_format;
 pub struct Source {
     pub domain: &'static str,
     pub instance: String,
+    /// Its albums stay its own rather than merge with another provider's of the same name.
+    pub separate_albums: bool,
 }
 
 /// Items a scan added, changed or removed.
@@ -242,6 +244,11 @@ fn album(
         track_artists.to_vec()
     };
     let key = album_key(&album_artists, name);
+    let key = if source.separate_albums {
+        format!("{}\u{1d}{key}", source.instance)
+    } else {
+        key
+    };
     let existing: Option<(i64, Option<i32>, Option<String>)> = tx
         .query_row(
             "SELECT id, year, image FROM albums WHERE match_key = ?1",

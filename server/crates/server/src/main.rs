@@ -28,6 +28,7 @@ use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use bopsie_sources::Sources;
 use bopsie_sources_spotify::catalog::SpotifyCatalog;
+use bopsie_sources_spotify::library::SpotifyLibrary;
 use bopsie_sources_spotify::{Config as SpotifyConfig, Endpoints, SpotifyAccount, SpotifyConnect};
 use clap::Parser;
 use tokio::net::TcpListener;
@@ -46,6 +47,9 @@ struct Args {
     #[arg(long, short)]
     config: Option<PathBuf>,
 }
+
+/// How often the library syncs again on its own.
+const RESYNC: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 
 /// What is logged unless `RUST_LOG` says otherwise. The tag reader warns about every odd tag it
 /// skips, which buries everything else in a large library, and Spotify Connect's mDNS
@@ -94,18 +98,40 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     let db = Database::open(&config.storage.data_dir.join("bopsie.db"), &migrations)?;
     let events = EventBus::default();
 
-    let providers: Vec<Arc<dyn MusicProvider>> = config
+    let spotify_account = if config.spotify.enabled {
+        Some(
+            SpotifyAccount::open(
+                db.clone(),
+                config.storage.data_dir.clone(),
+                Endpoints::default(),
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+    let mut providers: Vec<Arc<dyn MusicProvider>> = config
         .library
         .folders
         .iter()
         .map(|folder| Arc::new(FilesystemProvider::new(folder.clone())) as Arc<dyn MusicProvider>)
         .collect();
+    // The listener's saved Spotify music is scanned in like a folder.
+    if let Some(account) = &spotify_account {
+        providers.push(Arc::new(SpotifyLibrary::new(account.clone())));
+    }
     let library = Library::new(
         db.clone(),
         events.clone(),
         providers,
         config.storage.data_dir.join("artwork"),
     );
+    // Before queues are restored, so that a queued Spotify track comes back.
+    if let Some(account) = &spotify_account {
+        library
+            .catalogs()
+            .add(Arc::new(SpotifyCatalog::new(account.clone())));
+    }
     let ffmpeg = find_ffmpeg(config.audio.ffmpeg.as_deref());
     let ffmpeg_found = ffmpeg.is_some();
     match &ffmpeg {
@@ -131,23 +157,6 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     playback.follow_sources(sources.clone());
     let airplay = start_airplay(&config, players.clone(), db.clone()).await;
     let linkplay = start_linkplay(&config, players.clone());
-    let spotify_account = if config.spotify.enabled {
-        Some(
-            SpotifyAccount::open(
-                db.clone(),
-                config.storage.data_dir.clone(),
-                Endpoints::default(),
-            )
-            .await?,
-        )
-    } else {
-        None
-    };
-    if let Some(account) = &spotify_account {
-        library
-            .catalogs()
-            .add(Arc::new(SpotifyCatalog::new(account.clone())));
-    }
     let services = Services {
         library: library.clone(),
         events,
@@ -205,10 +214,15 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         .into_future(),
     );
 
-    // The API serves the library as it was while the scan catches up.
+    // The API serves the library as it was while the scan catches up. Spotify's saved music
+    // changes without the server hearing of it, so the library syncs again now and then.
     tokio::spawn(async move {
-        if let Err(error) = library.sync().await {
-            tracing::error!(%error, "library sync failed");
+        let mut every = tokio::time::interval(RESYNC);
+        loop {
+            every.tick().await;
+            if let Err(error) = library.sync().await {
+                tracing::error!(%error, "library sync failed");
+            }
         }
     });
 
