@@ -183,9 +183,33 @@ fn shared(a: &[(IdKind, String)], b: &[(IdKind, String)], kind: IdKind) -> Optio
     Some(!a.is_disjoint(&b))
 }
 
+/// The artists a credit names: "A & B", "A feat. B" and "A, B" are A and B, as one service
+/// credits a duo by its name and another credits each of them.
+pub fn credited_artists(names: &[String]) -> BTreeSet<String> {
+    let mut artists = BTreeSet::new();
+    for name in names {
+        let key = search_key(name);
+        artists.insert(key.clone());
+        let mut part = Vec::new();
+        for word in key.split(' ') {
+            if matches!(
+                word,
+                "and" | "feat" | "ft" | "featuring" | "with" | "x" | "vs"
+            ) {
+                artists.insert(part.join(" "));
+                part.clear();
+            } else {
+                part.push(word);
+            }
+        }
+        artists.insert(part.join(" "));
+    }
+    artists.remove("");
+    artists
+}
+
 fn artists_overlap(a: &[String], b: &[String]) -> bool {
-    let a: BTreeSet<String> = a.iter().map(|n| search_key(n)).collect();
-    b.iter().any(|n| a.contains(&search_key(n)))
+    !credited_artists(a).is_disjoint(&credited_artists(b))
 }
 
 /// Whether two tracks are the same recording. `same_album` says they are on albums already
@@ -281,6 +305,10 @@ pub fn compare_album(a: &AlbumFacts, b: &AlbumFacts) -> Evidence {
 /// liked are saved. A shorter edition leaves out the end, where bonus tracks go.
 fn partial(a: &[TrackFacts], b: &[TrackFacts]) -> bool {
     let (fewer, more) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    // No edition leaves out half the album.
+    if fewer.len() * 2 <= more.len() {
+        return true;
+    }
     let mut held: Vec<_> = fewer.iter().filter_map(TrackFacts::position).collect();
     let mut first: Vec<_> = more.iter().filter_map(TrackFacts::position).collect();
     held.sort_unstable();
@@ -289,21 +317,30 @@ fn partial(a: &[TrackFacts], b: &[TrackFacts]) -> bool {
     held.len() == fewer.len() && held != first
 }
 
-/// Pairs two albums' tracks: by place, then by name among what is left. Returns indices.
+/// Pairs two albums' tracks: by place and name, then by place, then by name among what is
+/// left; so that a stray file numbered as another track does not take its place. Returns
+/// indices.
 pub fn pair_tracks(a: &[TrackFacts], b: &[TrackFacts]) -> Vec<(usize, usize)> {
     let mut pairs = Vec::new();
     let mut taken_a = vec![false; a.len()];
     let mut taken_b = vec![false; b.len()];
-    for (ia, ta) in a.iter().enumerate() {
-        let Some(position) = ta.position() else {
-            continue;
-        };
-        if let Some(ib) =
-            (0..b.len()).find(|ib| !taken_b[*ib] && b[*ib].position() == Some(position))
-        {
-            taken_a[ia] = true;
-            taken_b[ib] = true;
-            pairs.push((ia, ib));
+    for same_name in [true, false] {
+        for (ia, ta) in a.iter().enumerate() {
+            let Some(position) = ta.position().filter(|_| !taken_a[ia]) else {
+                continue;
+            };
+            let name = same_name.then(|| versioned(&ta.name));
+            if let Some(ib) = (0..b.len()).find(|ib| {
+                !taken_b[*ib]
+                    && b[*ib].position() == Some(position)
+                    && name
+                        .as_ref()
+                        .is_none_or(|name| versioned(&b[*ib].name) == *name)
+            }) {
+                taken_a[ia] = true;
+                taken_b[ib] = true;
+                pairs.push((ia, ib));
+            }
         }
     }
     for (ia, ta) in a.iter().enumerate() {
@@ -428,6 +465,32 @@ mod tests {
     }
 
     #[test]
+    fn a_duo_credited_by_its_name_is_each_of_them() {
+        let files = album("First Album", TRACKS);
+        let mut stream = album("First Album", TRACKS);
+        stream.artists = vec!["Someone & Test Artist".to_owned()];
+        for track in &mut stream.tracks {
+            track.artists = stream.artists.clone();
+        }
+        assert_eq!(compare_album(&files, &stream), Evidence::Match);
+        stream.artists = vec!["Someone Else".to_owned()];
+        assert_eq!(compare_album(&files, &stream), Evidence::NoMatch);
+    }
+
+    #[test]
+    fn a_stray_track_numbered_as_another_does_not_take_its_place() {
+        let mut files = album("First Album", TRACKS);
+        // A single's file, tagged with the album and track 1.
+        files.tracks.push(track("Middle", 1, 180));
+        let stream = album("First Album", TRACKS);
+        assert_eq!(
+            pair_tracks(&files.tracks, &stream.tracks),
+            [(0, 0), (1, 1), (2, 2)]
+        );
+        assert_eq!(compare_album(&files, &stream), Evidence::Match);
+    }
+
+    #[test]
     fn some_of_an_albums_tracks_are_that_album() {
         let files = album("First Album", TRACKS);
         // The songs someone liked, saved with their album.
@@ -436,6 +499,12 @@ mod tests {
             ..album("First Album", &[])
         };
         assert_eq!(compare_album(&files, &liked), Evidence::Match);
+        // Even when what was liked comes first, it is too little to be an edition.
+        let opening = AlbumFacts {
+            tracks: vec![track("Opening", 1, 200)],
+            ..album("First Album", &[])
+        };
+        assert_eq!(compare_album(&files, &opening), Evidence::Match);
         // Its first tracks may be a shorter edition, which is for a person to say.
         let first = album("First Album", &TRACKS[..2]);
         assert_eq!(compare_album(&files, &first), Evidence::Insufficient);

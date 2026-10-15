@@ -14,9 +14,10 @@ use bopsie_core::media::MediaType;
 use rusqlite::{Connection, OptionalExtension, Result, params};
 use serde_json::{Map, Value};
 
-use crate::ids::{IdKind, search_key};
+use crate::ids::IdKind;
 use crate::matching::{
-    AlbumFacts, Evidence, TrackFacts, compare_album, compare_track, pair_tracks, versioned,
+    AlbumFacts, Evidence, TrackFacts, compare_album, compare_track, credited_artists, pair_tracks,
+    versioned,
 };
 use crate::scan::{Changes, delete_item, index, table};
 
@@ -77,7 +78,7 @@ fn ids_of(tx: &Connection, media_type: MediaType, id: i64) -> Result<Vec<(IdKind
 }
 
 /// What a comparison knows of an album, and its tracks' ids in the same order.
-fn album_facts(tx: &Connection, id: i64) -> Result<(AlbumFacts, Vec<i64>)> {
+pub(crate) fn album_facts(tx: &Connection, id: i64) -> Result<(AlbumFacts, Vec<i64>)> {
     let name: String = tx.query_row("SELECT name FROM albums WHERE id = ?1", [id], |row| {
         row.get(0)
     })?;
@@ -134,10 +135,7 @@ fn candidates(tx: &Connection) -> Result<BTreeSet<(i64, i64)>> {
             if !instances.contains_key(&id) {
                 continue;
             }
-            let artists = credited_names(tx, "album_artists", "album_id", id)?
-                .iter()
-                .map(|name| search_key(name))
-                .collect();
+            let artists = credited_artists(&credited_names(tx, "album_artists", "album_id", id)?);
             by_name
                 .entry(versioned(&name).base)
                 .or_default()
