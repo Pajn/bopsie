@@ -40,3 +40,6 @@ artifacts/
 
 # music for the disposable test server
 /.ma-library/
+
+# Startup bench results and device logs
+/perf/

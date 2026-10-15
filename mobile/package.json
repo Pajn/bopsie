@@ -21,6 +21,7 @@
     "e2e:android": "detox test -c android.emu",
     "e2e:build:android:debug": "detox build -c android.emu.debug",
     "e2e:android:debug": "E2E_DEV_CLIENT=1 detox test -c android.emu.debug",
+    "perf:startup:android": "node scripts/perf/startup.ts",
     "build:icons": "node scripts/build-icons.mjs",
     "check:icons": "node scripts/build-icons.mjs --check"
   },

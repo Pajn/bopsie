@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { useAccountActions, useActiveAccount, useAuthContext } from '@/auth/AuthProvider';
+import { mark } from '@/lib/bench';
 import { createPlayer } from '@/player/createPlayer';
 import type { LocalPlayer, PlayerStatus } from '@/player/Player';
 
@@ -56,6 +57,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     const unsubscribes: Array<() => void> = [];
 
     void repository.loadToken(account.id).then((token) => {
+      mark('token-loaded');
       if (cancelled) return;
       if (!token) {
         markExpired(account.id);
@@ -65,6 +67,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       unsubscribes.push(
         connection.onEvent((event) => applyEvent(queryClient, account.id, event)),
         connection.onStatus((next) => {
+          if (next === 'ready') mark('connection-ready');
           setStatus(next);
           if (next === 'unauthorized') markExpired(account.id);
           // Events were missed while disconnected.

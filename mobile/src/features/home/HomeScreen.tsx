@@ -6,6 +6,7 @@ import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { AlbumRow, ArtistRow, PlaylistRow } from '@/features/library/rows';
+import { mark } from '@/lib/bench';
 import { Icon } from '@/ui/Icon';
 import { Screen, Text } from '@/ui/primitives';
 import { greeting } from './greeting';
@@ -38,6 +39,8 @@ export function HomeScreen() {
   const playlists = useShelf<Playlist>('playlists', 'timestamp_added_desc');
   const artists = useShelf<Artist>('artists', 'timestamp_added_desc');
   const random = useShelf<Album>('albums', 'random', round);
+  mark('home-render');
+  if (added.data) mark('home-shelves');
 
   const refresh = async () => {
     setRefreshing(true);
@@ -50,6 +53,7 @@ export function HomeScreen() {
     <Screen>
       <ScrollView
         contentContainerStyle={styles.content}
+        onLayout={() => mark('home-mounted')}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

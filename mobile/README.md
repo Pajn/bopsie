@@ -81,6 +81,28 @@ the former `cratie://` scheme remains supported for existing links. The iOS bund
 and Android package remain `io.github.pajn.cratie` so updates retain installed app data.
 The internal `cratie-player` and `cratie-icons` module names also remain stable.
 
+## Startup bench
+
+`scripts/perf/startup.ts` measures cold starts on an Android device or emulator: it installs a
+release APK, launches the app repeatedly with the process killed in between, samples the process's
+CPU per thread on the device, and reads the app's startup marks (`[bench] mark …` lines from
+`src/lib/bench.ts`) and the activity manager's milestones from the device log. It reports medians
+with their interquartile range and can compare two results. Results and per-launch logs go in
+`perf/`, which is not committed.
+
+```sh
+pnpm perf:startup:android -- --apk android/app/build/outputs/apk/release/app-release.apk --out perf/before.json
+pnpm perf:startup:android -- --compare perf/before.json perf/after.json
+```
+
+`--runs` sets the number of launches (10 by default) and `--device` the device's serial when
+several are attached. The app has to be signed in on the device already, and the device unlocked:
+a launch behind the lock screen never draws, so the bench refuses to measure one.
+
+The marks follow a launch from the JavaScript entry through the account and its token being read,
+the API connection authenticating, and Home rendering, receiving its shelves and drawing their
+artwork.
+
 ## Integration tests
 
 The API layer, and the server's side of Sendspin, are tested against a real Music Assistant server

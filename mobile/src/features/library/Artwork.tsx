@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { Image } from 'react-native-true-image';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
+import { markEach } from '@/lib/bench';
 import { Icon, type IconName } from '@/ui/Icon';
 
 /** Square artwork through the server's image proxy, with a glyph when an item has none. */
@@ -26,7 +27,12 @@ export function Artwork({
   return (
     <View style={[styles.frame, shape]}>
       {uri ? (
-        <Image source={{ uri }} style={shape} resizeMode="cover" />
+        <Image
+          source={{ uri }}
+          style={shape}
+          resizeMode="cover"
+          onDisplay={() => markEach('image')}
+        />
       ) : (
         // In proportion to small artwork, and no heavier than this on large.
         <Icon name={placeholder} size={Math.min(size * 0.4, 56)} />

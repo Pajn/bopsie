@@ -8,6 +8,7 @@ import {
 import type { Account } from '@bopsie/client/auth/types';
 import { createContext, type ReactNode, useContext, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
+import { mark } from '@/lib/bench';
 import { secureSecretStore, sqliteKeyValueStore } from './platformStores';
 
 interface AuthContextValue {
@@ -24,6 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const store = createAccountStore(repository);
     // Reading the stored accounts is synchronous, so the first render can have them.
     store.getState().hydrate();
+    mark('accounts-hydrated');
     value.current = { store, repository };
   }
   return <AuthContext.Provider value={value.current}>{children}</AuthContext.Provider>;

@@ -6,6 +6,9 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAccounts } from '@/auth/AuthProvider';
+import { mark } from '@/lib/bench';
+
+mark('layout-module');
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
@@ -20,6 +23,7 @@ function RootNavigator() {
   );
   const loading = useAccounts((state) => state.status === 'loading');
   if (loading) return null;
+  mark('first-screen-commit');
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Protected guard={signedIn}>
@@ -33,6 +37,7 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  mark('root-render');
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
