@@ -30,7 +30,12 @@ const AT_ONCE: usize = 8;
 pub struct SpotifyCatalog {
     account: SpotifyAccount,
     runtime: Handle,
+    /// Each playlist's tracks as of its revision, so that opening it again costs one call.
+    playlists: std::sync::Mutex<std::collections::HashMap<String, Revised>>,
 }
+
+/// A playlist's tracks, and the revision they are of.
+type Revised = (Vec<u8>, Vec<Track>);
 
 impl SpotifyCatalog {
     /// Needs a Tokio runtime, which tracks are fetched on.
@@ -38,6 +43,7 @@ impl SpotifyCatalog {
         Self {
             account,
             runtime: Handle::current(),
+            playlists: std::sync::Mutex::default(),
         }
     }
 }
@@ -425,8 +431,18 @@ impl Catalog for SpotifyCatalog {
             let playlist = librespot_metadata::Playlist::get(&session, &uri)
                 .await
                 .map_err(librespot)?;
+            if let Some((revision, tracks)) = self.playlists.lock().unwrap().get(id)
+                && *revision == playlist.revision
+            {
+                return Ok(tracks.clone());
+            }
             let uris = playlist.tracks().cloned().collect();
-            Ok(librespot_tracks(&session, uris).await)
+            let tracks = librespot_tracks(&session, uris).await;
+            self.playlists
+                .lock()
+                .unwrap()
+                .insert(id.to_owned(), (playlist.revision.clone(), tracks.clone()));
+            Ok(tracks)
         })
     }
 

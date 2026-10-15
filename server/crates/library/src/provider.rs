@@ -59,6 +59,7 @@ pub struct ScannedPlaylist {
     pub name: String,
     /// Provider ids of the tracks, in order. Ids the provider does not hold are skipped.
     pub track_ids: Vec<String>,
+    pub image: Option<ScannedImage>,
 }
 
 /// What a provider has, as far as it could see.

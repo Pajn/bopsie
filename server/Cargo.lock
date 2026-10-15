@@ -543,9 +543,11 @@ dependencies = [
 name = "bopsie-providers-filesystem"
 version = "0.1.0"
 dependencies = [
+ "bopsie-audio",
  "bopsie-core",
  "bopsie-fixtures",
  "bopsie-library",
+ "futures",
  "hex",
  "lofty",
  "serde_json",

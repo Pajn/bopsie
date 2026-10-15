@@ -1,9 +1,10 @@
 //! The listener's saved Spotify music, scanned into the library like a folder of files: liked
-//! songs and saved albums from the Web API through their developer app, and their playlists,
-//! with the playlists' tracks, from librespot, which Spotify's own apps use.
+//! songs and saved albums from the Web API through their developer app, and their playlists
+//! from librespot, which Spotify's own apps use.
 //!
-//! A listing fetches what it can in pages; a track the listing did not describe, as a
-//! playlist's are not, is read from librespot's metadata when the library first needs it.
+//! A playlist's tracks are not brought into the library: the library asks Spotify's catalog
+//! for them when the playlist is opened or played, so that a followed playlist does not fill
+//! the library with albums nobody saved.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -184,6 +185,27 @@ impl SpotifyLibrary {
             }
         }
 
+        // Playlists' artwork, Spotify's mosaics included, from one paged list.
+        let artwork: HashMap<String, String> = match self
+            .account
+            .get_all("me/playlists?limit=50", |page| page)
+            .await
+        {
+            Ok(playlists) => playlists
+                .iter()
+                .filter_map(|p| {
+                    let image = best_image(p)?;
+                    let ScannedImage::Path(url) = image else {
+                        return None;
+                    };
+                    Some((p["id"].as_str()?.to_owned(), url))
+                })
+                .collect(),
+            Err(error) => {
+                tracing::debug!(%error, "no artwork for Spotify playlists");
+                HashMap::new()
+            }
+        };
         let session = self.account.session().await.map_err(failed)?;
         let rootlist = session
             .spclient()
@@ -204,24 +226,30 @@ impl SpotifyLibrary {
                 continue;
             };
             let id = uri.to_id().unwrap_or_default();
-            let track_ids: Vec<String> = playlist
-                .tracks()
-                .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
-                .filter_map(|uri| uri.to_id().ok())
-                .collect();
-            for track in &track_ids {
-                add_track(track, None, &mut entries);
-            }
+            let picture = (!playlist.attributes.picture.is_empty()).then(|| {
+                format!(
+                    "https://i.scdn.co/image/{}",
+                    hex::encode(&playlist.attributes.picture)
+                )
+            });
+            let image = artwork.get(&id).cloned().or(picture);
             entries.push(Entry {
                 id: id.clone(),
                 kind: EntryKind::Playlist,
-                stamp: hex::encode(&playlist.revision),
+                // A new revision or new artwork reads it again.
+                stamp: format!(
+                    "{} {}",
+                    hex::encode(&playlist.revision),
+                    image.as_deref().unwrap_or_default()
+                ),
             });
             listed.playlists.insert(
                 id,
                 ScannedPlaylist {
                     name: playlist.attributes.name.clone(),
-                    track_ids,
+                    // Spotify's catalog gives them, when the playlist is opened or played.
+                    track_ids: Vec::new(),
+                    image: image.map(ScannedImage::Path),
                 },
             );
         }

@@ -283,6 +283,7 @@ impl MusicProvider for FilesystemProvider {
             })
             .collect();
         Ok(ScannedPlaylist {
+            image: None,
             name: path
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())

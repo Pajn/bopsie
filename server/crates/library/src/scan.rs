@@ -7,7 +7,7 @@ use bopsie_core::media::{MediaType, sort_name};
 use rusqlite::{Connection, OptionalExtension, Result, params};
 use sha2::{Digest, Sha256};
 
-use crate::provider::{ScannedPlaylist, ScannedTrack};
+use crate::provider::{Entry, ScannedPlaylist, ScannedTrack};
 use crate::query::encode_format;
 
 /// The provider an image or mapping belongs to.
@@ -471,21 +471,23 @@ pub fn prune(tx: &Connection, changes: &mut Changes) -> Result<()> {
     Ok(())
 }
 
-/// Adds or updates the playlist the provider calls `provider_id`. Entries are resolved against
+/// Adds or updates the playlist the provider listed as `entry`. Its tracks are resolved against
 /// the same provider's tracks; ones it does not hold are left out.
 pub fn upsert_playlist(
     tx: &Connection,
     source: &Source,
-    provider_id: &str,
-    stamp: &str,
+    entry: &Entry,
     playlist: &ScannedPlaylist,
+    image: Option<&ImageRef>,
     now: i64,
     changes: &mut Changes,
 ) -> Result<i64> {
+    let (provider_id, stamp) = (entry.id.as_str(), entry.stamp.as_str());
     let name = match playlist.name.trim() {
         "" => provider_id,
         name => name,
     };
+    let image = store_image(tx, image)?;
     let existing: Option<i64> = tx
         .query_row(
             "SELECT item_id FROM provider_mappings
@@ -497,16 +499,17 @@ pub fn upsert_playlist(
     let id = match existing {
         Some(id) => {
             tx.execute(
-                "UPDATE playlists SET name = ?2, sort_name = ?3 WHERE id = ?1",
-                params![id, name, sort_name(name)],
+                "UPDATE playlists SET name = ?2, sort_name = ?3, image = ?4 WHERE id = ?1",
+                params![id, name, sort_name(name), image],
             )?;
             changes.update((MediaType::Playlist, id));
             id
         }
         None => {
             tx.execute(
-                "INSERT INTO playlists (name, sort_name, date_added) VALUES (?1, ?2, ?3)",
-                params![name, sort_name(name), now],
+                "INSERT INTO playlists (name, sort_name, image, date_added)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![name, sort_name(name), image, now],
             )?;
             let id = tx.last_insert_rowid();
             map(tx, source, MediaType::Playlist, id, provider_id)?;

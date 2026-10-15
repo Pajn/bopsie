@@ -593,11 +593,18 @@ impl bopsie_library::provider::MusicProvider for Streamed {
     ) -> Result<bopsie_library::provider::Listing, bopsie_library::provider::ProviderError> {
         use bopsie_library::provider::{Entry, EntryKind, Listing};
         Ok(Listing {
-            entries: vec![Entry {
-                id: "s1".to_owned(),
-                kind: EntryKind::Track,
-                stamp: "1".to_owned(),
-            }],
+            entries: vec![
+                Entry {
+                    id: "s1".to_owned(),
+                    kind: EntryKind::Track,
+                    stamp: "1".to_owned(),
+                },
+                Entry {
+                    id: "p1".to_owned(),
+                    kind: EntryKind::Playlist,
+                    stamp: "1".to_owned(),
+                },
+            ],
             unreadable: Vec::new(),
         })
     }
@@ -622,12 +629,16 @@ impl bopsie_library::provider::MusicProvider for Streamed {
     }
     fn read_playlist(
         &self,
-        id: &str,
+        _id: &str,
     ) -> Result<bopsie_library::provider::ScannedPlaylist, bopsie_library::provider::ProviderError>
     {
-        Err(bopsie_library::provider::ProviderError::Unreadable(
-            id.to_owned(),
-        ))
+        Ok(bopsie_library::provider::ScannedPlaylist {
+            name: "Streamed Mix".to_owned(),
+            track_ids: Vec::new(),
+            image: Some(bopsie_library::provider::ScannedImage::Path(
+                "https://images.example/mix.jpg".to_owned(),
+            )),
+        })
     }
     fn image(&self, path: &str) -> Result<Vec<u8>, bopsie_library::provider::ProviderError> {
         Err(bopsie_library::provider::ProviderError::Unreadable(
@@ -683,4 +694,155 @@ async fn a_streaming_services_album_stays_apart_from_a_local_one_of_the_same_nam
         .unwrap()
         .unwrap();
     assert_eq!(held.fields().name, "First Album");
+}
+
+/// The streaming service's catalog: its playlist holds a track the library does not.
+struct StreamedCatalog(std::path::PathBuf);
+
+impl bopsie_library::catalog::Catalog for StreamedCatalog {
+    fn instance_id(&self) -> &str {
+        "streamed"
+    }
+    fn domain(&self) -> &str {
+        "streamed"
+    }
+    fn name(&self) -> &str {
+        "Streamed"
+    }
+    fn search<'a>(
+        &'a self,
+        _query: &'a str,
+        _media_type: MediaType,
+        _limit: usize,
+    ) -> futures::future::BoxFuture<'a, bopsie_library::catalog::CatalogResult<Vec<MediaItem>>>
+    {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn item<'a>(
+        &'a self,
+        _media_type: MediaType,
+        id: &'a str,
+    ) -> futures::future::BoxFuture<'a, bopsie_library::catalog::CatalogResult<MediaItem>> {
+        Box::pin(async move {
+            Err(bopsie_library::catalog::CatalogError::NotFound(
+                id.to_owned(),
+            ))
+        })
+    }
+    fn album_tracks<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Track>>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn artist_albums<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Album>>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn artist_tracks<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Track>>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn playlist_tracks<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Track>>,
+    > {
+        Box::pin(async move {
+            assert_eq!(id, "p1");
+            let mut track = match library_track() {
+                MediaItem::Track(track) => *track,
+                _ => unreachable!(),
+            };
+            track.fields.provider = "streamed".to_owned();
+            track.fields.item_id = "unsaved".to_owned();
+            Ok(vec![track])
+        })
+    }
+    fn media(&self, track_id: &str) -> Option<bopsie_audio::engine::Input> {
+        (track_id == "unsaved").then(|| bopsie_audio::engine::Input::File(self.0.clone()))
+    }
+}
+
+/// Any track, to dress up as the catalog's.
+fn library_track() -> MediaItem {
+    MediaItem::Track(Box::new(bopsie_core::media::Track {
+        fields: bopsie_core::media::ItemFields {
+            item_id: "0".to_owned(),
+            provider: "library".to_owned(),
+            name: "Not Saved".to_owned(),
+            version: String::new(),
+            sort_name: "not saved".to_owned(),
+            uri: "streamed://track/unsaved".to_owned(),
+            external_ids: Vec::new(),
+            is_playable: true,
+            media_type: MediaType::Track,
+            provider_mappings: Vec::new(),
+            metadata: bopsie_core::media::Metadata::default(),
+            favorite: false,
+            position: None,
+            date_added: None,
+        },
+        duration: 60,
+        artists: Vec::new(),
+        last_played: 0,
+        album: None,
+        disc_number: 1,
+        track_number: 1,
+        audio_metadata: None,
+    }))
+}
+
+#[tokio::test]
+async fn a_streaming_services_playlist_has_its_artwork_and_its_catalogs_tracks() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Database::open_in_memory(&[bopsie_library::MIGRATIONS]).unwrap();
+    let library = Library::new(
+        db,
+        EventBus::default(),
+        vec![Arc::new(Streamed)],
+        dir.path().join("artwork"),
+    );
+    let file = dir.path().join("unsaved.wav");
+    library
+        .catalogs()
+        .add(Arc::new(StreamedCatalog(file.clone())));
+    library.sync().await.unwrap();
+    let playlist = id(&library, MediaType::Playlist, "Streamed Mix").await;
+    let Some(MediaItem::Playlist(listed)) =
+        library.item(MediaType::Playlist, playlist).await.unwrap()
+    else {
+        panic!("no playlist");
+    };
+    let image = &listed.fields.metadata.images.as_ref().unwrap()[0];
+    assert_eq!(image.path, "https://images.example/mix.jpg");
+
+    // Its tracks are the catalog's, not the library's, which does not hold them.
+    let tracks = library.playlist_tracks(playlist).await.unwrap();
+    assert_eq!(tracks[0].fields.item_id, "unsaved");
+    assert_eq!(
+        list(&library, MediaType::Track).await,
+        ["Opening (Remastered)"]
+    );
+    let playable = library
+        .playable(&format!("library://playlist/{playlist}"))
+        .await
+        .unwrap();
+    assert_eq!(playable.len(), 1);
+    assert_eq!(playable[0].1, bopsie_audio::engine::Input::File(file));
 }

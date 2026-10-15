@@ -112,5 +112,9 @@ pub const MIGRATIONS: Migrations = Migrations {
             PRIMARY KEY (media_type, item_id)
         ) STRICT;
     ",
+        "
+        -- A playlist's artwork, by proxy id, as albums have theirs.
+        ALTER TABLE playlists ADD COLUMN image TEXT;
+    ",
     ],
 };

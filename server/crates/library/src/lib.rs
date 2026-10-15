@@ -124,12 +124,44 @@ impl Library {
             .await
     }
 
+    /// A playlist's tracks in order. A playlist a catalog keeps, such as a Spotify one, is
+    /// asked for them, so that its tracks need not be in the library.
     pub async fn playlist_tracks(
         &self,
         playlist_id: i64,
     ) -> Result<Vec<bopsie_core::media::Track>> {
+        if let Some((catalog, id)) = self
+            .kept_by_catalog(MediaType::Playlist, playlist_id)
+            .await?
+        {
+            return Ok(catalog.playlist_tracks(&id).await?);
+        }
         self.read(move |conn| query::playlist_tracks(conn, playlist_id))
             .await
+    }
+
+    /// The catalog that keeps library item `id`, and its id there, if one does.
+    async fn kept_by_catalog(
+        &self,
+        media_type: MediaType,
+        id: i64,
+    ) -> Result<Option<(Arc<dyn catalog::Catalog>, String)>> {
+        let mappings: Vec<(String, String)> = self
+            .read(move |conn| {
+                let mut statement = conn.prepare(
+                    "SELECT provider_instance, provider_item_id FROM provider_mappings
+                     WHERE media_type = ?1 AND item_id = ?2",
+                )?;
+                statement
+                    .query_map((media_type.as_str(), id), |row| {
+                        Ok((row.get(0)?, row.get(1)?))
+                    })?
+                    .collect()
+            })
+            .await?;
+        Ok(mappings
+            .into_iter()
+            .find_map(|(instance, item)| Some((self.catalogs.get(&instance)?, item))))
     }
 
     pub async fn search(
@@ -240,10 +272,17 @@ impl Library {
         };
         let mut playable = Vec::with_capacity(tracks.len());
         for track in tracks {
-            let Ok(track_id) = track.fields.item_id.parse() else {
-                continue;
+            // A catalog's playlist holds the catalog's own tracks.
+            let media = match track.fields.item_id.parse() {
+                Ok(track_id) if track.fields.provider == bopsie_core::media::LIBRARY => {
+                    self.track_media(track_id).await?
+                }
+                _ => self
+                    .catalogs
+                    .get(&track.fields.provider)
+                    .and_then(|catalog| catalog.media(&track.fields.item_id)),
             };
-            if let Some(media) = self.track_media(track_id).await? {
+            if let Some(media) = media {
                 playable.push((track, media));
             }
         }
@@ -550,11 +589,15 @@ impl Library {
         }
 
         let reader = provider.clone();
+        let (instance, artwork_dir) = (source.instance.clone(), self.artwork_dir.clone());
         let playlists = blocking(move || {
             stale_playlists
                 .into_iter()
                 .filter_map(|entry| match reader.read_playlist(&entry.id) {
-                    Ok(playlist) => Some((entry, playlist)),
+                    Ok(playlist) => {
+                        let image = prepare_image(&instance, &artwork_dir, playlist.image.clone());
+                        Some((entry, playlist, image))
+                    }
                     Err(error) => {
                         tracing::warn!(item = entry.id, %error, "cannot read playlist");
                         None
@@ -577,13 +620,13 @@ impl Library {
                     &gone_playlists,
                     &mut changes,
                 )?;
-                for (entry, playlist) in &playlists {
+                for (entry, playlist, image) in &playlists {
                     scan::upsert_playlist(
                         &tx,
                         &source,
-                        &entry.id,
-                        &entry.stamp,
+                        entry,
                         playlist,
+                        image.as_ref(),
                         now,
                         &mut changes,
                     )?;

@@ -119,7 +119,9 @@ Spotify card on the web UI's server page, because Spotify keeps these apart:
   serves at most five Spotify users, and its search returns ten results per type.
 
 Once both are there, a sync brings in liked songs and saved albums from the Web API, and the
-listener's playlists, with their tracks, from librespot. It runs right after logging in, at every
+listener's playlists, with their artwork, from librespot and the Web API. A playlist's tracks are
+not brought into the library: opening or playing it asks Spotify for them, so that a followed
+playlist does not fill the library with albums nobody saved. It runs right after logging in, at every
 start and every six hours. A Spotify album stays apart from a local album of the same name; an
 artist is one, with both. Search covers the library and Spotify, the library's results first, and
 a Spotify result the library holds comes back as the library's; `library_only` or `providers` on

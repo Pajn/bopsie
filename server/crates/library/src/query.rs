@@ -443,23 +443,28 @@ pub fn track(conn: &Connection, id: i64) -> Result<Option<Track>> {
 pub fn playlist(conn: &Connection, id: i64) -> Result<Option<Playlist>> {
     let Some(common) = conn
         .query_row(
-            "SELECT name, sort_name, favorite, date_added FROM playlists WHERE id = ?1",
+            "SELECT name, sort_name, favorite, date_added, image FROM playlists WHERE id = ?1",
             [id],
             |row| {
-                Ok(Common {
-                    name: row.get(0)?,
-                    sort_name: row.get(1)?,
-                    favorite: row.get(2)?,
-                    date_added: row.get(3)?,
-                })
+                Ok((
+                    Common {
+                        name: row.get(0)?,
+                        sort_name: row.get(1)?,
+                        favorite: row.get(2)?,
+                        date_added: row.get(3)?,
+                    },
+                    row.get::<_, Option<String>>(4)?,
+                ))
             },
         )
         .optional()?
     else {
         return Ok(None);
     };
+    let (common, image_id) = common;
+    let image = image(conn, image_id.as_deref())?;
     Ok(Some(Playlist {
-        fields: fields(conn, MediaType::Playlist, id, common, None)?,
+        fields: fields(conn, MediaType::Playlist, id, common, image)?,
         owner: String::new(),
         is_editable: false,
         is_dynamic: false,
