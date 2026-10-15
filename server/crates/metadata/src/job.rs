@@ -26,6 +26,8 @@ const SUGGEST_BELOW: f64 = 0.25;
 const BARCODE_NAMES_BELOW: f64 = 0.1;
 /// Releases a search finds that are looked up and scored.
 const CANDIDATES: usize = 3;
+/// How long to leave MusicBrainz be when it stays busy.
+const BUSY_PAUSE: Duration = Duration::from_secs(60);
 /// AcoustID matches this sure are a track's recording.
 const HEARD_SCORE: f64 = 0.5;
 
@@ -184,15 +186,21 @@ impl Enricher {
                 }
             };
             for id in due {
-                match self.album(id).await {
+                let mut outcome = self.album(id).await;
+                if let Err(MbError::Busy) = outcome {
+                    // Busy for longer than a request's own waits: once more, after a pause.
+                    tokio::time::sleep(BUSY_PAUSE).await;
+                    outcome = self.album(id).await;
+                }
+                match outcome {
                     Ok(Outcome::Matched) => summary.matched += 1,
                     Ok(Outcome::Suggested) => summary.suggested += 1,
                     Ok(Outcome::Unmatched) => summary.unmatched += 1,
                     Err(error) => {
                         tracing::warn!(album = id, %error, "looking an album up failed");
                         summary.failed += 1;
-                        // Tried again at the next run, unless MusicBrainz cannot be reached
-                        // at all, which the next run finds out for itself.
+                        // Tried again at the next run, as is the rest, when MusicBrainz cannot
+                        // be reached or stays busy.
                         if matches!(error, MbError::Unreachable(_) | MbError::Busy) {
                             return self.report(summary);
                         }

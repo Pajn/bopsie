@@ -53,6 +53,9 @@ struct Args {
 
 /// How often the library syncs again on its own.
 const RESYNC: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+/// How long after starting albums are first looked up on MusicBrainz, and how often after.
+const ENRICH_FIRST: Duration = Duration::from_secs(60);
+const ENRICH_EVERY: Duration = Duration::from_secs(15 * 60);
 
 /// What is logged unless `RUST_LOG` says otherwise. The tag reader warns about every odd tag it
 /// skips, which buries everything else in a large library, and Spotify Connect's mDNS
@@ -246,7 +249,19 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         .genres(config.metadata.genres)
         .by_sound_with(acoustid)
     });
-    let enriching = Arc::new(tokio::sync::Mutex::new(()));
+    // Albums are looked up in the background, a while after the first sync starts and every
+    // quarter of an hour after: a run with nothing due does nothing, and one MusicBrainz cut
+    // short carries on at the next.
+    if let Some(enricher) = enricher {
+        tokio::spawn(async move {
+            tokio::time::sleep(ENRICH_FIRST).await;
+            let mut every = tokio::time::interval(ENRICH_EVERY);
+            loop {
+                every.tick().await;
+                enricher.run().await;
+            }
+        });
+    }
 
     // The API serves the library as it was while the scan catches up. Spotify's saved music
     // changes without the server hearing of it, so the library syncs again now and then.
@@ -256,14 +271,6 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
             every.tick().await;
             if let Err(error) = library.sync().await {
                 tracing::error!(%error, "library sync failed");
-            }
-            if let (Some(enricher), Ok(running)) =
-                (enricher.clone(), enriching.clone().try_lock_owned())
-            {
-                tokio::spawn(async move {
-                    enricher.run().await;
-                    drop(running);
-                });
             }
         }
     });

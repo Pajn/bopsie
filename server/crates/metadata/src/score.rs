@@ -5,7 +5,7 @@
 
 use bopsie_library::enrich::AlbumToMatch;
 use bopsie_library::ids::search_key;
-use bopsie_library::matching::{TrackFacts, pair_tracks, versioned};
+use bopsie_library::matching::{TrackFacts, versioned};
 
 use crate::musicbrainz::{Release, credited};
 
@@ -112,6 +112,35 @@ impl Release {
     }
 }
 
+/// Tracks further apart than this are not paired: one side lacks the other's.
+const UNPAIRED: f64 = 0.5;
+
+/// Pairs each track with its closest on the other side, closest pairs first, as beets assigns
+/// them: an edition in another order, or with a track split in two, still pairs by song.
+fn pair_closest(ours: &[TrackFacts], theirs: &[TrackFacts]) -> Vec<(usize, usize)> {
+    let mut candidates: Vec<(f64, usize, usize)> = Vec::new();
+    for (i, a) in ours.iter().enumerate() {
+        for (j, b) in theirs.iter().enumerate() {
+            let distance = track_distance(a, b);
+            if distance < UNPAIRED {
+                candidates.push((distance, i, j));
+            }
+        }
+    }
+    candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then((a.1, a.2).cmp(&(b.1, b.2))));
+    let (mut taken_ours, mut taken_theirs) = (vec![false; ours.len()], vec![false; theirs.len()]);
+    let mut pairs = Vec::new();
+    for (_, i, j) in candidates {
+        if !taken_ours[i] && !taken_theirs[j] {
+            taken_ours[i] = true;
+            taken_theirs[j] = true;
+            pairs.push((i, j));
+        }
+    }
+    pairs.sort_unstable();
+    pairs
+}
+
 fn track_distance(ours: &TrackFacts, theirs: &TrackFacts) -> f64 {
     let mut sum = Sum::default();
     sum.add(TRACK_TITLE, string_distance(&ours.name, &theirs.name));
@@ -162,7 +191,7 @@ pub fn score(album: &AlbumToMatch, release: &Release) -> Scored {
             f64::from(u8::from(discs(&facts.tracks) != release.media.len())),
         );
     }
-    let pairs = pair_tracks(&facts.tracks, &theirs);
+    let pairs = pair_closest(&facts.tracks, &theirs);
     for (ours, other) in &pairs {
         sum.add(
             TRACKS,
@@ -235,6 +264,26 @@ mod tests {
             year: Some(2021),
             needs_art: false,
         }
+    }
+
+    #[test]
+    fn an_edition_in_another_order_pairs_by_song() {
+        // Its first track split in two, and the rest in another order.
+        let scored = score(
+            &album(
+                "First Album",
+                &[
+                    ("Open", 80),
+                    ("Ing", 120),
+                    ("Closing", 240),
+                    ("Middle (feat. Someone)", 181),
+                ],
+            ),
+            &first_album(),
+        );
+        assert_eq!(scored.pairs, [(2, 2), (3, 1)], "{scored:?}");
+        assert_eq!((scored.missing, scored.extra), (1, 2));
+        assert!(scored.distance < 0.25, "suggested: {scored:?}");
     }
 
     #[test]

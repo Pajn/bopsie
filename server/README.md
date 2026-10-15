@@ -152,8 +152,9 @@ of its own that is not merged again.
 
 ### Metadata from MusicBrainz
 
-After each sync, the library's albums are looked up on [MusicBrainz](https://musicbrainz.org),
-those with files first, each again every 90 days. An album is found by the release its files
+In the background, a minute after the server starts and every quarter of an hour after, the
+library's albums are looked up on [MusicBrainz](https://musicbrainz.org), those with files
+first, each again every 90 days. An album is found by the release its files
 are tagged with, by its barcode, or by a search scored as [beets](https://beets.io) scores
 releases. A close match is taken; a near one, such as a release with a track the files lack,
 is suggested on the web UI's library page, to use or reject. What is taken:

@@ -197,5 +197,13 @@ pub const MIGRATIONS: Migrations = Migrations {
             PRIMARY KEY (media_type, from_id)
         ) STRICT;
     ",
+        "
+        -- Albums a metadata service found nothing for are asked about again: tracks are now
+        -- paired by song, not by place, so an edition in another order can be found.
+        UPDATE albums SET metadata_checked = NULL
+        WHERE id NOT IN (SELECT item_id FROM external_ids
+                         WHERE media_type = 'album' AND provider_instance = 'musicbrainz')
+            AND id NOT IN (SELECT album_id FROM release_suggestions);
+    ",
     ],
 };
