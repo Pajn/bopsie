@@ -4,8 +4,8 @@ import { LegendList } from '@legendapp/list/react-native';
 import { useQuery } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { Pressable, View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { ItemHeader } from '@/features/library/ItemHeader';
 import { MoreButton } from '@/features/library/menu';
@@ -14,6 +14,7 @@ import { useOpenItemMenu } from '@/features/library/useOpenItemMenu';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
 import { InlineError, Text } from '@/ui/primitives';
+import { SkeletonRows } from '@/ui/Skeleton';
 import { type ArtistRow, artistRows } from './sections';
 
 export function ArtistScreen({
@@ -28,7 +29,6 @@ export function ArtistScreen({
   const { connection, account } = useConnection();
   const playback = usePlaybackActions();
   const openMenu = useOpenItemMenu();
-  const { theme } = useUnistyles();
   const [expanded, setExpanded] = useState(false);
   const ref = { itemId: id, provider };
   const artist = useQuery({
@@ -124,7 +124,7 @@ export function ArtistScreen({
         }
         ListEmptyComponent={
           loading ? (
-            <ActivityIndicator color={theme.colors.accent} style={styles.empty} />
+            <SkeletonRows count={6} />
           ) : error ? null : (
             <Text muted style={styles.empty}>
               No albums or tracks.

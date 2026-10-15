@@ -2,21 +2,21 @@ import { search } from '@bopsie/client/api/endpoints/library';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { Pressable, ScrollView, View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { AlbumRow, ArtistRow, PlaylistRow, TrackRow } from '@/features/library/rows';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
 import { useDebounced } from '@/lib/useDebounced';
 import { InlineError, Screen, Stack, Text, TextField } from '@/ui/primitives';
+import { SkeletonRows } from '@/ui/Skeleton';
 import { EVERYWHERE, type SearchScope, searchScopes } from './scope';
 import { useProviders } from './useProviders';
 
 export function SearchScreen() {
   const { connection, account } = useConnection();
   const playback = usePlaybackActions();
-  const { theme } = useUnistyles();
   const [text, setText] = useState('');
   const query = useDebounced(text.trim(), 300);
   const scopes = searchScopes(useProviders().data ?? []);
@@ -66,7 +66,7 @@ export function SearchScreen() {
         </View>
       ) : null}
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.results}>
-        {results.isFetching && !data ? <ActivityIndicator color={theme.colors.accent} /> : null}
+        {results.isFetching && !data ? <SkeletonRows count={6} /> : null}
         {results.isError ? <InlineError message={describeError(results.error)} /> : null}
         {data ? (
           <Stack gap="lg">

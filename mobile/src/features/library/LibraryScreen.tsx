@@ -5,7 +5,7 @@ import { LegendList } from '@legendapp/list/react-native';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { usePlaybackActions } from '@/features/player/usePlayback';
@@ -13,6 +13,7 @@ import { describeError } from '@/lib/errors';
 import { useDebounced } from '@/lib/useDebounced';
 import { Icon } from '@/ui/Icon';
 import { InlineError, Screen, Text } from '@/ui/primitives';
+import { SkeletonRows } from '@/ui/Skeleton';
 import { AlbumRow, ArtistRow, PlaylistRow, TrackRow } from './rows';
 import { useLibrarySort } from './useLibrarySort';
 
@@ -141,7 +142,7 @@ export function LibraryScreen() {
         }}
         ListEmptyComponent={
           query.isPending ? (
-            <ActivityIndicator color={theme.colors.accent} style={styles.empty} />
+            <SkeletonRows round={kind === 'artists'} artwork={kind === 'tracks' ? 40 : 48} />
           ) : (
             <Text muted style={styles.empty}>
               {search ? `Nothing matches “${search}”.` : 'Nothing here yet.'}
