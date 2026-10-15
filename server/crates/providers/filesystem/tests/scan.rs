@@ -945,6 +945,8 @@ struct Holding {
     streams: std::path::PathBuf,
     album: std::sync::Mutex<(String, Vec<&'static str>)>,
     stamp: std::sync::atomic::AtomicU32,
+    /// How long its tracks are.
+    seconds: std::sync::atomic::AtomicU32,
 }
 
 const HELD: [&str; 3] = ["Opening", "Middle", "Closing"];
@@ -955,7 +957,14 @@ impl Holding {
             streams: streams.to_owned(),
             album: std::sync::Mutex::new((album.to_owned(), titles.to_vec())),
             stamp: 1.into(),
+            seconds: 7.into(),
         })
+    }
+
+    /// Its tracks as long as the fixture's files.
+    fn timed_as_files(self: Arc<Self>) -> Arc<Self> {
+        self.seconds.store(1, std::sync::atomic::Ordering::SeqCst);
+        self
     }
 
     /// Now holds `titles` of `album`, read again at the next sync.
@@ -1014,7 +1023,7 @@ impl bopsie_library::provider::MusicProvider for Holding {
             album_artists: vec!["Test Artist".to_owned()],
             track_number: Some(number),
             disc_number: Some(1),
-            duration_secs: 7,
+            duration_secs: self.seconds.load(std::sync::atomic::Ordering::SeqCst),
             audio_format: bopsie_core::media::AudioFormat::unknown(),
             album_id: Some(format!("held-{album}")),
             ..Default::default()
@@ -1486,5 +1495,35 @@ async fn an_id_merged_away_finds_the_item_it_became() {
     assert_eq!(played.len(), 1);
     assert!(
         matches!(&played[0].1, bopsie_audio::engine::Input::File(path) if path.starts_with(&m.music))
+    );
+}
+
+#[tokio::test]
+async fn a_liked_song_on_its_single_is_the_files_track_on_the_album() {
+    let m = Merging::new();
+    // Saved on the service as the single it came out on.
+    let holding = Holding::new(&m.streams, "Middle - Single", &["Middle"]).timed_as_files();
+    let library = m.library(true, &holding);
+    library.sync().await.unwrap();
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+    let album = id(&library, MediaType::Album, "First Album").await;
+    let tracks = library.album_tracks(album).await.unwrap();
+    assert_eq!(names_of(&tracks), HELD);
+    let middle: i64 = tracks[1].fields.item_id.parse().unwrap();
+    assert_eq!(sources(&library, MediaType::Track, middle).await.len(), 2);
+
+    // Read again, it brings back neither its single nor anything else.
+    holding.hold("Middle - Single", &["Middle"]);
+    let changes = library.sync().await.unwrap();
+    assert!(
+        changes.added.is_empty() && changes.deleted.is_empty(),
+        "{changes:?}"
+    );
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
     );
 }

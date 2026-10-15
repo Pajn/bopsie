@@ -125,11 +125,14 @@ pub fn versioned(name: &str) -> Versioned {
         }
         base = trimmed[..start].trim_end().to_owned();
     }
-    // A dash-separated version: "Song - 2011 Remaster", "Album - Live at Wembley".
-    if let Some(at) = base.rfind(" - ") {
-        let (head, tail) = base.split_at(at);
-        if take(&tail[3..]) {
-            base = head.trim_end().to_owned();
+    // A version after a dash or a colon: "Song - 2011 Remaster", "Album - Live at Wembley",
+    // "Album: Acoustic Sessions".
+    for separator in [" - ", ": "] {
+        if let Some(at) = base.rfind(separator) {
+            let (head, tail) = base.split_at(at);
+            if take(&tail[separator.len()..]) {
+                base = head.trim_end().to_owned();
+            }
         }
     }
     Versioned {
@@ -401,6 +404,14 @@ mod tests {
         assert_eq!(versioned("Song (feat. Someone)").base, "song");
         assert_eq!(versioned("Album - EP").base, "album");
         assert_eq!(versioned("Live Forever").base, "live forever");
+        assert_eq!(
+            versioned("Album: Acoustic Sessions"),
+            versioned("Album (Acoustic Sessions)")
+        );
+        assert_eq!(
+            versioned("Star Wars: A New Hope").base,
+            "star wars a new hope"
+        );
         let v = versioned("Album - Live at Wembley");
         assert_eq!(
             (v.base.as_str(), v.recording.contains("live")),

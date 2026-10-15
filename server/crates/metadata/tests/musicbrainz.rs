@@ -427,7 +427,8 @@ async fn albums_are_identified_suggested_and_accepted() {
     assert!(library.release_suggestions(false).await.unwrap().is_empty());
 }
 
-/// A streaming service holding the fixture's First Album under another name, as its own id.
+/// A streaming service holding the fixture's First Album under another name, as its own id,
+/// mastered a few seconds longer: nothing but a link says it is the same album.
 struct Streamed;
 
 impl bopsie_library::provider::MusicProvider for Streamed {
@@ -471,7 +472,7 @@ impl bopsie_library::provider::MusicProvider for Streamed {
             album_artists: vec!["Test Artist".to_owned()],
             track_number: Some(number),
             disc_number: Some(1),
-            duration_secs: 1,
+            duration_secs: 5,
             audio_format: bopsie_core::media::AudioFormat::unknown(),
             album_id: Some("streamedalbum".to_owned()),
             album_ids: vec![(IdKind::Spotify, "streamedalbum".to_owned())],

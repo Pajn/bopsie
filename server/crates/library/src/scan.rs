@@ -477,24 +477,6 @@ pub fn upsert_track(
     };
     let track_artists = names(&track.artists, UNKNOWN_ARTIST);
     let image = store_image(tx, prepared.image.as_ref())?;
-    let album_id = album(
-        tx,
-        source,
-        prepared,
-        &track_artists,
-        image.as_deref(),
-        now,
-        changes,
-    )?;
-    let artist_ids = track_artists
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            let mbid = id_at(&track.artist_ids, track_artists.len(), i);
-            artist(tx, source, name, mbid, now, changes)
-        })
-        .collect::<Result<Vec<_>>>()?;
-
     let existing: Option<i64> = tx
         .query_row(
             "SELECT item_id FROM provider_mappings
@@ -513,6 +495,41 @@ pub fn upsert_track(
             |row| row.get::<_, bool>(0),
         )?,
         None => false,
+    };
+    // Nor does it bring its own album and artists, which the track no longer has; only an
+    // album, if it has none.
+    let has_album = match existing {
+        Some(id) if outranked => tx.query_row(
+            "SELECT album_id IS NOT NULL FROM tracks WHERE id = ?1",
+            [id],
+            |row| row.get::<_, bool>(0),
+        )?,
+        _ => false,
+    };
+    let album_id = if has_album {
+        None
+    } else {
+        album(
+            tx,
+            source,
+            prepared,
+            &track_artists,
+            image.as_deref(),
+            now,
+            changes,
+        )?
+    };
+    let artist_ids = if outranked {
+        Vec::new()
+    } else {
+        track_artists
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let mbid = id_at(&track.artist_ids, track_artists.len(), i);
+                artist(tx, source, name, mbid, now, changes)
+            })
+            .collect::<Result<Vec<_>>>()?
     };
     let id = match existing {
         Some(id) if outranked => {

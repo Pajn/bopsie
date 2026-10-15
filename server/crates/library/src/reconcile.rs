@@ -305,6 +305,111 @@ pub fn reconcile(tx: &Connection, now: i64, changes: &mut Changes) -> Result<()>
             Evidence::Insufficient => {}
         }
     }
+    reconcile_tracks(tx, changes)
+}
+
+/// What a comparison knows of track `id`, and its album.
+fn track_facts(tx: &Connection, id: i64) -> Result<Option<(TrackFacts, Option<i64>)>> {
+    let Some((name, duration_secs, disc_number, track_number, album)) = tx
+        .query_row(
+            "SELECT name, duration, disc_number, track_number, album_id FROM tracks WHERE id = ?1",
+            [id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let facts = TrackFacts {
+        name,
+        artists: credited_names(tx, "track_artists", "track_id", id)?,
+        duration_secs,
+        disc_number,
+        track_number,
+        ids: ids_of(tx, MediaType::Track, id)?,
+    };
+    Ok(Some((facts, album)))
+}
+
+/// The same recording held by providers apart on different albums, as a liked song on its
+/// single and the album it is on as files, becomes one track. Not on albums that may be
+/// another edition, or that a person or Separate keeps apart: that is for them to say.
+fn reconcile_tracks(tx: &Connection, changes: &mut Changes) -> Result<()> {
+    let mut statement = tx.prepare(
+        "SELECT DISTINCT x.item_id, y.item_id FROM external_ids x
+         JOIN external_ids y ON y.kind = x.kind AND y.value = x.value AND y.item_id > x.item_id
+         WHERE x.media_type = 'track' AND y.media_type = 'track' AND x.kind IN (?1, ?2)
+         UNION
+         SELECT a.id, b.id FROM tracks a
+         JOIN tracks b ON b.search_key = a.search_key AND b.id > a.id
+             AND abs(b.duration - a.duration) <= 2",
+    )?;
+    let pairs = statement
+        .query_map(
+            params![IdKind::Isrc.as_str(), IdKind::MbRecording.as_str()],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )?
+        .collect::<Result<Vec<_>>>()?;
+    let mut merged: HashMap<i64, i64> = HashMap::new();
+    for (a, b) in pairs {
+        let survivor = |mut id: i64| {
+            while let Some(into) = merged.get(&id) {
+                id = *into;
+            }
+            id
+        };
+        let (a, b) = (survivor(a), survivor(b));
+        if a == b
+            || !instances_of(tx, MediaType::Track, a)?.is_disjoint(&instances_of(
+                tx,
+                MediaType::Track,
+                b,
+            )?)
+        {
+            continue;
+        }
+        let (Some((facts_a, album_a)), Some((facts_b, album_b))) =
+            (track_facts(tx, a)?, track_facts(tx, b)?)
+        else {
+            continue;
+        };
+        if let (Some(album_a), Some(album_b)) = (album_a, album_b)
+            && album_a != album_b
+        {
+            let said: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM match_suggestions
+                     WHERE media_type = 'album' AND a = ?1 AND b = ?2
+                         AND coalesce(decision, '') != ?3)",
+                params![album_a.min(album_b), album_a.max(album_b), MERGE],
+                |row| row.get(0),
+            )?;
+            if said {
+                continue;
+            }
+        }
+        if compare_track(&facts_a, &facts_b, album_a == album_b) != Evidence::Match {
+            continue;
+        }
+        let (pa, pb) = (
+            priority(tx, MediaType::Track, a)?,
+            priority(tx, MediaType::Track, b)?,
+        );
+        let (from, into) = if pa > pb || (pa == pb && a < b) {
+            (b, a)
+        } else {
+            (a, b)
+        };
+        merge_tracks(tx, from, into, changes)?;
+        merged.insert(from, into);
+    }
     Ok(())
 }
 
