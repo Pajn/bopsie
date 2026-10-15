@@ -9,9 +9,10 @@ Music Assistant API and the Sendspin protocol look like on the wire, with source
 [`docs/research`](../docs/research).
 
 What works today: sign in to Music Assistant 2.7.1 or later with a username and password; browse
-albums, artists and playlists; search; and, on Android, play on the phone itself. The phone joins
-Music Assistant as a player over Sendspin, so the server keeps its queue and other clients see it,
-with notification and lock-screen controls. iOS browses but does not play yet.
+albums, artists, tracks and playlists, sorted and filtered; search; and, on Android, play on the
+phone itself. The phone joins Music Assistant as a player over Sendspin, so the server keeps its
+queue and other clients see it, with notification and lock-screen controls. iOS browses but does
+not play yet.
 
 The app also controls any other Music Assistant player. It works on one active group at a time —
 the phone until you choose another — and the speaker button on the mini player opens the list of

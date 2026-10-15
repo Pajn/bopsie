@@ -64,8 +64,11 @@ export function usePlaybackActions() {
 
   return useMemo(
     () => ({
-      /** Replaces the queue with `uri` (an album, playlist, artist or track) and plays it. */
-      play: (uri: string, startItem?: string) =>
+      /**
+       * Replaces the queue with `uri` (an album, playlist, artist or track), or
+       * several tracks, and plays it, from `startItem` when given.
+       */
+      play: (uri: string | string[], startItem?: string) =>
         run((id) => playMedia(connection, id, uri, startItem ? { startItem } : {})),
       /** Turns shuffle on, then replaces the queue with `uri`, which the server shuffles. */
       shufflePlay: (uri: string) =>

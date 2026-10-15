@@ -1,26 +1,17 @@
 import { search } from '@bopsie/client/api/endpoints/library';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { AlbumRow, ArtistRow, PlaylistRow, TrackRow } from '@/features/library/rows';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
+import { useDebounced } from '@/lib/useDebounced';
 import { InlineError, Screen, Stack, Text, TextField } from '@/ui/primitives';
 import { EVERYWHERE, type SearchScope, searchScopes } from './scope';
 import { useProviders } from './useProviders';
-
-/** Waits for typing to pause before searching, so each keystroke is not a request. */
-function useDebounced(value: string, ms: number): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return debounced;
-}
 
 export function SearchScreen() {
   const { connection, account } = useConnection();

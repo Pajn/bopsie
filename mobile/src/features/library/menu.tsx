@@ -15,6 +15,17 @@ export function MenuSheet({ children, testID }: { children: ReactNode; testID: s
   );
 }
 
+/** A menu's title, above its rows, for a menu that is not about one item. */
+export function MenuTitle({ title }: { title: string }) {
+  return (
+    <View style={styles.header}>
+      <Text variant="label" muted>
+        {title}
+      </Text>
+    </View>
+  );
+}
+
 /** What the menu is about, above its rows. */
 export function MenuHeader({
   item,
@@ -50,29 +61,45 @@ export function MenuHeader({
   );
 }
 
+/**
+ * A choice in a menu. A row that is one of several options says whether it is
+ * `selected`, and is checked when it is.
+ */
 export function MenuRow({
   icon,
   label,
   detail,
+  selected,
   onPress,
   testID,
 }: {
-  icon: IconName;
+  icon?: IconName;
   label: string;
   detail?: string;
+  selected?: boolean;
   onPress: () => void;
   testID: string;
 }) {
   const { theme } = useUnistyles();
+  const glyph = selected === undefined ? icon : selected ? 'check' : undefined;
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-      accessibilityRole="button"
+      accessibilityRole={selected === undefined ? 'button' : 'radio'}
       accessibilityLabel={detail ? `${label}: ${detail}` : label}
+      {...(selected !== undefined && { accessibilityState: { checked: selected } })}
       testID={testID}
     >
-      <Icon name={icon} size={20} color={theme.colors.textMuted} />
+      {glyph ? (
+        <Icon
+          name={glyph}
+          size={20}
+          color={selected ? theme.colors.accent : theme.colors.textMuted}
+        />
+      ) : (
+        <View style={styles.glyph} />
+      )}
       <View style={styles.text}>
         <Text>{label}</Text>
         {detail ? (
@@ -110,6 +137,7 @@ const styles = StyleSheet.create((theme, rt) => ({
   },
   pressed: { opacity: 0.6 },
   text: { flex: 1, gap: 2 },
+  glyph: { width: 20 },
 }));
 
 /** The button that opens a menu: on a row, or in a page's header. */
