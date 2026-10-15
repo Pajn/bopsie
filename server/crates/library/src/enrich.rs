@@ -265,3 +265,100 @@ pub fn decide_release(conn: &Connection, id: i64, decision: &str) -> Result<Opti
     }
     Ok(release)
 }
+
+/// What is known of an artist to find its images by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtistToIllustrate {
+    pub id: i64,
+    pub name: String,
+    /// Its Spotify ids, from Spotify's tracks or MusicBrainz's links.
+    pub spotify: Vec<String>,
+    /// Its MusicBrainz ids.
+    pub musicbrainz: Vec<String>,
+}
+
+/// Artists whose images were not looked for since `before`, those credited on albums first,
+/// at most `limit`.
+pub fn artists_due(conn: &Connection, before: i64, limit: usize) -> Result<Vec<i64>> {
+    let mut statement = conn.prepare(
+        "SELECT id FROM artists WHERE coalesce(images_checked, 0) < ?1
+         ORDER BY id NOT IN (SELECT artist_id FROM album_artists), id LIMIT ?2",
+    )?;
+    statement
+        .query_map(params![before, limit as i64], |row| row.get(0))?
+        .collect()
+}
+
+/// What is known of artist `id` to find its images by, if it is still in the library.
+pub fn artist_to_illustrate(conn: &Connection, id: i64) -> Result<Option<ArtistToIllustrate>> {
+    let Some(name) = conn
+        .query_row("SELECT name FROM artists WHERE id = ?1", [id], |row| {
+            row.get::<_, String>(0)
+        })
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let ids = |kind: IdKind| -> Result<Vec<String>> {
+        let mut statement = conn.prepare(
+            "SELECT DISTINCT value FROM external_ids
+             WHERE media_type = 'artist' AND item_id = ?1 AND kind = ?2 ORDER BY value",
+        )?;
+        statement
+            .query_map(params![id, kind.as_str()], |row| row.get(0))?
+            .collect()
+    };
+    Ok(Some(ArtistToIllustrate {
+        id,
+        name,
+        spotify: ids(IdKind::Spotify)?,
+        musicbrainz: ids(IdKind::MbArtist)?,
+    }))
+}
+
+/// Adds ids a metadata service links artist `id` to, beside those it has.
+pub fn link_artist(conn: &Connection, id: i64, ids: &[(IdKind, String)]) -> Result<()> {
+    for (kind, value) in normalized(ids) {
+        conn.execute(
+            "INSERT OR IGNORE INTO external_ids (media_type, item_id, provider_instance, kind, value)
+             VALUES ('artist', ?1, ?2, ?3, ?4)",
+            params![id, MUSICBRAINZ, kind.as_str(), value],
+        )?;
+    }
+    Ok(())
+}
+
+/// Records that artist `id`'s images were looked for now.
+pub fn artist_checked(conn: &Connection, id: i64, now: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE artists SET images_checked = ?2 WHERE id = ?1",
+        params![id, now],
+    )?;
+    Ok(())
+}
+
+/// Keeps `images`, by kind and stored image's proxy id, as what `source` has of item `id`, in
+/// place of what it had.
+pub fn set_item_images(
+    conn: &Connection,
+    media_type: MediaType,
+    id: i64,
+    source: &str,
+    images: &[(String, String)],
+) -> Result<()> {
+    conn.execute(
+        "DELETE FROM item_images WHERE media_type = ?1 AND item_id = ?2 AND provider_instance = ?3",
+        params![media_type.as_str(), id, source],
+    )?;
+    let mut positions: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    for (kind, proxy_id) in images {
+        let position = positions.entry(kind.as_str()).or_default();
+        conn.execute(
+            "INSERT INTO item_images (media_type, item_id, provider_instance, kind, position, proxy_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![media_type.as_str(), id, source, kind, *position, proxy_id],
+        )?;
+        *position += 1;
+    }
+    Ok(())
+}

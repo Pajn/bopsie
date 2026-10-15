@@ -249,18 +249,18 @@ fn artist(
     source: &Source,
     name: &str,
     mbid: Option<&str>,
+    spotify: Option<&str>,
     now: i64,
     changes: &mut Changes,
 ) -> Result<i64> {
     let id = artist_row(tx, source, name, now, changes)?;
-    if let Some(mbid) = mbid {
-        add_ids(
-            tx,
-            source,
-            MediaType::Artist,
-            id,
-            &[(IdKind::MbArtist, mbid.to_owned())],
-        )?;
+    let ids: Vec<(IdKind, String)> = mbid
+        .map(|id| (IdKind::MbArtist, id.to_owned()))
+        .into_iter()
+        .chain(spotify.map(|id| (IdKind::Spotify, id.to_owned())))
+        .collect();
+    if !ids.is_empty() {
+        add_ids(tx, source, MediaType::Artist, id, &ids)?;
     }
     Ok(id)
 }
@@ -443,7 +443,8 @@ fn album(
                 .enumerate()
                 .map(|(i, artist_name)| {
                     let mbid = id_at(&track.album_artist_ids, album_artists.len(), i);
-                    artist(tx, source, artist_name, mbid, now, changes)
+                    let spotify = id_at(&track.album_artist_spotify_ids, album_artists.len(), i);
+                    artist(tx, source, artist_name, mbid, spotify, now, changes)
                 })
                 .collect::<Result<Vec<_>>>()?;
             credit(tx, "album_artists", "album_id", id, &artist_ids)?;
@@ -520,6 +521,28 @@ pub fn upsert_track(
         )?
     };
     let artist_ids = if outranked {
+        // Its artists' ids are still worth having, on the artists that already are.
+        for (i, name) in track_artists.iter().enumerate() {
+            let mbid = id_at(&track.artist_ids, track_artists.len(), i);
+            let spotify = id_at(&track.artist_spotify_ids, track_artists.len(), i);
+            let ids: Vec<(IdKind, String)> = mbid
+                .map(|id| (IdKind::MbArtist, id.to_owned()))
+                .into_iter()
+                .chain(spotify.map(|id| (IdKind::Spotify, id.to_owned())))
+                .collect();
+            let known: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM artists WHERE match_key = ?1",
+                    [match_key(name)],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(known) = known
+                && !ids.is_empty()
+            {
+                add_ids(tx, source, MediaType::Artist, known, &ids)?;
+            }
+        }
         Vec::new()
     } else {
         track_artists
@@ -527,7 +550,8 @@ pub fn upsert_track(
             .enumerate()
             .map(|(i, name)| {
                 let mbid = id_at(&track.artist_ids, track_artists.len(), i);
-                artist(tx, source, name, mbid, now, changes)
+                let spotify = id_at(&track.artist_spotify_ids, track_artists.len(), i);
+                artist(tx, source, name, mbid, spotify, now, changes)
             })
             .collect::<Result<Vec<_>>>()?
     };
@@ -659,7 +683,12 @@ pub(crate) fn delete_item(
         &format!("DELETE FROM {} WHERE id = ?1", table(media_type)),
         [id],
     )?;
-    for linked in ["provider_mappings", "external_ids", "item_genres"] {
+    for linked in [
+        "provider_mappings",
+        "external_ids",
+        "item_genres",
+        "item_images",
+    ] {
         tx.execute(
             &format!("DELETE FROM {linked} WHERE media_type = ?1 AND item_id = ?2"),
             params![media_type.as_str(), id],

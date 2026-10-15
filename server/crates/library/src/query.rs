@@ -226,7 +226,7 @@ fn fields(
         media_type,
         provider_mappings: mappings(conn, media_type, id)?,
         metadata: Metadata {
-            images: image.map(|image| vec![image]),
+            images: images(conn, media_type, id, image)?,
             genres: genres(conn, media_type, id)?,
             ..Metadata::default()
         },
@@ -234,6 +234,55 @@ fn fields(
         position: None,
         date_added: date(common.date_added),
     })
+}
+
+/// The image kinds clients know, as Music Assistant names them.
+fn image_kind(kind: &str) -> Option<&'static str> {
+    ["thumb", "fanart", "logo", "banner", "clearart"]
+        .into_iter()
+        .find(|known| *known == kind)
+}
+
+/// An item's own artwork, then its images from metadata services: its photo, backgrounds,
+/// logo and banner, in that order, each from the source that does them best first.
+fn images(
+    conn: &Connection,
+    media_type: MediaType,
+    id: i64,
+    own: Option<Image>,
+) -> Result<Option<Vec<Image>>> {
+    let mut statement = conn.prepare_cached(
+        "SELECT item_images.kind, images.provider, images.path, images.proxy_id
+         FROM item_images JOIN images ON images.proxy_id = item_images.proxy_id
+         WHERE media_type = ?1 AND item_id = ?2
+         ORDER BY CASE item_images.kind WHEN 'thumb' THEN 0 WHEN 'fanart' THEN 1
+                      WHEN 'logo' THEN 2 WHEN 'banner' THEN 3 ELSE 4 END,
+                  CASE provider_instance WHEN 'spotify' THEN 0 WHEN 'fanarttv' THEN 1
+                      WHEN 'wikimedia' THEN 2 ELSE 3 END,
+                  position",
+    )?;
+    let mut images: Vec<Image> = own.into_iter().collect();
+    let rows = statement.query_map(params![media_type.as_str(), id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (kind, provider, path, proxy_id) = row?;
+        if let Some(kind) = image_kind(&kind) {
+            images.push(Image {
+                kind,
+                provider,
+                path,
+                remotely_accessible: false,
+                proxy_id,
+            });
+        }
+    }
+    Ok((!images.is_empty()).then_some(images))
 }
 
 /// The item `id` is: itself while it exists, else the item it was merged into.

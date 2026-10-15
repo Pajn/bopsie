@@ -188,6 +188,28 @@ impl MusicBrainz {
         Ok(Some((bytes.to_vec(), extension)))
     }
 
+    /// Where artist `id` is on other services, as MusicBrainz links it.
+    pub async fn artist_links(&self, id: &str) -> Result<ArtistLinks, MbError> {
+        let answer = self.get(&format!("artist/{id}?inc=url-rels")).await?;
+        let relations: Vec<Relation> = answer
+            .and_then(|value| serde_json::from_value(value["relations"].clone()).ok())
+            .unwrap_or_default();
+        let after = |marker: &str| {
+            relations
+                .iter()
+                .filter_map(|relation| relation.url.as_ref())
+                .find_map(|url| {
+                    let rest = url.resource.split_once(marker)?.1;
+                    let id = rest.split(['?', '/', '#']).next()?;
+                    (!id.is_empty()).then(|| id.to_owned())
+                })
+        };
+        Ok(ArtistLinks {
+            spotify: after("open.spotify.com/artist/"),
+            wikidata: after("wikidata.org/wiki/"),
+        })
+    }
+
     /// Releases matching a search such as `release:"…" AND artist:"…"`, best first.
     pub async fn search(&self, query: &str, limit: u32) -> Result<Vec<Found>, MbError> {
         let answer = self
@@ -284,6 +306,15 @@ pub struct Url {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Relation {
     pub url: Option<Url>,
+}
+
+/// Where an artist is on other services.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ArtistLinks {
+    /// Its Spotify id.
+    pub spotify: Option<String>,
+    /// Its Wikidata entity, such as `Q1299`.
+    pub wikidata: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

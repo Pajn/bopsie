@@ -464,10 +464,12 @@ name = "bopsie-metadata"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bopsie-audio",
  "bopsie-core",
  "bopsie-fixtures",
  "bopsie-library",
  "bopsie-providers-filesystem",
+ "futures",
  "lofty",
  "reqwest 0.13.5",
  "rusqlite",

@@ -17,6 +17,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+bopsie-audio.workspace = true
+futures.workspace = true
 axum.workspace = true
 lofty.workspace = true
 bopsie-fixtures.workspace = true

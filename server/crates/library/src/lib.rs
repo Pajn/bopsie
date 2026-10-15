@@ -54,6 +54,18 @@ pub struct Library {
     metadata_run: Arc<std::sync::Mutex<MetadataRun>>,
 }
 
+/// An image for [`Library::set_item_images`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ItemImage {
+    /// At a URL provider instance `provider` fetches, as Spotify's image server's.
+    Url { provider: String, url: String },
+    /// Downloaded: kept with the library's artwork.
+    Data {
+        bytes: Vec<u8>,
+        extension: &'static str,
+    },
+}
+
 /// How looking albums up on a metadata service goes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MetadataRun {
@@ -903,6 +915,91 @@ impl Library {
             files
         })
         .await
+    }
+
+    /// Artists whose images were not looked for since `before`, those on albums first.
+    pub async fn artists_due(&self, before: i64, limit: usize) -> Result<Vec<i64>> {
+        self.read(move |conn| enrich::artists_due(conn, before, limit))
+            .await
+    }
+
+    /// What is known of artist `id` to find its images by.
+    pub async fn artist_to_illustrate(
+        &self,
+        id: i64,
+    ) -> Result<Option<enrich::ArtistToIllustrate>> {
+        self.read(move |conn| enrich::artist_to_illustrate(conn, id))
+            .await
+    }
+
+    /// Adds ids a metadata service links artist `id` to, such as its Spotify id.
+    pub async fn link_artist(&self, id: i64, ids: Vec<(ids::IdKind, String)>) -> Result<()> {
+        self.db
+            .call(move |conn| Ok(enrich::link_artist(conn, id, &ids)?))
+            .await
+            .map_err(Error::from)
+    }
+
+    /// Records that artist `id`'s images were looked for now.
+    pub async fn artist_checked(&self, id: i64) -> Result<()> {
+        self.db
+            .call(move |conn| Ok(enrich::artist_checked(conn, id, now())?))
+            .await
+            .map_err(Error::from)
+    }
+
+    /// Keeps `images`, each a kind (`thumb`, `fanart`, `logo`, `banner`) and the image, as what
+    /// `source` has of item `id`, in place of what it had. An image is a URL a provider fetches,
+    /// as Spotify's are, or bytes kept with the library's artwork.
+    pub async fn set_item_images(
+        &self,
+        media_type: MediaType,
+        id: i64,
+        source: String,
+        images: Vec<(String, ItemImage)>,
+    ) -> Result<()> {
+        let artwork_dir = self.artwork_dir.clone();
+        let stored: Vec<(String, ImageRef)> = blocking(move || {
+            images
+                .into_iter()
+                .filter_map(|(kind, image)| {
+                    let image = match image {
+                        ItemImage::Url { provider, url } => Some(ImageRef {
+                            provider,
+                            path: url,
+                        }),
+                        ItemImage::Data { bytes, extension } => prepare_image(
+                            ARTWORK_CACHE,
+                            &artwork_dir,
+                            Some(ScannedImage::Embedded {
+                                data: bytes,
+                                extension: extension.to_owned(),
+                            }),
+                        ),
+                    }?;
+                    Some((kind, image))
+                })
+                .collect()
+        })
+        .await?;
+        let changes = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut proxied = Vec::with_capacity(stored.len());
+                for (kind, image) in &stored {
+                    if let Some(proxy_id) = scan::store_image(&tx, Some(image))? {
+                        proxied.push((kind.clone(), proxy_id));
+                    }
+                }
+                enrich::set_item_images(&tx, media_type, id, &source, &proxied)?;
+                tx.commit()?;
+                let mut changes = Changes::default();
+                changes.update((media_type, id));
+                Ok(changes)
+            })
+            .await?;
+        self.publish(&changes, false).await
     }
 
     /// Gives album `id` cover art from a metadata service, unless it has art of its own.

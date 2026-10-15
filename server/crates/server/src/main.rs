@@ -247,6 +247,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
                 .then(|| musicbrainz::COVER_ART_BASE.to_owned()),
         )
         .genres(config.metadata.genres)
+        .artist_images(config.metadata.artist_images)
         .by_sound_with(acoustid)
     });
     // Albums are looked up in the background, a while after the first sync starts and every

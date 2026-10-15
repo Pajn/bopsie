@@ -306,6 +306,8 @@ impl MusicProvider for FilesystemProvider {
             album_ids: ids(file.tags(), ALBUM_IDS),
             artist_ids: all_strings(file.tags(), ItemKey::MusicBrainzArtistId),
             album_artist_ids: all_strings(file.tags(), ItemKey::MusicBrainzReleaseArtistId),
+            artist_spotify_ids: Vec::new(),
+            album_artist_spotify_ids: Vec::new(),
         })
     }
 

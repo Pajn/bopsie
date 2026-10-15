@@ -202,9 +202,27 @@ async fn acoustid(State(stand): State<Shared>, headers: HeaderMap, body: String)
     .into_response()
 }
 
+/// An artist's links: the test artist is on Spotify as `spotartist`, and on Wikidata.
+async fn artist(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Response {
+    note(&stand, &headers, format!("artist {id}"));
+    if id != ARTIST {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    axum::Json(json!({"id": ARTIST, "name": "Test Artist", "relations": [
+        {"type": "free streaming", "url": {"resource": "https://open.spotify.com/artist/spotartist"}},
+        {"type": "wikidata", "url": {"resource": "https://www.wikidata.org/wiki/Q42"}},
+    ]}))
+    .into_response()
+}
+
 async fn stand_in() -> (String, Shared) {
     let stand = Shared::default();
     let app = Router::new()
+        .route("/ws/2/artist/{id}", get(artist))
         .route("/v2/lookup", axum::routing::post(acoustid))
         .route("/ws/2/release", get(search))
         .route("/ws/2/release/{id}", get(lookup))
@@ -659,4 +677,148 @@ async fn a_badly_tagged_album_is_found_by_its_sound() {
         .filter(|(request, _)| request.starts_with("acoustid "))
         .count();
     assert_eq!(lookups, 3, "only the album a search could not find");
+}
+
+/// A catalog that knows one artist's photo.
+struct Pictures;
+
+impl bopsie_library::catalog::Catalog for Pictures {
+    fn instance_id(&self) -> &str {
+        "pictures"
+    }
+    fn domain(&self) -> &str {
+        "pictures"
+    }
+    fn name(&self) -> &str {
+        "Pictures"
+    }
+    fn search<'a>(
+        &'a self,
+        _query: &'a str,
+        _media_type: MediaType,
+        _limit: usize,
+    ) -> futures::future::BoxFuture<'a, bopsie_library::catalog::CatalogResult<Vec<MediaItem>>>
+    {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn item<'a>(
+        &'a self,
+        _media_type: MediaType,
+        id: &'a str,
+    ) -> futures::future::BoxFuture<'a, bopsie_library::catalog::CatalogResult<MediaItem>> {
+        Box::pin(async move {
+            Err(bopsie_library::catalog::CatalogError::NotFound(
+                id.to_owned(),
+            ))
+        })
+    }
+    fn album_tracks<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Track>>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn artist_albums<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Album>>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn artist_tracks<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Track>>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn playlist_tracks<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> futures::future::BoxFuture<
+        'a,
+        bopsie_library::catalog::CatalogResult<Vec<bopsie_core::media::Track>>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    fn media(&self, _track_id: &str) -> Option<bopsie_audio::engine::Input> {
+        None
+    }
+    fn artist_images<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> futures::future::BoxFuture<'a, bopsie_library::catalog::CatalogResult<Vec<(String, String)>>>
+    {
+        Box::pin(async move {
+            Ok(ids
+                .iter()
+                .filter(|id| *id == "spotartist")
+                .map(|id| {
+                    (
+                        id.clone(),
+                        "https://images.example/spotartist.jpg".to_owned(),
+                    )
+                })
+                .collect())
+        })
+    }
+}
+
+#[tokio::test]
+async fn an_artist_kept_as_files_gets_its_photo_by_musicbrainzs_link() {
+    let (base, stand) = stand_in().await;
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    bopsie_fixtures::write_library(&music, 1).unwrap();
+    let db = database();
+    let library = Library::new(
+        db.clone(),
+        EventBus::default(),
+        vec![Arc::new(FilesystemProvider::new(music))],
+        dir.path().join("artwork"),
+    );
+    library.catalogs().add(Arc::new(Pictures));
+    library.sync().await.unwrap();
+    let summary = Enricher::new(
+        library.clone(),
+        MusicBrainz::new(db, base, None).paced(Duration::from_millis(10)),
+    )
+    .cover_art(None)
+    .run()
+    .await;
+    assert_eq!(summary.artists, 1, "{summary:?}");
+
+    let artists = library
+        .list(MediaType::Artist, ListQuery::default())
+        .await
+        .unwrap();
+    let test_artist = artists
+        .iter()
+        .find(|a| a.fields().name == "Test Artist")
+        .unwrap();
+    let images = test_artist.fields().metadata.images.clone().unwrap();
+    assert_eq!(images[0].kind, "thumb");
+    assert_eq!(images[0].path, "https://images.example/spotartist.jpg");
+    assert_eq!(images[0].provider, "pictures");
+    assert!(
+        served_ids(test_artist).contains(&("musicbrainz_artistid".to_owned(), ARTIST.to_owned()))
+    );
+
+    // Looked at once: the next run asks nothing more of MusicBrainz for it.
+    let asked = stand.lock().unwrap().requests.len();
+    Enricher::new(
+        library.clone(),
+        MusicBrainz::new(database(), "http://127.0.0.1:9", None),
+    )
+    .cover_art(None)
+    .run()
+    .await;
+    assert_eq!(stand.lock().unwrap().requests.len(), asked);
 }

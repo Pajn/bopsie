@@ -211,5 +211,25 @@ pub const MIGRATIONS: Migrations = Migrations {
         UPDATE albums SET metadata_checked = NULL
         WHERE id IN (SELECT album_id FROM release_suggestions WHERE decision IS NULL);
     ",
+        "
+        -- An item's images beyond its own artwork, by kind (thumb, fanart, logo, banner), as
+        -- each source has them: an artist's photo, its backgrounds and its logo.
+        CREATE TABLE item_images (
+            media_type TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            provider_instance TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            proxy_id TEXT NOT NULL,
+            PRIMARY KEY (media_type, item_id, provider_instance, kind, position)
+        ) STRICT;
+
+        -- When each artist's images were last looked for.
+        ALTER TABLE artists ADD COLUMN images_checked INTEGER;
+
+        -- Spotify's tracks are read again once, for their artists' Spotify ids.
+        UPDATE provider_mappings SET stamp = NULL
+        WHERE media_type = 'track' AND provider_domain = 'spotify';
+    ",
     ],
 };

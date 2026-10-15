@@ -5,9 +5,10 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bopsie_library::Library;
+use bopsie_core::media::MediaType;
 use bopsie_library::enrich::{ACCEPT, AlbumToMatch, Identified, REJECT};
 use bopsie_library::ids::IdKind;
+use bopsie_library::{ItemImage, Library};
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,6 +39,8 @@ pub struct Summary {
     pub suggested: usize,
     pub unmatched: usize,
     pub failed: usize,
+    /// Artists given images.
+    pub artists: usize,
 }
 
 enum Outcome {
@@ -55,6 +58,8 @@ pub struct Enricher {
     genres: bool,
     /// Finds albums by their tracks' sound, if it is set up.
     acoustid: Option<AcoustId>,
+    /// Looks for artists' images.
+    artist_images: bool,
 }
 
 fn now() -> i64 {
@@ -147,7 +152,14 @@ impl Enricher {
             cover_art: Some(crate::musicbrainz::COVER_ART_BASE.to_owned()),
             genres: true,
             acoustid: None,
+            artist_images: true,
         }
+    }
+
+    /// Looks for artists' images, or not.
+    pub fn artist_images(mut self, artist_images: bool) -> Self {
+        self.artist_images = artist_images;
+        self
     }
 
     /// Finds albums a search cannot by their tracks' sound, with `acoustid`.
@@ -210,7 +222,98 @@ impl Enricher {
                 }
             }
         }
+        summary.artists = self.artists(started).await;
         self.report(summary)
+    }
+
+    /// Gives artists not looked at since `started` less [`REFRESH`] their images: their photo
+    /// from a catalog such as Spotify's, by the catalog's id for them, which MusicBrainz links
+    /// an artist kept only as files to. Returns how many were given one.
+    async fn artists(&self, started: i64) -> usize {
+        if !self.artist_images {
+            return 0;
+        }
+        let catalogs = self.library.catalogs().all();
+        let mut illustrated = 0;
+        loop {
+            let due = match self
+                .library
+                .artists_due(started - REFRESH.as_secs() as i64, 50)
+                .await
+            {
+                Ok(due) if !due.is_empty() => due,
+                _ => return illustrated,
+            };
+            let mut batch: Vec<(i64, Vec<String>)> = Vec::with_capacity(due.len());
+            for id in due {
+                let Ok(Some(artist)) = self.library.artist_to_illustrate(id).await else {
+                    continue;
+                };
+                let mut spotify = artist.spotify.clone();
+                if spotify.is_empty()
+                    && let Some(mbid) = artist.musicbrainz.first()
+                {
+                    match self.musicbrainz.artist_links(mbid).await {
+                        Ok(links) => {
+                            if let Some(id) = links.spotify {
+                                let _ = self
+                                    .library
+                                    .link_artist(artist.id, vec![(IdKind::Spotify, id.clone())])
+                                    .await;
+                                spotify.push(id);
+                            }
+                        }
+                        Err(MbError::Unreachable(_) | MbError::Busy) => return illustrated,
+                        Err(error) => {
+                            tracing::debug!(artist = artist.id, %error, "no links for an artist");
+                        }
+                    }
+                }
+                batch.push((artist.id, spotify));
+            }
+            let ids: Vec<String> = batch.iter().flat_map(|(_, ids)| ids.clone()).collect();
+            let mut found: Vec<(String, String, String)> = Vec::new();
+            for catalog in &catalogs {
+                match catalog.artist_images(&ids).await {
+                    Ok(images) => found.extend(
+                        images
+                            .into_iter()
+                            .map(|(id, url)| (catalog.instance_id().to_owned(), id, url)),
+                    ),
+                    Err(error) => {
+                        // Looked for again at the next run, once the catalog answers.
+                        tracing::warn!(%error, "cannot fetch artists' images");
+                        return illustrated;
+                    }
+                }
+            }
+            for (artist, spotify) in batch {
+                let photo = found
+                    .iter()
+                    .find(|(_, id, _)| spotify.contains(id))
+                    .cloned();
+                if let Some((catalog, _, url)) = photo {
+                    let image = ItemImage::Url {
+                        provider: catalog.clone(),
+                        url,
+                    };
+                    if self
+                        .library
+                        .set_item_images(
+                            MediaType::Artist,
+                            artist,
+                            catalog,
+                            vec![("thumb".to_owned(), image)],
+                        )
+                        .await
+                        .is_ok()
+                    {
+                        illustrated += 1;
+                    }
+                }
+                let _ = self.library.artist_checked(artist).await;
+            }
+        }
     }
 
     fn report(&self, summary: Summary) -> Summary {
@@ -228,6 +331,7 @@ impl Enricher {
                 suggested = summary.suggested,
                 unmatched = summary.unmatched,
                 failed = summary.failed,
+                artists = summary.artists,
                 "albums looked up on MusicBrainz"
             );
         }

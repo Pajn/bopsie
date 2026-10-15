@@ -62,6 +62,10 @@ pub struct ScannedTrack {
     /// has one for each.
     pub artist_ids: Vec<String>,
     pub album_artist_ids: Vec<String>,
+    /// Spotify ids of `artists` and `album_artists`, in the same order, when the provider has
+    /// one for each: what artists' images are found by.
+    pub artist_spotify_ids: Vec<String>,
+    pub album_artist_spotify_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

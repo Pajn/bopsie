@@ -446,6 +446,35 @@ impl Catalog for SpotifyCatalog {
         })
     }
 
+    fn artist_images<'a>(
+        &'a self,
+        ids: &'a [String],
+    ) -> BoxFuture<'a, CatalogResult<Vec<(String, String)>>> {
+        Box::pin(async move {
+            let mut out = Vec::new();
+            // The Web API takes 50 artists a request.
+            for chunk in ids.chunks(50) {
+                let answer = self
+                    .account
+                    .get(&format!("artists?ids={}", chunk.join(",")))
+                    .await
+                    .map_err(unavailable)?;
+                for artist in answer["artists"].as_array().into_iter().flatten() {
+                    let url = artist["images"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .max_by_key(|i| i["width"].as_u64().unwrap_or(0))
+                        .and_then(|i| i["url"].as_str());
+                    if let (Some(id), Some(url)) = (artist["id"].as_str(), url) {
+                        out.push((id.to_owned(), url.to_owned()));
+                    }
+                }
+            }
+            Ok(out)
+        })
+    }
+
     fn media(&self, track_id: &str) -> Option<Input> {
         let id = SpotifyId::from_base62(track_id).ok()?;
         Some(Input::Open(std::sync::Arc::new(SpotifyMedia::new(

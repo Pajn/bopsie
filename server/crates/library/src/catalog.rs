@@ -58,6 +58,13 @@ pub trait Catalog: Send + Sync {
     fn playlist_tracks<'a>(&'a self, id: &'a str) -> BoxFuture<'a, CatalogResult<Vec<Track>>>;
     /// What track `id` plays from.
     fn media(&self, track_id: &str) -> Option<Input>;
+    /// The URL of the largest image of each of `ids`'s artists the catalog has one of, by id.
+    fn artist_images<'a>(
+        &'a self,
+        _ids: &'a [String],
+    ) -> BoxFuture<'a, CatalogResult<Vec<(String, String)>>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 /// `spotify://album/abc`.

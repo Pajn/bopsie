@@ -52,6 +52,21 @@ fn names(object: &Value, key: &str) -> Vec<String> {
         .collect()
 }
 
+fn artist_ids(object: &Value) -> Vec<String> {
+    let artists = object["artists"].as_array().cloned().unwrap_or_default();
+    let ids: Vec<String> = artists
+        .iter()
+        .filter_map(|a| a["id"].as_str())
+        .map(str::to_owned)
+        .collect();
+    // Only when each artist has one, so that they line up with the names.
+    if ids.len() == artists.len() {
+        ids
+    } else {
+        Vec::new()
+    }
+}
+
 fn best_image(object: &Value) -> Option<ScannedImage> {
     object["images"]
         .as_array()?
@@ -80,6 +95,8 @@ pub fn scanned_web_track(track: &Value, album: Option<&Value>) -> ScannedTrack {
         album_id: album["id"].as_str().map(str::to_owned),
         ids: web_ids(track, "isrc", IdKind::Isrc),
         album_ids: web_ids(album, "upc", IdKind::Barcode),
+        artist_spotify_ids: artist_ids(track),
+        album_artist_spotify_ids: artist_ids(album),
         ..ScannedTrack::default()
     }
 }
@@ -107,6 +124,16 @@ fn librespot_ids(
         .map(move |id| (kind, id.id.clone()))
         .collect::<Vec<_>>()
         .into_iter()
+}
+
+/// librespot's artists' Spotify ids, when each has one.
+fn librespot_artist_ids(artists: &librespot_metadata::artist::Artists) -> Vec<String> {
+    let ids: Vec<String> = artists.iter().filter_map(|a| a.id.to_id().ok()).collect();
+    if ids.len() == artists.len() {
+        ids
+    } else {
+        Vec::new()
+    }
 }
 
 /// A track as librespot's metadata has it, as the scanner takes it.
@@ -145,6 +172,8 @@ pub fn scanned_librespot_track(track: &librespot_metadata::Track) -> ScannedTrac
             .into_iter()
             .chain(librespot_ids(&album.external_ids, "upc", IdKind::Barcode))
             .collect(),
+        artist_spotify_ids: librespot_artist_ids(&track.artists),
+        album_artist_spotify_ids: librespot_artist_ids(&album.artists),
         ..ScannedTrack::default()
     }
 }
@@ -438,6 +467,11 @@ mod tests {
         assert_eq!(scanned.artists, ["Pitbull", "Sensato"]);
         assert_eq!(scanned.album.as_deref(), Some("Global Warming"));
         assert_eq!(scanned.album_artists, ["Pitbull"]);
+        assert_eq!(
+            scanned.artist_spotify_ids,
+            ["0TnOYISbd1XYRBk9myaseg", "7iJrDbKM5fEkGdm5kpjFzS"]
+        );
+        assert_eq!(scanned.album_artist_spotify_ids, ["0TnOYISbd1XYRBk9myaseg"]);
         assert_eq!(scanned.year, Some(2012));
         assert_eq!(scanned.duration_secs, 85);
         assert_eq!(scanned.album_id.as_deref(), Some("4aawyAB9vmqN3uQ7FjRGTy"));

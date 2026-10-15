@@ -170,6 +170,8 @@ is suggested on the web UI's library page, to use or reject. What is taken:
   the album to the one saved on Spotify, and the two merge.
 - **Art:** an album without any gets its release group's front cover from the
   [Cover Art Archive](https://coverartarchive.org). Art its own files bring later replaces it.
+- **Artist photos:** from Spotify, for artists Spotify's tracks credit and those MusicBrainz
+  links to Spotify, served as the artist's `thumb` image and fetched from Spotify as shown.
 - **Genres:** the release group's three most voted, served as the album's and its tracks'
   `metadata.genres`. An artist's are the most common among its albums'.
 
