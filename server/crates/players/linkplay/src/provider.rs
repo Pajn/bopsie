@@ -219,7 +219,6 @@ impl LinkplayProvider {
                 return;
             }
             if let Some(endpoint) = provider.inner.endpoints.lock().unwrap().get(&id) {
-                tracing::info!(device = id, "LinkPlay device gone");
                 endpoint.lost();
             }
         };

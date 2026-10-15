@@ -318,6 +318,16 @@ impl Shared {
                 let mut state = self.state.lock().unwrap();
                 state.reachable = status.is_some();
                 if let Some(status) = status {
+                    // A device that stopped announcing itself but answers, as itself, is here:
+                    // devices let their mDNS lapse while they play on.
+                    let itself = match (&state.uuid, &status.uuid) {
+                        (Some(known), Some(answered)) => known == answered,
+                        _ => true,
+                    };
+                    if itself && !state.discovered {
+                        tracing::info!(device = self.id, "LinkPlay device answers again");
+                        state.discovered = true;
+                    }
                     state.uuid = state.uuid.clone().or(status.uuid.clone());
                     state.mac = state.mac.clone().or(status.mac.clone());
                     state.status = Some(status);
@@ -458,8 +468,19 @@ impl LinkplayEndpoint {
     }
 
     /// The device left the network.
+    /// Its mDNS service went away and did not come back. It is gone unless it still answers.
     pub fn lost(&self) {
-        self.shared.state.lock().unwrap().discovered = false;
+        let mut state = self.shared.state.lock().unwrap();
+        if state.reachable {
+            tracing::info!(
+                device = self.shared.id,
+                "LinkPlay device stopped announcing itself, but answers"
+            );
+            return;
+        }
+        tracing::info!(device = self.shared.id, "LinkPlay device gone");
+        state.discovered = false;
+        drop(state);
         self.shared.changed();
     }
 

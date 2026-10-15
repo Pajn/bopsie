@@ -46,6 +46,8 @@ pub struct Device {
     pub mode: String,
     pub pulled: Vec<u8>,
     pub streams: usize,
+    /// Switched off: it answers nothing a device would.
+    pub silent: bool,
     fetch: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -208,6 +210,9 @@ async fn httpapi(
 ) -> String {
     let command = query.get("command").cloned().unwrap_or_default();
     device.lock().unwrap().commands.push(command.clone());
+    if device.lock().unwrap().silent {
+        return String::new();
+    }
     let (verb, rest) = command.split_once(':').unwrap_or((command.as_str(), ""));
     match verb {
         "getStatusEx" => {

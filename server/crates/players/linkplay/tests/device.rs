@@ -368,3 +368,33 @@ async fn a_device_without_a_countdown_is_timed_by_its_first_second() {
     tokio::task::block_in_place(|| handle.shutdown());
     provider.shutdown();
 }
+
+#[tokio::test]
+async fn a_device_that_stops_announcing_itself_is_here_while_it_answers() {
+    let network = Network::default();
+    let (provider, players) = provider().await;
+    let fake = network
+        .device("Kitchen", "10.0.0.3", "89ABCDEF0123456789ABCDEF", true)
+        .await;
+    fake.add_to(&provider);
+    let endpoint = provider.endpoint(&fake.id()).unwrap();
+    endpoint.refresh().await;
+    let available = || players.get(&fake.id()).unwrap().state().available;
+    assert!(available());
+
+    // Its mDNS lapses while it plays on: it stays.
+    provider.lose(&fake.sighting.fullname);
+    assert!(available());
+
+    // Switched off, then lost: it is gone.
+    fake.add_to(&provider);
+    fake.device.lock().unwrap().silent = true;
+    endpoint.refresh().await;
+    provider.lose(&fake.sighting.fullname);
+    assert!(!available());
+
+    // Switched on again, it is back once it answers, before it announces itself.
+    fake.device.lock().unwrap().silent = false;
+    endpoint.refresh().await;
+    assert!(available());
+}
