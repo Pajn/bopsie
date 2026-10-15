@@ -103,6 +103,37 @@ The marks follow a launch from the JavaScript entry through the account and its 
 the API connection authenticating, and Home rendering, receiving its shelves and drawing their
 artwork.
 
+### Baseline profile
+
+A cold start spends much of its time before the first line of JavaScript loading and linking
+classes. A baseline profile names the classes and methods a launch needs, so Android compiles them
+when the app is installed or updated rather than learning it over the first several launches.
+`profiles/baseline-prof.txt` is that list; a config plugin puts it in the build at `pnpm prebuild`,
+and `androidx.profileinstaller`, which the app already depends on, applies it on a device that
+installs the APK directly. A checkout without a recorded profile builds without one.
+
+Record it from a release build with the app signed in on the device, then prebuild and rebuild:
+
+```sh
+pnpm perf:profile:android -- --apk android/app/build/outputs/apk/release/app-release.apk
+```
+
+The script sets the app to be interpreted so the runtime records what it runs, launches it cold a
+few times and reads back what it learned. Each launch has to outlast the runtime's write timer, so
+recording takes a few minutes.
+
+A device that has run the app already compiles it from what it learned, which covers a launch at
+least as well, so the bench shows the profile's effect only on a device that has not. Before each
+set of launches, clear what the device learned, have `profileinstaller` install the APK's profile,
+and measure with the install's compilation:
+
+```sh
+adb shell cmd package compile --reset io.github.pajn.cratie
+adb shell am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE \
+  -n io.github.pajn.cratie/androidx.profileinstaller.ProfileInstallReceiver
+pnpm perf:startup:android -- --skip-install --compile speed-profile --out perf/after.json
+```
+
 ## Integration tests
 
 The API layer, and the server's side of Sendspin, are tested against a real Music Assistant server
