@@ -79,6 +79,8 @@ pub struct Signals {
     pub flushes: u64,
     /// The speaker's clock: `ptp` or `ntp`, its state, and when it will be ready.
     pub clock: Option<Clock>,
+    /// How the session reached the speaker: `airplay2` or `raop` (AirPlay 1), and its timing.
+    pub route: Option<Route>,
     pub error: Option<(String, String)>,
     pub exited: bool,
     /// STARTs the process moved later than asked.
@@ -94,6 +96,13 @@ pub enum ClockStart {
     NotMeasured,
     /// From this Unix time.
     From(u64),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Route {
+    pub protocol: String,
+    pub flow: String,
+    pub timing: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -409,6 +418,17 @@ impl Supervisor {
             let mut signals = self.signals_mut();
             match &status {
                 Status::Connected => signals.connected = true,
+                Status::Route {
+                    protocol,
+                    flow,
+                    timing,
+                } => {
+                    signals.route = Some(Route {
+                        protocol: protocol.clone(),
+                        flow: flow.clone(),
+                        timing: timing.clone(),
+                    });
+                }
                 Status::Audio { .. } => signals.audio = true,
                 Status::Started {
                     requested_unix_ms,

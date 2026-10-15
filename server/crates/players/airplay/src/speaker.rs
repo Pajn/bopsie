@@ -75,6 +75,15 @@ impl Speaker {
         }
     }
 
+    /// Whether a stream with `quirks` goes over AirPlay 2 rather than AirPlay 1 (RAOP).
+    pub fn plans_airplay2(&self, quirks: &Quirks) -> bool {
+        let protocol = quirks
+            .protocol
+            .or(self.quirk_defaults().protocol)
+            .unwrap_or(AirplayProtocol::Auto);
+        self.uses_airplay2(protocol)
+    }
+
     /// Whether a stream over `protocol` goes over AirPlay 2, which takes the `_airplay`
     /// service's port.
     fn uses_airplay2(&self, protocol: AirplayProtocol) -> bool {
@@ -242,6 +251,13 @@ mod tests {
                 "192.168.1.50",
             ]
         );
+        // As planned: AirPlay 2, unless its quirks say AirPlay 1.
+        assert!(speaker.plans_airplay2(&Quirks::default()));
+        let raop = Quirks {
+            protocol: Some(AirplayProtocol::Raop),
+            ..Quirks::default()
+        };
+        assert!(!speaker.plans_airplay2(&raop));
     }
 
     #[test]

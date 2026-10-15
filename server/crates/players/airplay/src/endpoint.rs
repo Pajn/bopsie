@@ -432,7 +432,10 @@ impl Endpoint for AirplayEndpoint {
         let state = self.shared.state.lock().unwrap();
         let speaker = &state.speaker;
         let signals = self.supervisor.signals();
+        let quirks = self.shared.snapshot(&state).quirks.quirks;
         serde_json::json!({
+            // What a session would use, before one has said what it does.
+            "plans_airplay2": speaker.plans_airplay2(&quirks),
             "address": speaker.address.to_string(),
             "airplay": speaker.airplay.as_ref().map(|(port, host)| {
                 serde_json::json!({"port": port, "host": host})
@@ -456,6 +459,11 @@ impl Endpoint for AirplayEndpoint {
                 }),
                 "flushes": signals.flushes,
                 "corrections": signals.corrections,
+                "route": signals.route.map(|route| serde_json::json!({
+                    "protocol": route.protocol,
+                    "flow": route.flow,
+                    "timing": route.timing,
+                })),
                 "clock": signals.clock.map(|clock| serde_json::json!({
                     "mode": clock.mode,
                     "state": clock.state,

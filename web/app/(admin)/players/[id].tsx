@@ -5,7 +5,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useDevices, useGroups, usePlayers } from '@/data/admin';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
-import { healthTone, playerRows } from '@/features/players/model';
+import { airplayRoute, healthTone, playerRows } from '@/features/players/model';
 import { PlayerControls } from '@/features/players/PlayerControls';
 import { PlayerSettings } from '@/features/players/PlayerSettings';
 import { describeError } from '@/lib/errors';
@@ -24,6 +24,24 @@ const dash = (value: string | number | null | undefined) =>
 function source(source: { layer: string; name?: string | undefined } | undefined): string {
   if (!source) return '';
   return source.layer === 'rule' && source.name ? `rule ${source.name}` : source.layer;
+}
+
+/** Which AirPlay a speaker is reached over, and whether its PTP clock follows ours. */
+function AirplayRouteRows({ diagnostics }: { diagnostics: unknown }) {
+  const route = airplayRoute(diagnostics);
+  return (
+    <Stack gap="sm">
+      <Text variant="label" muted>
+        AIRPLAY
+      </Text>
+      <Facts
+        rows={[
+          ['Protocol', route.protocol],
+          ['Clock', <Badge key="clock" label={route.clock} tone={route.tone} />],
+        ]}
+      />
+    </Stack>
+  );
 }
 
 function Endpoint({ endpoint }: { endpoint: AdminEndpoint }) {
@@ -90,6 +108,9 @@ function Endpoint({ endpoint }: { endpoint: AdminEndpoint }) {
           />
         </Stack>
       </View>
+      {endpoint.provider === 'airplay' ? (
+        <AirplayRouteRows diagnostics={endpoint.diagnostics} />
+      ) : null}
       <Stack gap="sm">
         <Text variant="label" muted>
           QUIRKS

@@ -259,6 +259,10 @@ fn a_session_streams_to_the_process_and_starts_on_the_timeline() {
     let diagnostics = fake.endpoint.diagnostics();
     assert_eq!(diagnostics["address"], "127.0.0.1");
     assert_eq!(diagnostics["process"]["connected"], true);
+    // How it reached the speaker, and what it meant to.
+    assert_eq!(diagnostics["process"]["route"]["protocol"], "airplay2");
+    assert_eq!(diagnostics["process"]["route"]["timing"], "ntp");
+    assert_eq!(diagnostics["plans_airplay2"], true);
     assert_eq!(
         diagnostics["process"]["started"]["requested_unix_ms"],
         start_ms

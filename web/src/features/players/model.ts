@@ -78,3 +78,46 @@ export function describeSource(source: AdminSource): string {
     : 'nothing yet';
   return `${source.name}: ${source.playing ? 'playing' : 'paused on'} ${what}`;
 }
+
+/** How an AirPlay endpoint reaches its speaker, as a person reads it. */
+export interface AirplayRoute {
+  /** AirPlay 2 or AirPlay 1, as the last session went, else as one would. */
+  protocol: string;
+  /** The speaker's clock: PTP and whether it follows ours, or NTP. */
+  clock: string;
+  /** Whether that clock is as it should be. */
+  tone: Tone;
+}
+
+const PROTOCOLS: Record<string, string> = { airplay2: 'AirPlay 2', raop: 'AirPlay 1 (RAOP)' };
+
+/** What an AirPlay endpoint's diagnostics say of its protocol and clock. */
+export function airplayRoute(diagnostics: unknown): AirplayRoute {
+  const d = (diagnostics ?? {}) as {
+    plans_airplay2?: boolean;
+    process?: {
+      route?: { protocol?: string; timing?: string } | null;
+      clock?: { mode?: string; state?: string } | null;
+    };
+  };
+  const route = d.process?.route;
+  const planned = d.plans_airplay2 === undefined ? null : d.plans_airplay2 ? 'airplay2' : 'raop';
+  const protocol = route?.protocol
+    ? (PROTOCOLS[route.protocol] ?? route.protocol)
+    : planned
+      ? `${PROTOCOLS[planned]}, once it plays`
+      : 'not known until it plays';
+  const clock = d.process?.clock;
+  const mode = clock?.mode ?? route?.timing;
+  if (mode === 'ptp') {
+    if (clock?.state === 'stalled') {
+      return { protocol, clock: 'PTP, but it does not follow our clock', tone: 'danger' };
+    }
+    if (clock?.state === 'probing' || clock?.state === 'cold') {
+      return { protocol, clock: 'PTP, settling', tone: 'warning' };
+    }
+    return { protocol, clock: `PTP${clock?.state ? `, ${clock.state}` : ''}`, tone: 'good' };
+  }
+  if (mode === 'ntp') return { protocol, clock: 'NTP: no PTP', tone: 'warning' };
+  return { protocol, clock: 'not known until it plays', tone: 'muted' };
+}
