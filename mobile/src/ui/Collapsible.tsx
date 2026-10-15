@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useEffectEvent } from 'react';
 import { View } from 'react-native';
 import Animated, {
   Easing,
@@ -8,9 +8,11 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
+import { scheduleOnRN } from 'react-native-worklets';
 
 // Material's emphasized easing: quick to leave, slow to settle.
 const EASING = Easing.bezier(0.2, 0, 0, 1);
+const DURATION = 280;
 
 /**
  * How open something is, from 0 closed to 1 open, moving to `open` whenever it changes, so
@@ -19,7 +21,7 @@ const EASING = Easing.bezier(0.2, 0, 0, 1);
 export function useOpenProgress(open: boolean): SharedValue<number> {
   const progress = useSharedValue(open ? 1 : 0);
   useEffect(() => {
-    progress.value = withTiming(open ? 1 : 0, { duration: 280, easing: EASING });
+    progress.value = withTiming(open ? 1 : 0, { duration: DURATION, easing: EASING });
   }, [open, progress]);
   return progress;
 }
@@ -60,6 +62,40 @@ export function Collapsible({
         {children}
       </View>
     </Animated.View>
+  );
+}
+
+/**
+ * An item of a list that unfolds into it as it arrives and folds away as it leaves, so what
+ * follows it moves with it; see `usePresence`. Once folded away it calls `onLeft`.
+ */
+export function Fold({
+  present,
+  arriving,
+  onLeft,
+  children,
+}: {
+  present: boolean;
+  arriving: boolean;
+  onLeft: () => void;
+  children: ReactNode;
+}) {
+  const progress = useSharedValue(present && !arriving ? 1 : 0);
+  const left = useEffectEvent(onLeft);
+  useEffect(() => {
+    const done = () => left();
+    progress.value = withTiming(
+      present ? 1 : 0,
+      { duration: DURATION, easing: EASING },
+      (finished) => {
+        if (finished && !present) scheduleOnRN(done);
+      },
+    );
+  }, [present, progress]);
+  return (
+    <Collapsible progress={progress} open={present}>
+      {children}
+    </Collapsible>
   );
 }
 

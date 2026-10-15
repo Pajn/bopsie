@@ -3,12 +3,9 @@ import Slider from '@react-native-community/slider';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import Animated, {
-  FadeIn,
   FadeInDown,
-  FadeOut,
   FadeOutDown,
   interpolateColor,
-  LinearTransition,
   useAnimatedStyle,
 } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -16,7 +13,8 @@ import { useConnection } from '@/connection/ConnectionProvider';
 import { Artwork } from '@/features/library/Artwork';
 import { nowPlaying } from '@/features/player/nowPlaying';
 import { useQueue } from '@/features/player/usePlayback';
-import { Collapsible, useOpenProgress } from '@/ui/Collapsible';
+import { usePresence } from '@/lib/presence';
+import { Collapsible, Fold, useOpenProgress } from '@/ui/Collapsible';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { useActiveGroup } from './ActiveGroupProvider';
@@ -24,6 +22,7 @@ import type { ActiveGroup, OtherOutput } from './outputs';
 import { useOutputActions, useOutputs } from './useOutputs';
 
 const UNDO_MS = 6000;
+const NONE: OtherOutput[] = [];
 
 /**
  * Where the music plays. The active group is on top with its volumes; every
@@ -36,6 +35,7 @@ export function OutputsScreen() {
   const queue = useQueue().data;
   const [open, setOpen] = useState<string | null>(null);
   const [undo, setUndo] = useState<{ name: string; run: () => void } | null>(null);
+  const listed = usePresence(outputs?.others ?? NONE, (other) => other.id);
 
   useEffect(() => {
     if (!undo) return;
@@ -53,7 +53,7 @@ export function OutputsScreen() {
     );
   }
 
-  const { active, others } = outputs;
+  const { active } = outputs;
   const hasQueue = (queue?.items ?? 0) > 0;
   const current = queue ? nowPlaying(queue) : null;
 
@@ -72,25 +72,27 @@ export function OutputsScreen() {
             artwork={current?.artwork ?? null}
           />
         ) : null}
-        {others.length > 0 ? (
+        {listed.shown.length > 0 ? (
           <Text variant="label" muted style={styles.section}>
             Other players
           </Text>
         ) : null}
-        {others.map((other) => (
-          <OtherRow
-            key={other.id}
-            other={other}
-            active={active}
-            open={open === other.id}
-            onToggle={() => setOpen(open === other.id ? null : other.id)}
-            canMove={hasQueue}
-            onMoved={(run) => {
-              setOpen(null);
-              setUndo({ name: other.name, run });
-            }}
-            onChosen={() => setOpen(null)}
-          />
+        {/* Players joining the active group fold away from here, and those leaving it fold in. */}
+        {listed.shown.map(({ key, item: other, present, arriving }) => (
+          <Fold key={key} present={present} arriving={arriving} onLeft={() => listed.left(key)}>
+            <OtherRow
+              other={other}
+              active={active}
+              open={open === other.id}
+              onToggle={() => setOpen(open === other.id ? null : other.id)}
+              canMove={hasQueue}
+              onMoved={(run) => {
+                setOpen(null);
+                setUndo({ name: other.name, run });
+              }}
+              onChosen={() => setOpen(null)}
+            />
+          </Fold>
         ))}
       </ScrollView>
       {undo ? (
@@ -127,8 +129,11 @@ function ActiveCard({
   const actions = useOutputActions();
   const { unconfirmed } = useActiveGroup();
   const grouped = active.members.length > 1;
+  const members = usePresence(active.members, (member) => member.id);
+  // The members show while the group has more than one, and fold away with the last but one.
+  const membersShown = useOpenProgress(grouped);
   return (
-    <Animated.View layout={LinearTransition} style={styles.card}>
+    <View style={styles.card}>
       <View style={styles.row}>
         <Artwork
           item={artwork ?? { image: null }}
@@ -155,29 +160,26 @@ function ActiveCard({
           end={grouped ? <View style={styles.end} /> : null}
         />
       ) : null}
-      {grouped
-        ? active.members.map((member) => {
-            const remove = member.removable ? (
-              <Pressable
-                onPress={() => actions.remove(member, active.members)}
-                hitSlop={8}
-                style={[styles.end, styles.remove]}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${member.name} from the group`}
-                testID={`member-remove-${member.id}`}
-              >
-                <Icon name="x" size={16} />
-              </Pressable>
-            ) : (
-              <View style={styles.end} />
-            );
-            return (
-              <Animated.View
-                key={member.id}
-                entering={FadeIn}
-                exiting={FadeOut}
-                layout={LinearTransition}
-                style={unconfirmed.has(member.id) && styles.unconfirmed}
+      <Collapsible progress={membersShown} open={grouped}>
+        {members.shown.map(({ key, item: member, present, arriving }) => {
+          const remove = member.removable ? (
+            <Pressable
+              onPress={() => actions.remove(member, active.members)}
+              hitSlop={8}
+              style={[styles.end, styles.remove]}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${member.name} from the group`}
+              testID={`member-remove-${member.id}`}
+            >
+              <Icon name="x" size={16} />
+            </Pressable>
+          ) : (
+            <View style={styles.end} />
+          );
+          return (
+            <Fold key={key} present={present} arriving={arriving} onLeft={() => members.left(key)}>
+              <View
+                style={[styles.member, unconfirmed.has(member.id) && styles.unconfirmed]}
                 testID={`member-${member.id}`}
               >
                 <View style={styles.memberName}>
@@ -196,11 +198,12 @@ function ActiveCard({
                     end={remove}
                   />
                 ) : null}
-              </Animated.View>
-            );
-          })
-        : null}
-    </Animated.View>
+              </View>
+            </Fold>
+          );
+        })}
+      </Collapsible>
+    </View>
   );
 }
 
@@ -398,7 +401,7 @@ function Action({
 const styles = StyleSheet.create((theme) => ({
   screen: { flex: 1, backgroundColor: theme.colors.background },
   // Room below the last row for the undo bar.
-  content: { padding: theme.spacing.lg, paddingBottom: 96, gap: theme.spacing.xs },
+  content: { padding: theme.spacing.lg, paddingBottom: 96 },
   notice: { textAlign: 'center', padding: theme.spacing.lg },
   card: {
     backgroundColor: theme.colors.surfaceVariant,
@@ -409,6 +412,8 @@ const styles = StyleSheet.create((theme) => ({
   row: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
   grow: { flex: 1 },
   strong: { fontWeight: '600' },
+  // Spaced within the member, so a member folding away takes its spacing with it.
+  member: { paddingTop: theme.spacing.sm },
   memberName: { flexDirection: 'row', alignItems: 'center', minHeight: 20 },
   volume: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
   // Android's slider insets its track by the thumb's radius; this lines the
@@ -436,7 +441,11 @@ const styles = StyleSheet.create((theme) => ({
   // Joining or leaving the group, until the server confirms it.
   unconfirmed: { opacity: 0.6 },
   // Reaches past the row on either side, so its contents stay where they are as it fades in.
-  otherCard: { marginHorizontal: -theme.spacing.sm, paddingHorizontal: theme.spacing.sm },
+  otherCard: {
+    marginHorizontal: -theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm,
+  },
   otherCardBackground: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: theme.colors.surfaceVariant,
