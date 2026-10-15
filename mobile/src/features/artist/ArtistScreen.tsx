@@ -7,7 +7,9 @@ import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { ItemHeader } from '@/features/library/ItemHeader';
+import { MoreButton } from '@/features/library/menu';
 import { AlbumRow } from '@/features/library/rows';
+import { useOpenItemMenu } from '@/features/library/useOpenItemMenu';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
 import { InlineError } from '@/ui/primitives';
@@ -23,6 +25,7 @@ export function ArtistScreen({
 }) {
   const { connection, account } = useConnection();
   const playback = usePlaybackActions();
+  const openMenu = useOpenItemMenu();
   const ref = { itemId: id, provider };
   const artist = useQuery({
     queryKey: queryKeys.item(account.id, 'artist', id, provider),
@@ -36,7 +39,17 @@ export function ArtistScreen({
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen options={{ title: artist.data?.name ?? name ?? '' }} />
+      <Stack.Screen
+        options={{
+          title: artist.data?.name ?? name ?? '',
+          headerRight: () => {
+            const loaded = artist.data;
+            return loaded ? (
+              <MoreButton onPress={() => openMenu('artist', loaded)} testID="item-more" />
+            ) : null;
+          },
+        }}
+      />
       <LegendList
         data={albums.data ?? []}
         keyExtractor={(album) => `${album.provider}/${album.item_id}`}

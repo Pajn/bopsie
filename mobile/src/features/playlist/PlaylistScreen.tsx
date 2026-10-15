@@ -7,7 +7,9 @@ import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { ItemHeader } from '@/features/library/ItemHeader';
+import { MoreButton } from '@/features/library/menu';
 import { TrackRow } from '@/features/library/rows';
+import { useOpenItemMenu } from '@/features/library/useOpenItemMenu';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
 import { InlineError } from '@/ui/primitives';
@@ -23,6 +25,7 @@ export function PlaylistScreen({
 }) {
   const { connection, account } = useConnection();
   const playback = usePlaybackActions();
+  const openMenu = useOpenItemMenu();
   const ref = { itemId: id, provider };
   const playlist = useQuery({
     queryKey: queryKeys.item(account.id, 'playlist', id, provider),
@@ -37,7 +40,17 @@ export function PlaylistScreen({
 
   return (
     <View style={styles.screen}>
-      <Stack.Screen options={{ title: playlist.data?.name ?? name ?? '' }} />
+      <Stack.Screen
+        options={{
+          title: playlist.data?.name ?? name ?? '',
+          headerRight: () => {
+            const loaded = playlist.data;
+            return loaded ? (
+              <MoreButton onPress={() => openMenu('playlist', loaded)} testID="item-more" />
+            ) : null;
+          },
+        }}
+      />
       <LegendList
         data={tracks.data ?? []}
         keyExtractor={(track, index) => `${index}/${track.provider}/${track.item_id}`}

@@ -64,6 +64,10 @@ export function usePlaybackActions() {
       /** Replaces the queue with `uri` (an album, playlist, artist or track) and plays it. */
       play: (uri: string, startItem?: string) =>
         run((id) => playMedia(connection, id, uri, startItem ? { startItem } : {})),
+      /** Puts `uri` after the current item, leaving the rest of the queue in place. */
+      playNext: (uri: string) => run((id) => playMedia(connection, id, uri, { option: 'next' })),
+      /** Puts `uri` at the end of the queue. */
+      addToQueue: (uri: string) => run((id) => playMedia(connection, id, uri, { option: 'add' })),
       command: (command: QueueCommand) => run((id) => queueCommand(connection, id, command)),
       seek: (seconds: number) => run((id) => seek(connection, id, seconds)),
     }),

@@ -7,6 +7,8 @@ import { useProviders } from '@/features/search/useProviders';
 import { formatDuration } from '@/player/progress';
 import { Text } from '@/ui/primitives';
 import { Artwork } from './Artwork';
+import { MoreButton } from './menu';
+import { useOpenItemMenu } from './useOpenItemMenu';
 
 export const artistNames = (item: { artists: Array<{ name: string }> }) =>
   item.artists.map((artist) => artist.name).join(', ');
@@ -17,8 +19,11 @@ function useMarked(provider: string, ...parts: Array<string | number | null | un
   return [sourceName(providers, provider), ...parts].filter(Boolean).join(' · ');
 }
 
+/** A row in a list. A long press, or the more button where there is one, opens its menu. */
 function Row({
   onPress,
+  onMenu,
+  moreButton,
   testID,
   artwork,
   title,
@@ -26,6 +31,8 @@ function Row({
   trailing,
 }: {
   onPress: () => void;
+  onMenu: () => void;
+  moreButton?: boolean;
   testID: string;
   artwork?: React.ReactNode;
   title: string;
@@ -35,6 +42,7 @@ function Row({
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onMenu}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={title}
@@ -54,12 +62,21 @@ function Row({
           {trailing}
         </Text>
       ) : null}
+      {moreButton ? (
+        <MoreButton
+          onPress={onMenu}
+          label={`More for ${title}`}
+          vertical
+          testID={`${testID}-more`}
+        />
+      ) : null}
     </Pressable>
   );
 }
 
 export function ArtistRow({ artist }: { artist: Artist }) {
   const router = useRouter();
+  const openMenu = useOpenItemMenu();
   const subtitle = useMarked(artist.provider);
   return (
     <Row
@@ -69,6 +86,7 @@ export function ArtistRow({ artist }: { artist: Artist }) {
           params: { id: artist.item_id, provider: artist.provider, name: artist.name },
         })
       }
+      onMenu={() => openMenu('artist', artist)}
       testID={`artist-${artist.item_id}`}
       artwork={<Artwork item={artist} size={48} imageSize={80} round placeholder="user" />}
       title={artist.name}
@@ -79,6 +97,7 @@ export function ArtistRow({ artist }: { artist: Artist }) {
 
 export function AlbumRow({ album }: { album: Album }) {
   const router = useRouter();
+  const openMenu = useOpenItemMenu();
   const subtitle = useMarked(album.provider, artistNames(album), album.year);
   return (
     <Row
@@ -88,6 +107,7 @@ export function AlbumRow({ album }: { album: Album }) {
           params: { id: album.item_id, provider: album.provider, name: album.name },
         })
       }
+      onMenu={() => openMenu('album', album)}
       testID={`album-${album.item_id}`}
       artwork={<Artwork item={album} size={48} imageSize={80} />}
       title={album.name}
@@ -98,6 +118,7 @@ export function AlbumRow({ album }: { album: Album }) {
 
 export function PlaylistRow({ playlist }: { playlist: Playlist }) {
   const router = useRouter();
+  const openMenu = useOpenItemMenu();
   const subtitle = useMarked(playlist.provider, playlist.owner);
   return (
     <Row
@@ -107,6 +128,7 @@ export function PlaylistRow({ playlist }: { playlist: Playlist }) {
           params: { id: playlist.item_id, provider: playlist.provider, name: playlist.name },
         })
       }
+      onMenu={() => openMenu('playlist', playlist)}
       testID={`playlist-${playlist.item_id}`}
       artwork={<Artwork item={playlist} size={48} imageSize={80} placeholder="list" />}
       title={playlist.name}
@@ -128,9 +150,12 @@ export function TrackRow({
   index?: number;
 }) {
   const subtitle = useMarked(track.provider, artistNames(track));
+  const openMenu = useOpenItemMenu();
   return (
     <Row
       onPress={onPress}
+      onMenu={() => openMenu('track', track)}
+      moreButton
       testID={`track-${track.item_id}`}
       artwork={
         showArtwork ? (

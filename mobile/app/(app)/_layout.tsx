@@ -15,6 +15,7 @@ export default function AppLayout() {
           <Stack.Screen name="outputs" options={{ title: 'Play on', ...modalScreenOptions }} />
           <Stack.Screen name="queue" options={{ title: 'Queue', ...modalScreenOptions }} />
           <Stack.Screen name="player-menu" options={sheetScreenOptions} />
+          <Stack.Screen name="item-menu" options={sheetScreenOptions} />
         </Stack>
       </ActiveGroupProvider>
     </ConnectionProvider>

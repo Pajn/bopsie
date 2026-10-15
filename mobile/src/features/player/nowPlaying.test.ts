@@ -137,6 +137,16 @@ describe('itemLinks', () => {
     expect(links.map((link) => link.kind)).toEqual(['artist']);
   });
 
+  it('leads to an artist credited twice once', () => {
+    const links = itemLinks(
+      item({
+        ...ref('track', '1', 'Song'),
+        artists: [ref('artist', 'a', 'Ada'), ref('artist', 'a', 'Ada')],
+      }),
+    );
+    expect(links).toEqual([{ kind: 'artist', id: 'a', provider: 'library', name: 'Ada' }]);
+  });
+
   it('leads nowhere for an item without media, such as a radio stream', () => {
     expect(itemLinks(item(null))).toEqual([]);
   });

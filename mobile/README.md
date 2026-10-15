@@ -23,6 +23,9 @@ The full player opens the group's queue: play any track in it, drag tracks into 
 one up to play next, or remove it. The track playing, and the next one once the player has it, stay
 where they are, as Music Assistant requires.
 
+Press and hold a track, album, artist or playlist, or use its more button, to play it next, add it
+to the end of the queue, or go to its album or artists.
+
 ## Requirements
 
 - Node 24 and pnpm 12. The Nix dev shell provides both.
