@@ -6,6 +6,7 @@
 //! are kept in the data directory, so it reconnects after a restart.
 
 pub mod account;
+pub mod catalog;
 mod device;
 mod events;
 pub mod media;

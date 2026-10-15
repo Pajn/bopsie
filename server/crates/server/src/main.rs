@@ -27,6 +27,7 @@ use bopsie_players_linkplay::{
 use bopsie_providers_filesystem::FilesystemProvider;
 use bopsie_queues::{Config as PlaybackConfig, Playback};
 use bopsie_sources::Sources;
+use bopsie_sources_spotify::catalog::SpotifyCatalog;
 use bopsie_sources_spotify::{Config as SpotifyConfig, Endpoints, SpotifyAccount, SpotifyConnect};
 use clap::Parser;
 use tokio::net::TcpListener;
@@ -142,6 +143,11 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    if let Some(account) = &spotify_account {
+        library
+            .catalogs()
+            .add(Arc::new(SpotifyCatalog::new(account.clone())));
+    }
     let services = Services {
         library: library.clone(),
         events,

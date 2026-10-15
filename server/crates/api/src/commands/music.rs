@@ -362,7 +362,7 @@ impl Command for Search {
                 .catalogs()
                 .all()
                 .into_iter()
-                .filter(|c| from(c.instance_id()) || from(c.domain()))
+                .filter(|c| c.available() && (from(c.instance_id()) || from(c.domain())))
                 .collect()
         };
         let mut results = SearchResults::default();
@@ -483,6 +483,7 @@ impl Command for Providers {
                     .catalogs()
                     .all()
                     .iter()
+                    .filter(|c| c.available())
                     .map(|c| provider(c.instance_id(), c.domain(), c.name(), true)),
             )
             .collect())

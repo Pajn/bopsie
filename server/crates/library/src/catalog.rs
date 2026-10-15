@@ -36,6 +36,10 @@ pub trait Catalog: Send + Sync {
     fn domain(&self) -> &str;
     /// What it is called, such as `Spotify`.
     fn name(&self) -> &str;
+    /// Whether it can answer now, as when it is signed in.
+    fn available(&self) -> bool {
+        true
+    }
     /// Items of `media_type` matching `query`, best first, at most `limit`.
     fn search<'a>(
         &'a self,

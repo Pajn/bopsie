@@ -617,6 +617,7 @@ dependencies = [
  "bopsie-audio",
  "bopsie-core",
  "bopsie-fixtures",
+ "bopsie-library",
  "bopsie-players",
  "bopsie-sources",
  "futures",

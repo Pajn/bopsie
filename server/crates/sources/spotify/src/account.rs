@@ -171,7 +171,7 @@ fn query(pairs: &[(&str, &str)]) -> String {
         .join("&")
 }
 
-fn urlencode(text: &str) -> String {
+pub(crate) fn urlencode(text: &str) -> String {
     text.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -215,6 +215,12 @@ impl SpotifyAccount {
                 error: Mutex::default(),
             }),
         })
+    }
+
+    /// Whether the Web API login is there, for search and the saved library.
+    pub fn web_logged_in(&self) -> bool {
+        let web = self.inner.web.lock().unwrap();
+        web.client_id.is_some() && web.refresh_token.is_some()
     }
 
     pub async fn status(&self) -> AccountStatus {
