@@ -199,7 +199,19 @@ pub fn score(album: &AlbumToMatch, release: &Release) -> Scored {
         );
     }
     let missing = theirs.len() - pairs.len();
-    let extra = facts.tracks.len() - pairs.len();
+    // A second copy of a track the album already has, as a file kept twice, is not a track
+    // the release lacks.
+    let place = |t: &TrackFacts| (t.disc_number.unwrap_or(1).max(1), t.track_number);
+    let extra = (0..facts.tracks.len())
+        .filter(|ours| !pairs.iter().any(|(paired, _)| paired == ours))
+        .filter(|ours| {
+            let track = &facts.tracks[*ours];
+            !pairs.iter().any(|(paired, _)| {
+                let copy = &facts.tracks[*paired];
+                place(copy) == place(track) && versioned(&copy.name) == versioned(&track.name)
+            })
+        })
+        .count();
     for _ in 0..missing {
         sum.add(MISSING, 1.0);
     }
@@ -264,6 +276,25 @@ mod tests {
             year: Some(2021),
             needs_art: false,
         }
+    }
+
+    #[test]
+    fn a_track_kept_twice_is_not_a_track_the_release_lacks() {
+        let scored = score(
+            &album(
+                "First Album",
+                &[("Opening", 200), ("Middle", 181), ("Closing", 240)],
+            ),
+            &first_album(),
+        );
+        let mut twice = album(
+            "First Album",
+            &[("Opening", 200), ("Middle", 181), ("Closing", 240)],
+        );
+        twice.facts.tracks.insert(2, twice.facts.tracks[1].clone());
+        let doubled = score(&twice, &first_album());
+        assert_eq!((doubled.missing, doubled.extra), (0, 0), "{doubled:?}");
+        assert!(doubled.distance < 0.04, "{doubled:?} against {scored:?}");
     }
 
     #[test]

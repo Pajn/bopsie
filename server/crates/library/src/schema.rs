@@ -205,5 +205,11 @@ pub const MIGRATIONS: Migrations = Migrations {
                          WHERE media_type = 'album' AND provider_instance = 'musicbrainz')
             AND id NOT IN (SELECT album_id FROM release_suggestions);
     ",
+        "
+        -- Albums only suggested a release are asked about again: a track kept twice no longer
+        -- counts as one the release lacks, so some are now certain enough to take.
+        UPDATE albums SET metadata_checked = NULL
+        WHERE id IN (SELECT album_id FROM release_suggestions WHERE decision IS NULL);
+    ",
     ],
 };
