@@ -947,6 +947,8 @@ struct Holding {
     stamp: std::sync::atomic::AtomicU32,
     /// How long its tracks are.
     seconds: std::sync::atomic::AtomicU32,
+    /// It holds the album twice, under two ids, as a service does an album re-released.
+    twice: std::sync::atomic::AtomicBool,
 }
 
 const HELD: [&str; 3] = ["Opening", "Middle", "Closing"];
@@ -958,6 +960,7 @@ impl Holding {
             album: std::sync::Mutex::new((album.to_owned(), titles.to_vec())),
             stamp: 1.into(),
             seconds: 7.into(),
+            twice: false.into(),
         })
     }
 
@@ -986,17 +989,26 @@ impl bopsie_library::provider::MusicProvider for Holding {
     ) -> Result<bopsie_library::provider::Listing, bopsie_library::provider::ProviderError> {
         use bopsie_library::provider::{Entry, EntryKind, Listing};
         let stamp = self.stamp.load(std::sync::atomic::Ordering::SeqCst);
+        let copies: &[&str] = if self.twice.load(std::sync::atomic::Ordering::SeqCst) {
+            &["s-", "t-"]
+        } else {
+            &["s-"]
+        };
         Ok(Listing {
-            entries: self
-                .album
-                .lock()
-                .unwrap()
-                .1
+            entries: copies
                 .iter()
-                .map(|title| Entry {
-                    id: format!("s-{title}"),
-                    kind: EntryKind::Track,
-                    stamp: stamp.to_string(),
+                .flat_map(|copy| {
+                    self.album
+                        .lock()
+                        .unwrap()
+                        .1
+                        .iter()
+                        .map(|title| Entry {
+                            id: format!("{copy}{title}"),
+                            kind: EntryKind::Track,
+                            stamp: stamp.to_string(),
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect(),
             unreadable: Vec::new(),
@@ -1007,7 +1019,7 @@ impl bopsie_library::provider::MusicProvider for Holding {
         id: &str,
     ) -> Result<bopsie_library::provider::ScannedTrack, bopsie_library::provider::ProviderError>
     {
-        let title = id.strip_prefix("s-").unwrap();
+        let (copy, title) = id.split_at(2);
         let (album, titles) = self.album.lock().unwrap().clone();
         // Numbered as on the album, wherever it is among what is held.
         let number = HELD
@@ -1025,7 +1037,7 @@ impl bopsie_library::provider::MusicProvider for Holding {
             disc_number: Some(1),
             duration_secs: self.seconds.load(std::sync::atomic::Ordering::SeqCst),
             audio_format: bopsie_core::media::AudioFormat::unknown(),
-            album_id: Some(format!("held-{album}")),
+            album_id: Some(format!("held-{copy}{album}")),
             ..Default::default()
         })
     }
@@ -1526,4 +1538,27 @@ async fn a_liked_song_on_its_single_is_the_files_track_on_the_album() {
         list(&library, MediaType::Album).await,
         ["First Album", "Second Album"]
     );
+}
+
+#[tokio::test]
+async fn an_album_a_service_holds_twice_is_one_album_of_the_files_tracks() {
+    let m = Merging::new();
+    let holding = Holding::new(&m.streams, "First Album", &HELD).timed_as_files();
+    holding
+        .twice
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let library = m.library(true, &holding);
+    library.sync().await.unwrap();
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+    let album = id(&library, MediaType::Album, "First Album").await;
+    let tracks = library.album_tracks(album).await.unwrap();
+    assert_eq!(names_of(&tracks), HELD);
+    for track in &tracks {
+        let track: i64 = track.fields.item_id.parse().unwrap();
+        assert_eq!(sources(&library, MediaType::Track, track).await.len(), 3);
+    }
+    assert!(library.sync().await.unwrap().is_empty());
 }

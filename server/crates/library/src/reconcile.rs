@@ -367,13 +367,7 @@ fn reconcile_tracks(tx: &Connection, changes: &mut Changes) -> Result<()> {
             id
         };
         let (a, b) = (survivor(a), survivor(b));
-        if a == b
-            || !instances_of(tx, MediaType::Track, a)?.is_disjoint(&instances_of(
-                tx,
-                MediaType::Track,
-                b,
-            )?)
-        {
+        if a == b {
             continue;
         }
         let (Some((facts_a, album_a)), Some((facts_b, album_b))) =
@@ -381,6 +375,27 @@ fn reconcile_tracks(tx: &Connection, changes: &mut Changes) -> Result<()> {
         else {
             continue;
         };
+        let (pa, pb) = (
+            priority(tx, MediaType::Track, a)?,
+            priority(tx, MediaType::Track, b)?,
+        );
+        let (from, into) = if pa > pb || (pa == pb && a < b) {
+            (b, a)
+        } else {
+            (a, b)
+        };
+        let (from_instances, into_instances) = (
+            instances_of(tx, MediaType::Track, from)?,
+            instances_of(tx, MediaType::Track, into)?,
+        );
+        // Providers apart; or, on one album, a second copy a provider holds of a track whose
+        // files come first, as a service holding an album twice under two ids does.
+        let apart = from_instances.is_disjoint(&into_instances);
+        let second_copy =
+            album_a == album_b && pa != pb && from_instances.is_subset(&into_instances);
+        if !apart && !second_copy {
+            continue;
+        }
         if let (Some(album_a), Some(album_b)) = (album_a, album_b)
             && album_a != album_b
         {
@@ -398,15 +413,6 @@ fn reconcile_tracks(tx: &Connection, changes: &mut Changes) -> Result<()> {
         if compare_track(&facts_a, &facts_b, album_a == album_b) != Evidence::Match {
             continue;
         }
-        let (pa, pb) = (
-            priority(tx, MediaType::Track, a)?,
-            priority(tx, MediaType::Track, b)?,
-        );
-        let (from, into) = if pa > pb || (pa == pb && a < b) {
-            (b, a)
-        } else {
-            (a, b)
-        };
         merge_tracks(tx, from, into, changes)?;
         merged.insert(from, into);
     }
