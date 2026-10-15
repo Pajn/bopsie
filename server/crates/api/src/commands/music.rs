@@ -454,38 +454,107 @@ impl Command for Providers {
     type Output = Vec<Value>;
 
     async fn handle(ctx: Context, _: ProvidersArgs) -> Result<Vec<Value>> {
-        let provider = |instance: &str, domain: &str, name: &str, streaming: bool| {
-            serde_json::json!({
-                "type": "music",
-                "domain": domain,
-                "name": name,
-                "instance_id": instance,
-                "lookup_key": instance,
-                "available": true,
-                "is_streaming_provider": streaming,
-                "supported_features": if streaming {
-                    vec!["search", "browse"]
-                } else {
-                    vec!["library_artists", "library_albums", "library_tracks", "library_playlists"]
-                },
-            })
-        };
         let library = &ctx.api.library;
-        Ok(library
-            .providers()
+        let catalogs: Vec<(String, String, String)> = library
+            .catalogs()
+            .all()
             .iter()
-            .map(|instance| {
-                let domain = instance.split("--").next().unwrap_or(instance);
-                provider(instance, domain, "Local files", false)
+            .filter(|c| c.available())
+            .map(|c| {
+                (
+                    c.instance_id().to_owned(),
+                    c.domain().to_owned(),
+                    c.name().to_owned(),
+                )
             })
-            .chain(
-                library
-                    .catalogs()
-                    .all()
-                    .iter()
-                    .filter(|c| c.available())
-                    .map(|c| provider(c.instance_id(), c.domain(), c.name(), true)),
-            )
-            .collect())
+            .collect();
+        Ok(providers_list(&library.provider_names(), &catalogs))
+    }
+}
+
+/// One entry per provider instance, by `(instance, domain, name)`: the library's sources, then
+/// the catalogs. A source that is also a catalog, as Spotify's saved music is, is one provider
+/// that both fills the library and streams, named as the catalog names itself.
+fn providers_list(
+    sources: &[(String, String, String)],
+    catalogs: &[(String, String, String)],
+) -> Vec<Value> {
+    const LIBRARY: [&str; 4] = [
+        "library_artists",
+        "library_albums",
+        "library_tracks",
+        "library_playlists",
+    ];
+    const CATALOG: [&str; 2] = ["search", "browse"];
+    let entry = |(instance, domain, name): &(String, String, String),
+                 streaming: bool,
+                 features: Vec<&str>| {
+        serde_json::json!({
+            "type": "music",
+            "domain": domain,
+            "name": name,
+            "instance_id": instance,
+            "lookup_key": instance,
+            "available": true,
+            "is_streaming_provider": streaming,
+            "supported_features": features,
+        })
+    };
+    let mut list: Vec<Value> = sources
+        .iter()
+        .map(|source| match catalogs.iter().find(|c| c.0 == source.0) {
+            Some(catalog) => entry(
+                catalog,
+                true,
+                LIBRARY.iter().chain(&CATALOG).copied().collect(),
+            ),
+            None => entry(source, false, LIBRARY.to_vec()),
+        })
+        .collect();
+    list.extend(
+        catalogs
+            .iter()
+            .filter(|catalog| !sources.iter().any(|s| s.0 == catalog.0))
+            .map(|catalog| entry(catalog, true, CATALOG.to_vec())),
+    );
+    list
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn named(instance: &str, domain: &str, name: &str) -> (String, String, String) {
+        (instance.to_owned(), domain.to_owned(), name.to_owned())
+    }
+
+    #[test]
+    fn a_source_that_is_also_a_catalog_is_one_provider_named_as_itself() {
+        let list = providers_list(
+            &[
+                named("filesystem_local--a", "filesystem_local", "Local files"),
+                named("spotify", "spotify", "Spotify"),
+            ],
+            &[named("spotify", "spotify", "Spotify")],
+        );
+        let names: Vec<(&str, &str)> = list
+            .iter()
+            .map(|p| {
+                (
+                    p["instance_id"].as_str().unwrap(),
+                    p["name"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("filesystem_local--a", "Local files"),
+                ("spotify", "Spotify")
+            ]
+        );
+        assert_eq!(list[1]["is_streaming_provider"], true);
+        assert_eq!(list[1]["supported_features"].as_array().unwrap().len(), 6);
+        assert_eq!(list[0]["is_streaming_provider"], false);
     }
 }

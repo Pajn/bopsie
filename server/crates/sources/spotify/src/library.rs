@@ -335,6 +335,10 @@ impl MusicProvider for SpotifyLibrary {
         SPOTIFY
     }
 
+    fn name(&self) -> &str {
+        "Spotify"
+    }
+
     fn list(&self) -> Result<Listing, ProviderError> {
         if !self.account.web_logged_in() {
             return Err(ProviderError::Unreadable(

@@ -99,6 +99,10 @@ pub trait MusicProvider: Send + Sync + 'static {
     fn domain(&self) -> &'static str;
     /// This instance, such as `filesystem_local--3f2a9c1e`. Stable across restarts.
     fn instance_id(&self) -> &str;
+    /// What a person calls it, such as "Local files" or "Spotify".
+    fn name(&self) -> &str {
+        self.domain()
+    }
     fn list(&self) -> Result<Listing, ProviderError>;
     fn read_track(&self, id: &str) -> Result<ScannedTrack, ProviderError>;
     fn read_playlist(&self, id: &str) -> Result<ScannedPlaylist, ProviderError>;

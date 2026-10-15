@@ -737,6 +737,20 @@ impl Library {
             .collect()
     }
 
+    /// Each provider's instance id, domain and name.
+    pub fn provider_names(&self) -> Vec<(String, String, String)> {
+        self.providers
+            .iter()
+            .map(|provider| {
+                (
+                    provider.instance_id().to_owned(),
+                    provider.domain().to_owned(),
+                    provider.name().to_owned(),
+                )
+            })
+            .collect()
+    }
+
     async fn scan(&self, provider: Arc<dyn MusicProvider>, force: bool) -> Result<Changes> {
         let source = Source {
             domain: provider.domain(),

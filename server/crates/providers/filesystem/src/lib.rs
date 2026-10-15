@@ -195,6 +195,10 @@ impl MusicProvider for FilesystemProvider {
         &self.instance
     }
 
+    fn name(&self) -> &str {
+        "Local files"
+    }
+
     fn list(&self) -> Result<Listing, ProviderError> {
         if !self.root.is_dir() {
             return Err(ProviderError::Unreadable(format!(
