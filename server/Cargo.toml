@@ -45,6 +45,7 @@ futures = "0.3"
 hex = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
+librespot-audio = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
 librespot-connect = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
 librespot-core = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
 librespot-discovery = { version = "0.8", default-features = false, features = ["with-libmdns", "rustls-tls-webpki-roots"] }

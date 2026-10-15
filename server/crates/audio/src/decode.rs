@@ -95,11 +95,21 @@ pub struct SymphoniaDecoder {
 
 impl SymphoniaDecoder {
     pub fn open(path: &Path) -> Result<Self, DecodeError> {
+        let extension = path.extension().and_then(|e| e.to_str());
+        Self::from_source(Box::new(File::open(path)?), extension)
+    }
+
+    /// Decodes what `source` holds, such as a stream fetched as it is read, which should seek
+    /// for seeks to work. `extension` hints at its format.
+    pub fn from_source(
+        source: Box<dyn symphonia::core::io::MediaSource>,
+        extension: Option<&str>,
+    ) -> Result<Self, DecodeError> {
         let mut hint = Hint::new();
-        if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
+        if let Some(extension) = extension {
             hint.with_extension(extension);
         }
-        let source = MediaSourceStream::new(Box::new(File::open(path)?), Default::default());
+        let source = MediaSourceStream::new(source, Default::default());
         let reader = symphonia::default::get_probe().probe(
             &hint,
             source,
