@@ -7,6 +7,7 @@ pub mod ids;
 pub mod matching;
 pub mod provider;
 pub mod query;
+pub mod reconcile;
 pub mod scan;
 mod schema;
 pub mod search;
@@ -379,6 +380,8 @@ impl Library {
             .call(|conn| {
                 let tx = conn.transaction()?;
                 let mut pruned = Changes::default();
+                // One release from several providers becomes one album.
+                reconcile::reconcile(&tx, now(), &mut pruned)?;
                 // What was edited by hand is written again over what was scanned.
                 edit::apply_all(&tx)?;
                 scan::backfill_search_keys(&tx)?;
@@ -484,6 +487,71 @@ impl Library {
             .call(move |conn| Ok(edit::stored(conn, media_type, id)?.edits))
             .await
             .map_err(Error::from)
+    }
+
+    /// Items that may be the same, awaiting a person; with those decided too when `all`.
+    pub async fn suggestions(&self, all: bool) -> Result<Vec<reconcile::Suggestion>> {
+        self.read(move |conn| reconcile::suggestions(conn, all))
+            .await
+    }
+
+    /// Decides suggestion `id`: [`reconcile::MERGE`] merges the two at once,
+    /// [`reconcile::APART`] keeps them apart. Either holds at every later sync.
+    pub async fn decide(&self, id: i64, decision: String) -> Result<()> {
+        if ![reconcile::MERGE, reconcile::APART].contains(&decision.as_str()) {
+            return Err(Error::invalid_data(format!("No decision {decision}")));
+        }
+        let _syncing = self.syncing.lock().await;
+        let changes = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let updated = tx.execute(
+                    "UPDATE match_suggestions SET decision = ?2 WHERE id = ?1",
+                    rusqlite::params![id, decision],
+                )?;
+                let mut changes = Changes::default();
+                if updated == 0 {
+                    return Ok(None);
+                }
+                reconcile::reconcile(&tx, now(), &mut changes)?;
+                edit::apply_all(&tx)?;
+                scan::prune(&tx, &mut changes)?;
+                tx.commit()?;
+                Ok(Some(changes))
+            })
+            .await?
+            .ok_or_else(|| {
+                Error::new(
+                    bopsie_core::ErrorCode::MediaNotFound,
+                    format!("No suggestion {id}"),
+                )
+            })?;
+        self.publish(&changes, false).await
+    }
+
+    /// Takes provider `instance` back out of album `id`, which then stays apart from what is
+    /// left. Returns the album it now has, if it shared the album with another provider.
+    pub async fn separate(&self, id: i64, instance: String) -> Result<Option<i64>> {
+        let separates = self
+            .providers
+            .iter()
+            .find(|provider| provider.instance_id() == instance)
+            .is_none_or(|provider| provider.separate_albums());
+        let _syncing = self.syncing.lock().await;
+        let (album, changes) = self
+            .db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut changes = Changes::default();
+                let album =
+                    reconcile::separate(&tx, id, &instance, separates, now(), &mut changes)?;
+                tx.commit()?;
+                Ok((album, changes))
+            })
+            .await?;
+        self.publish(&changes, false).await?;
+        Ok(album)
     }
 
     /// Whether a sync is running now.

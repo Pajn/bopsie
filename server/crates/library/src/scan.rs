@@ -109,7 +109,7 @@ pub(crate) fn store_image(tx: &Connection, image: Option<&ImageRef>) -> Result<O
 }
 
 /// The table items of `media_type` live in.
-fn table(media_type: MediaType) -> &'static str {
+pub(crate) fn table(media_type: MediaType) -> &'static str {
     match media_type {
         MediaType::Artist => "artists",
         MediaType::Album => "albums",
@@ -609,7 +609,7 @@ pub fn remove(
     Ok(())
 }
 
-fn delete_item(
+pub(crate) fn delete_item(
     tx: &Connection,
     media_type: MediaType,
     id: i64,
@@ -625,6 +625,10 @@ fn delete_item(
             params![media_type.as_str(), id],
         )?;
     }
+    tx.execute(
+        "DELETE FROM match_suggestions WHERE media_type = ?1 AND (a = ?2 OR b = ?2)",
+        params![media_type.as_str(), id],
+    )?;
     unindex(tx, media_type, id)?;
     crate::edit::forget(tx, media_type, id)?;
     changes.delete((media_type, id));
@@ -637,6 +641,30 @@ pub fn prune(tx: &Connection, changes: &mut Changes) -> Result<()> {
         let mut statement = tx.prepare(sql)?;
         statement.query_map([], |row| row.get(0))?.collect()
     };
+    // A provider no longer holding any of an album's tracks no longer holds the album, though
+    // others still do.
+    let mut statement = tx.prepare(
+        "DELETE FROM provider_mappings AS album
+         WHERE media_type = 'album' AND NOT EXISTS (
+             SELECT 1 FROM tracks JOIN provider_mappings AS track
+                 ON track.media_type = 'track' AND track.item_id = tracks.id
+             WHERE tracks.album_id = album.item_id
+                 AND track.provider_instance = album.provider_instance)
+         RETURNING item_id, provider_instance",
+    )?;
+    let dropped = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>>>()?;
+    for (id, instance) in dropped {
+        tx.execute(
+            "DELETE FROM external_ids
+             WHERE media_type = 'album' AND item_id = ?1 AND provider_instance = ?2",
+            params![id, instance],
+        )?;
+        changes.update((MediaType::Album, id));
+    }
     for id in orphans(
         "SELECT id FROM albums WHERE id NOT IN (SELECT album_id FROM tracks WHERE album_id IS NOT NULL)",
     )? {

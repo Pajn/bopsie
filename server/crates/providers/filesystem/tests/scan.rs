@@ -578,7 +578,8 @@ async fn edits_that_make_no_sense_are_refused() {
     );
 }
 
-/// A streaming service's saved music: one album named as a local one, by the same artist.
+/// A streaming service's saved music: one album named as a local one, by the same artist, of
+/// another recording.
 struct Streamed;
 
 impl bopsie_library::provider::MusicProvider for Streamed {
@@ -655,7 +656,7 @@ impl bopsie_library::provider::MusicProvider for Streamed {
 }
 
 #[tokio::test]
-async fn a_streaming_services_album_stays_apart_from_a_local_one_of_the_same_name() {
+async fn a_streaming_services_album_of_other_recordings_stays_apart_from_a_local_one() {
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     bopsie_fixtures::write_library(&music, 1).unwrap();
@@ -938,14 +939,31 @@ async fn a_tracks_ids_are_read_from_its_tags_and_served() {
     assert!(track.fields().external_ids.is_empty());
 }
 
-/// A streaming service holding the fixture's First Album too, tagged a little differently, each
-/// track playing from a file of its own.
+/// A streaming service holding an album like the fixture's First Album, its tracks named and
+/// timed a little differently, each playing from a file of its own.
 struct Holding {
     streams: std::path::PathBuf,
+    album: std::sync::Mutex<(String, Vec<&'static str>)>,
     stamp: std::sync::atomic::AtomicU32,
 }
 
 const HELD: [&str; 3] = ["Opening", "Middle", "Closing"];
+
+impl Holding {
+    fn new(streams: &std::path::Path, album: &str, titles: &[&'static str]) -> Arc<Self> {
+        Arc::new(Self {
+            streams: streams.to_owned(),
+            album: std::sync::Mutex::new((album.to_owned(), titles.to_vec())),
+            stamp: 1.into(),
+        })
+    }
+
+    /// Now holds `titles` of `album`, read again at the next sync.
+    fn hold(&self, album: &str, titles: &[&'static str]) {
+        *self.album.lock().unwrap() = (album.to_owned(), titles.to_vec());
+        self.stamp.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
 
 impl bopsie_library::provider::MusicProvider for Holding {
     fn domain(&self) -> &'static str {
@@ -960,7 +978,11 @@ impl bopsie_library::provider::MusicProvider for Holding {
         use bopsie_library::provider::{Entry, EntryKind, Listing};
         let stamp = self.stamp.load(std::sync::atomic::Ordering::SeqCst);
         Ok(Listing {
-            entries: HELD
+            entries: self
+                .album
+                .lock()
+                .unwrap()
+                .1
                 .iter()
                 .map(|title| Entry {
                     id: format!("s-{title}"),
@@ -977,16 +999,24 @@ impl bopsie_library::provider::MusicProvider for Holding {
     ) -> Result<bopsie_library::provider::ScannedTrack, bopsie_library::provider::ProviderError>
     {
         let title = id.strip_prefix("s-").unwrap();
+        let (album, titles) = self.album.lock().unwrap().clone();
+        // Numbered as on the album, wherever it is among what is held.
+        let number = HELD
+            .iter()
+            .position(|t| *t == title)
+            .unwrap_or_else(|| titles.iter().position(|t| *t == title).unwrap())
+            as u32
+            + 1;
         Ok(bopsie_library::provider::ScannedTrack {
             title: title.to_uppercase(),
             artists: vec!["Test Artist".to_owned()],
-            album: Some("First Album".to_owned()),
+            album: Some(album.clone()),
             album_artists: vec!["Test Artist".to_owned()],
-            track_number: Some(HELD.iter().position(|t| *t == title).unwrap() as u32 + 1),
+            track_number: Some(number),
             disc_number: Some(1),
             duration_secs: 7,
             audio_format: bopsie_core::media::AudioFormat::unknown(),
-            album_id: Some("held-album".to_owned()),
+            album_id: Some(format!("held-{album}")),
             ..Default::default()
         })
     }
@@ -1012,46 +1042,40 @@ impl bopsie_library::provider::MusicProvider for Holding {
     }
 }
 
-/// Merges the streaming service's First Album into the local one, as reconciling would.
-async fn merge_held(db: &Database) {
-    db.call(|conn| {
-        let tx = conn.transaction()?;
-        let local_album: i64 = tx.query_row(
-            "SELECT albums.id FROM albums JOIN provider_mappings
-                 ON media_type = 'album' AND item_id = albums.id
-             WHERE name = 'First Album' AND provider_instance != 'streamed'",
-            [],
-            |row| row.get(0),
-        )?;
-        for title in HELD {
-            let local: i64 =
-                tx.query_row("SELECT id FROM tracks WHERE name = ?1", [title], |row| {
-                    row.get(0)
-                })?;
-            let held: i64 = tx.query_row(
-                "SELECT item_id FROM provider_mappings
-                 WHERE media_type = 'track' AND provider_item_id = ?1",
-                [format!("s-{title}")],
-                |row| row.get(0),
-            )?;
-            tx.execute(
-                "UPDATE provider_mappings SET item_id = ?1
-                 WHERE media_type = 'track' AND item_id = ?2",
-                [local, held],
-            )?;
-            tx.execute("DELETE FROM track_artists WHERE track_id = ?1", [held])?;
-            tx.execute("DELETE FROM tracks WHERE id = ?1", [held])?;
+struct Merging {
+    dir: tempfile::TempDir,
+    music: std::path::PathBuf,
+    streams: std::path::PathBuf,
+    db: Database,
+}
+
+impl Merging {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("music");
+        bopsie_fixtures::write_library(&music, 1).unwrap();
+        Self {
+            music,
+            streams: dir.path().join("streams"),
+            db: Database::open_in_memory(&[bopsie_library::MIGRATIONS]).unwrap(),
+            dir,
         }
-        tx.execute(
-            "UPDATE provider_mappings SET item_id = ?1
-             WHERE media_type = 'album' AND provider_instance = 'streamed'",
-            [local_album],
-        )?;
-        tx.commit()?;
-        Ok(())
-    })
-    .await
-    .unwrap();
+    }
+
+    /// The library over the files and `holding`, or `holding` alone.
+    fn library(&self, files: bool, holding: &Arc<Holding>) -> Library {
+        let mut providers: Vec<Arc<dyn bopsie_library::provider::MusicProvider>> =
+            vec![holding.clone()];
+        if files {
+            providers.insert(0, Arc::new(FilesystemProvider::new(self.music.clone())));
+        }
+        Library::new(
+            self.db.clone(),
+            EventBus::default(),
+            providers,
+            self.dir.path().join("artwork"),
+        )
+    }
 }
 
 async fn played_from(library: &Library, album: i64) -> Vec<std::path::PathBuf> {
@@ -1067,63 +1091,219 @@ async fn played_from(library: &Library, album: i64) -> Vec<std::path::PathBuf> {
         .collect()
 }
 
-#[tokio::test]
-async fn a_merged_album_keeps_the_files_tags_and_plays_from_one_source() {
-    let dir = tempfile::tempdir().unwrap();
-    let music = dir.path().join("music");
-    let streams = dir.path().join("streams");
-    bopsie_fixtures::write_library(&music, 1).unwrap();
-    let db = Database::open_in_memory(&[bopsie_library::MIGRATIONS]).unwrap();
-    let holding = Arc::new(Holding {
-        streams: streams.clone(),
-        stamp: 1.into(),
-    });
-    let library = Library::new(
-        db.clone(),
-        EventBus::default(),
-        vec![
-            Arc::new(FilesystemProvider::new(music.clone())),
-            holding.clone(),
-        ],
-        dir.path().join("artwork"),
-    );
-    library.sync().await.unwrap();
-    merge_held(&db).await;
+fn names_of(tracks: &[bopsie_core::media::Track]) -> Vec<String> {
+    tracks
+        .iter()
+        .map(|track| track.fields.name.clone())
+        .collect()
+}
 
-    // The service syncing again changes neither the tracks' tags nor the albums.
-    holding.stamp.store(2, std::sync::atomic::Ordering::SeqCst);
+async fn sources(library: &Library, media_type: MediaType, id: i64) -> Vec<String> {
+    let item = library.item(media_type, id).await.unwrap().unwrap();
+    let mut sources: Vec<String> = item
+        .fields()
+        .provider_mappings
+        .iter()
+        .map(|mapping| mapping.provider_instance.clone())
+        .collect();
+    sources.sort();
+    sources
+}
+
+#[tokio::test]
+async fn the_same_album_as_files_and_streamed_is_one_album_with_both_sources() {
+    let m = Merging::new();
+    let holding = Holding::new(&m.streams, "First Album", &HELD);
+    // Edited while only streamed: the edit outlasts the merge.
+    let streamed = m.library(false, &holding);
+    streamed.sync().await.unwrap();
+    let album = id(&streamed, MediaType::Album, "First Album").await;
+    streamed
+        .edit(
+            MediaType::Album,
+            album,
+            edits(serde_json::json!({"year": 1999})),
+        )
+        .await
+        .unwrap();
+
+    let library = m.library(true, &holding);
     library.sync().await.unwrap();
-    let albums = list(&library, MediaType::Album).await;
-    assert_eq!(albums, ["First Album", "Second Album"]);
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
     let album = id(&library, MediaType::Album, "First Album").await;
+    assert_eq!(sources(&library, MediaType::Album, album).await.len(), 2);
+    let Some(MediaItem::Album(merged)) = library.item(MediaType::Album, album).await.unwrap()
+    else {
+        panic!("no album");
+    };
+    assert_eq!(merged.year, Some(1999));
     let tracks = library.album_tracks(album).await.unwrap();
-    assert_eq!(names_of(&tracks), HELD);
+    assert_eq!(names_of(&tracks), HELD, "the files' tags");
+    let track: i64 = tracks[0].fields.item_id.parse().unwrap();
+    assert_eq!(sources(&library, MediaType::Track, track).await.len(), 2);
+
+    // Syncing again changes nothing, even when the service is read again.
+    assert!(library.sync().await.unwrap().is_empty());
+    holding.hold("First Album", &HELD);
+    library.sync().await.unwrap();
+    assert_eq!(names_of(&library.album_tracks(album).await.unwrap()), HELD);
     assert!(
-        tracks.iter().all(|track| track.duration == 1),
+        library
+            .album_tracks(album)
+            .await
+            .unwrap()
+            .iter()
+            .all(|track| track.duration == 1),
         "the files' durations"
     );
 
     // It plays from the files while they hold every track.
     let played = played_from(&library, album).await;
     assert!(
-        played.iter().all(|path| path.starts_with(&music)),
+        played.iter().all(|path| path.starts_with(&m.music)),
         "{played:?}"
     );
 
     // Once they lack one, the whole album plays from the service.
-    fs::remove_file(music.join("Test Artist/First Album/02 - Middle.wav")).unwrap();
+    fs::remove_file(m.music.join("Test Artist/First Album/02 - Middle.wav")).unwrap();
     library.sync().await.unwrap();
     let played = played_from(&library, album).await;
     assert_eq!(played.len(), 3);
     assert!(
-        played.iter().all(|path| path.starts_with(&streams)),
+        played.iter().all(|path| path.starts_with(&m.streams)),
         "{played:?}"
     );
+
+    // No longer saved on the service, the files' album is left. (A service that lists nothing
+    // is only believed when asked to be.)
+    holding.hold("First Album", &[]);
+    library.sync_with(true).await.unwrap();
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+    assert_eq!(
+        names_of(&library.album_tracks(album).await.unwrap()),
+        ["Opening", "Closing"]
+    );
+    assert_eq!(sources(&library, MediaType::Album, album).await.len(), 1);
 }
 
-fn names_of(tracks: &[bopsie_core::media::Track]) -> Vec<String> {
-    tracks
-        .iter()
-        .map(|track| track.fields.name.clone())
-        .collect()
+#[tokio::test]
+async fn some_of_an_albums_songs_saved_on_the_service_are_that_album() {
+    let m = Merging::new();
+    let holding = Holding::new(&m.streams, "First Album", &["Middle", "Closing"]);
+    let library = m.library(true, &holding);
+    library.sync().await.unwrap();
+    assert!(library.suggestions(true).await.unwrap().is_empty());
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+    let album = id(&library, MediaType::Album, "First Album").await;
+    assert_eq!(names_of(&library.album_tracks(album).await.unwrap()), HELD);
+}
+
+#[tokio::test]
+async fn a_remaster_stays_apart() {
+    let m = Merging::new();
+    let holding = Holding::new(&m.streams, "First Album (2020 Remaster)", &HELD);
+    let library = m.library(true, &holding);
+    library.sync().await.unwrap();
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "First Album (2020 Remaster)", "Second Album"]
+    );
+    assert!(library.suggestions(true).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_deluxe_edition_is_suggested_and_a_decision_holds() {
+    let m = Merging::new();
+    let holding = Holding::new(
+        &m.streams,
+        "First Album (Deluxe)",
+        &["Opening", "Middle", "Closing", "Bonus"],
+    );
+    let library = m.library(true, &holding);
+    library.sync().await.unwrap();
+    let suggestions = library.suggestions(false).await.unwrap();
+    assert_eq!(suggestions.len(), 1, "{suggestions:?}");
+    assert_eq!(
+        suggestions[0].reason,
+        "3 of 4 tracks are the same, in another edition"
+    );
+    assert_eq!(list(&library, MediaType::Album).await.len(), 3);
+
+    // Kept apart, it is not suggested again.
+    library
+        .decide(suggestions[0].id, "apart".to_owned())
+        .await
+        .unwrap();
+    holding.hold(
+        "First Album (Deluxe)",
+        &["Opening", "Middle", "Closing", "Bonus"],
+    );
+    library.sync().await.unwrap();
+    assert!(library.suggestions(false).await.unwrap().is_empty());
+    assert_eq!(list(&library, MediaType::Album).await.len(), 3);
+
+    // Said to be the same, they merge, the bonus track joining the files' album.
+    let decided = library.suggestions(true).await.unwrap();
+    library
+        .decide(decided[0].id, "merge".to_owned())
+        .await
+        .unwrap();
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "Second Album"]
+    );
+    let album = id(&library, MediaType::Album, "First Album").await;
+    assert_eq!(
+        names_of(&library.album_tracks(album).await.unwrap()),
+        ["Opening", "Middle", "Closing", "BONUS"]
+    );
+    library.sync().await.unwrap();
+    assert_eq!(list(&library, MediaType::Album).await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_merged_album_separates_and_stays_apart() {
+    let m = Merging::new();
+    let holding = Holding::new(&m.streams, "First Album", &HELD);
+    let library = m.library(true, &holding);
+    library.sync().await.unwrap();
+    let album = id(&library, MediaType::Album, "First Album").await;
+    let apart = library
+        .separate(album, "streamed".to_owned())
+        .await
+        .unwrap()
+        .expect("held by both");
+    assert_eq!(sources(&library, MediaType::Album, album).await.len(), 1);
+    assert_eq!(
+        sources(&library, MediaType::Album, apart).await,
+        ["streamed"]
+    );
+
+    library.sync().await.unwrap();
+    assert_eq!(
+        list(&library, MediaType::Album).await,
+        ["First Album", "First Album", "Second Album"]
+    );
+    assert_eq!(names_of(&library.album_tracks(album).await.unwrap()), HELD);
+    assert_eq!(
+        names_of(&library.album_tracks(apart).await.unwrap()),
+        ["OPENING", "MIDDLE", "CLOSING"],
+        "read again from the service"
+    );
+    let track: i64 = library.album_tracks(album).await.unwrap()[0]
+        .fields
+        .item_id
+        .parse()
+        .unwrap();
+    assert_eq!(sources(&library, MediaType::Track, track).await.len(), 1);
+    assert!(library.suggestions(false).await.unwrap().is_empty());
 }

@@ -147,5 +147,19 @@ pub const MIGRATIONS: Migrations = Migrations {
         ALTER TABLE provider_mappings ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;
         UPDATE provider_mappings SET priority = 2 WHERE provider_domain = 'filesystem_local';
     ",
+        "
+        -- Items that may be the same, for a person to decide, and what they decided: 'merge'
+        -- or 'apart'. a is the lower id.
+        CREATE TABLE match_suggestions (
+            id INTEGER PRIMARY KEY,
+            media_type TEXT NOT NULL,
+            a INTEGER NOT NULL,
+            b INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            decision TEXT,
+            created INTEGER NOT NULL,
+            UNIQUE (media_type, a, b)
+        ) STRICT;
+    ",
     ],
 };

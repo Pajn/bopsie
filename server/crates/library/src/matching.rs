@@ -264,7 +264,7 @@ pub fn compare_album(a: &AlbumFacts, b: &AlbumFacts) -> Evidence {
         a.tracks.len().min(b.tracks.len()),
         a.tracks.len().max(b.tracks.len()),
     );
-    if matched == fewer && fewer == more && same_edition {
+    if matched == fewer && same_edition && (fewer == more || partial(&a.tracks, &b.tracks)) {
         Evidence::Match
     } else if matched == fewer {
         // One holds the other and more, as a deluxe edition does: for a person to say.
@@ -274,6 +274,19 @@ pub fn compare_album(a: &AlbumFacts, b: &AlbumFacts) -> Evidence {
     } else {
         Evidence::NoMatch
     }
+}
+
+/// Whether the album with fewer tracks holds some of the other's rather than a shorter
+/// edition of it: its tracks are not the other's first ones, as when only the songs someone
+/// liked are saved. A shorter edition leaves out the end, where bonus tracks go.
+fn partial(a: &[TrackFacts], b: &[TrackFacts]) -> bool {
+    let (fewer, more) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    let mut held: Vec<_> = fewer.iter().filter_map(TrackFacts::position).collect();
+    let mut first: Vec<_> = more.iter().filter_map(TrackFacts::position).collect();
+    held.sort_unstable();
+    first.sort_unstable();
+    first.truncate(held.len());
+    held.len() == fewer.len() && held != first
 }
 
 /// Pairs two albums' tracks: by place, then by name among what is left. Returns indices.
@@ -412,6 +425,20 @@ mod tests {
             ],
         );
         assert_eq!(compare_album(&files, &longer), Evidence::Insufficient);
+    }
+
+    #[test]
+    fn some_of_an_albums_tracks_are_that_album() {
+        let files = album("First Album", TRACKS);
+        // The songs someone liked, saved with their album.
+        let liked = AlbumFacts {
+            tracks: vec![track("Middle", 2, 180), track("Closing", 3, 240)],
+            ..album("First Album", &[])
+        };
+        assert_eq!(compare_album(&files, &liked), Evidence::Match);
+        // Its first tracks may be a shorter edition, which is for a person to say.
+        let first = album("First Album", &TRACKS[..2]);
+        assert_eq!(compare_album(&files, &first), Evidence::Insufficient);
     }
 
     #[test]
