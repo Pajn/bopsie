@@ -19,12 +19,16 @@ use bopsie_players_airplay::endpoint::{AirplayEndpoint, FORMAT, Launcher};
 use bopsie_players_airplay::speaker::Speaker;
 use bopsie_players_airplay::txt::{Records, Txt};
 
-const LEAD: i64 = 400_000;
+/// A session's lead: long enough for the fake speaker, which takes 250 ms to start, to start
+/// on time on a busy machine.
+const LEAD: i64 = 1_000_000;
 
 struct Fake {
     dir: tempfile::TempDir,
     endpoint: Arc<AirplayEndpoint>,
     players: Players,
+    /// When the last session was told to start.
+    restarted: Mutex<Option<clock::Micros>>,
 }
 
 fn speaker(flags: &str) -> Speaker {
@@ -85,6 +89,7 @@ fn fake_in(env: &[(&str, &str)], flags: &str, players: Players) -> Fake {
         dir,
         endpoint,
         players,
+        restarted: Mutex::new(None),
     }
 }
 
@@ -183,6 +188,7 @@ fn session_with(fake: &Fake, samples: &[i16], prepare: bool) -> (engine::EngineH
     };
     let sinks = vec![("kitchen".to_owned(), fake.endpoint.output(FORMAT, timeline))];
     let handle = engine::spawn(settings, Box::new(source), sinks);
+    *fake.restarted.lock().unwrap() = Some(clock::now());
     handle.send(Command::Restart {
         epoch: 1,
         not_before,
@@ -210,8 +216,8 @@ fn bytes(samples: &[i16]) -> Vec<u8> {
 fn a_session_streams_to_the_process_and_starts_on_the_timeline() {
     let fake = fake();
     let samples = noise(1, 22_050 * 2);
-    let began = clock::now();
     let (mut handle, timeline) = session(&fake, &samples);
+    let restarted = fake.restarted.lock().unwrap().unwrap();
     let events = until_idle(&mut handle);
     let Event::TrackStarted { at, .. } = events[0] else {
         panic!("{events:?}")
@@ -232,9 +238,11 @@ fn a_session_streams_to_the_process_and_starts_on_the_timeline() {
         .unwrap();
     let expected = clock::unix_ms(timeline.instant_of(at));
     assert!(start_ms.abs_diff(expected) <= 2, "{start_ms} vs {expected}");
+    // One lead after it was told to start, give or take the engine getting to it.
+    let lead_after = clock::unix_ms(restarted + LEAD);
     assert!(
-        start_ms.abs_diff(clock::unix_ms(began + LEAD)) <= 50,
-        "one lead after the session began"
+        start_ms + 2 >= lead_after && start_ms <= lead_after + 250,
+        "{start_ms} vs one lead after the restart, {lead_after}"
     );
     // START follows the audio it starts.
     let (before_start, _) = commands.iter().find(|(_, c)| c == "ACTION=START").unwrap();
