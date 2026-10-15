@@ -2,6 +2,7 @@ import type { Album, Artist, Playlist, Track } from '@bopsie/client/api/schemas/
 import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { PlayingBars, usePlayingState } from '@/features/player/PlayingBars';
 import { sourceName } from '@/features/search/scope';
 import { useProviders } from '@/features/search/useProviders';
 import { formatDuration } from '@/player/progress';
@@ -29,6 +30,7 @@ function Row({
   title,
   subtitle,
   trailing,
+  current,
 }: {
   onPress: () => void;
   onMenu: () => void;
@@ -38,6 +40,8 @@ function Row({
   title: string;
   subtitle?: string;
   trailing?: string;
+  /** What plays now, which the title marks. */
+  current?: boolean;
 }) {
   return (
     <Pressable
@@ -50,7 +54,9 @@ function Row({
     >
       {artwork}
       <View style={styles.text}>
-        <Text numberOfLines={1}>{title}</Text>
+        <Text numberOfLines={1} style={current && styles.current}>
+          {title}
+        </Text>
         {subtitle ? (
           <Text variant="caption" muted numberOfLines={1}>
             {subtitle}
@@ -151,6 +157,7 @@ export function TrackRow({
 }) {
   const subtitle = useMarked(track.provider, artistNames(track));
   const openMenu = useOpenItemMenu();
+  const playing = usePlayingState(track.uri);
   return (
     <Row
       onPress={onPress}
@@ -159,13 +166,25 @@ export function TrackRow({
       testID={`track-${track.item_id}`}
       artwork={
         showArtwork ? (
-          <Artwork item={track.album ?? track} size={40} imageSize={80} />
+          <View>
+            <Artwork item={track.album ?? track} size={40} imageSize={80} />
+            {playing ? (
+              <View style={styles.scrim}>
+                <PlayingBars playing={playing === 'playing'} color="#FFFFFF" />
+              </View>
+            ) : null}
+          </View>
+        ) : playing ? (
+          <View style={styles.number}>
+            <PlayingBars playing={playing === 'playing'} />
+          </View>
         ) : (
           <Text muted style={styles.number}>
             {track.track_number ?? (index !== undefined ? index + 1 : '')}
           </Text>
         )
       }
+      current={playing !== null}
       title={track.name}
       subtitle={subtitle}
       {...(track.duration ? { trailing: formatDuration(track.duration) } : {})}
@@ -182,5 +201,14 @@ const styles = StyleSheet.create((theme) => ({
   },
   pressed: { opacity: 0.6 },
   text: { flex: 1, gap: 2 },
-  number: { width: 28, textAlign: 'center' },
+  number: { width: 28, textAlign: 'center', alignItems: 'center' },
+  current: { color: theme.colors.accent, fontWeight: '600' },
+  // Over the artwork of what plays, so the bars read on any cover.
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
 }));

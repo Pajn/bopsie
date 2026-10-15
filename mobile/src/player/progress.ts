@@ -1,18 +1,37 @@
 import type { PlayerQueue } from '@bopsie/client/api/schemas/player';
 
+/** Where a track's position was measured, and whether it moves on from there. */
+export interface Measured {
+  /** Seconds into the track at `measuredAt`. */
+  elapsed: number;
+  /** Unix seconds. */
+  measuredAt: number;
+  playing: boolean;
+  /** Seconds, when known. */
+  duration?: number | null | undefined;
+}
+
 /**
- * Seconds into the current item at `nowMs`. The server reports the elapsed
- * time with the moment it measured it; while playing, the position moves on
- * from there. Kept within the item's duration when that is known.
+ * Seconds into a track at `nowMs`. The server reports the elapsed time with the moment it
+ * measured it; while playing, the position moves on from there. Kept within the track's
+ * duration when that is known.
  */
-export function queuePosition(queue: PlayerQueue, nowMs: number): number {
-  const base = queue.elapsed_time;
-  const position =
-    queue.state === 'playing'
-      ? base + Math.max(0, nowMs / 1000 - queue.elapsed_time_last_updated)
-      : base;
-  const duration = queue.current_item?.duration;
+export function positionAt({ elapsed, measuredAt, playing, duration }: Measured, nowMs: number) {
+  const position = playing ? elapsed + Math.max(0, nowMs / 1000 - measuredAt) : elapsed;
   return duration ? Math.min(position, duration) : position;
+}
+
+/** Seconds into the queue's current item at `nowMs`; see `positionAt`. */
+export function queuePosition(queue: PlayerQueue, nowMs: number): number {
+  return positionAt(
+    {
+      elapsed: queue.elapsed_time,
+      measuredAt: queue.elapsed_time_last_updated,
+      playing: queue.state === 'playing',
+      duration: queue.current_item?.duration,
+    },
+    nowMs,
+  );
 }
 
 /** `m:ss`, or `h:mm:ss` from an hour. */

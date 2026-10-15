@@ -9,6 +9,7 @@ import { Icon } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { MINI_COVER, useCoverSlot } from './FlyingCover';
 import { nowPlaying } from './nowPlaying';
+import { ProgressLine } from './ProgressLine';
 import { expandPlayer, setDockHeight } from './sheetStore';
 import { usePlaybackActions, useQueue } from './usePlayback';
 import { useReportedHeight } from './useReportedHeight';
@@ -50,6 +51,7 @@ export function MiniPlayer({ travel }: { travel: number }) {
         accessibilityLabel={`Now playing: ${current.title}`}
         testID="mini-player"
       >
+        <ProgressLine queue={queue} />
         {/* The artwork is drawn over this, by the sheet, to carry it into the full player. */}
         <View ref={cover.ref} onLayout={cover.onLayout} style={styles.cover} />
         <View style={styles.text}>

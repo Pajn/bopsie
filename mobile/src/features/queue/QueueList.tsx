@@ -5,6 +5,7 @@ import ReorderableList, { useReorderableDrag } from 'react-native-reorderable-li
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Artwork } from '@/features/library/Artwork';
 import { describeItem } from '@/features/player/nowPlaying';
+import { PlayingBars } from '@/features/player/PlayingBars';
 import { useQueue } from '@/features/player/usePlayback';
 import { formatDuration } from '@/player/progress';
 import { Icon } from '@/ui/Icon';
@@ -66,6 +67,7 @@ export function QueueList() {
                 key={item.queue_item_id}
                 item={item}
                 current={item.queue_item_id === currentId}
+                playing={queue.state === 'playing'}
                 {...(item.queue_item_id !== currentId && { onPress: () => actions.play(item) })}
               />
             ))}
@@ -136,12 +138,15 @@ function UpNextRow({
 function QueueRow({
   item,
   current,
+  playing,
   onPress,
   onLongPress,
   children,
 }: {
   item: QueueItem;
   current?: boolean;
+  /** Whether the current item is playing, which its bars show. */
+  playing?: boolean;
   onPress?: () => void;
   onLongPress?: () => void;
   children?: ReactNode;
@@ -157,7 +162,14 @@ function QueueRow({
       accessibilityLabel={current ? `Now playing: ${title}` : `Play ${title}`}
       testID={`queue-item-${item.queue_item_id}`}
     >
-      <Artwork item={artwork} size={40} imageSize={80} />
+      <View>
+        <Artwork item={artwork} size={40} imageSize={80} />
+        {current ? (
+          <View style={styles.scrim}>
+            <PlayingBars playing={playing ?? false} color="#FFFFFF" />
+          </View>
+        ) : null}
+      </View>
       <View style={styles.text}>
         <Text numberOfLines={1} style={current && styles.current}>
           {title}
@@ -201,4 +213,12 @@ const styles = StyleSheet.create((theme) => ({
   pressed: { opacity: 0.6 },
   text: { flex: 1, gap: 2 },
   current: { color: theme.colors.accent, fontWeight: '600' },
+  // Over the artwork of what plays, so the bars read on any cover.
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
 }));
