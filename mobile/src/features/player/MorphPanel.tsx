@@ -44,7 +44,7 @@ const EASING = Easing.bezier(0.2, 0, 0, 1);
  * `from`, to the player's size. Its content gives way to a header with `title` while the
  * panel's own content, `children`, fades in below, and the chevron turns; the header, or
  * back, close it again. Dragging it towards open, or the header towards closed, moves it with
- * the finger. `children` are first made when it first opens, and kept.
+ * the finger. `children` are made once the player shows, and kept.
  *
  * @param closed what it shows while closed, beside the chevron.
  * @param chevron the chevron's direction while closed; it turns to point the other way.
@@ -58,6 +58,7 @@ export function MorphPanel({
   title,
   openLabel,
   testID,
+  ready,
   children,
 }: {
   from: Frame;
@@ -69,6 +70,8 @@ export function MorphPanel({
   /** What opening it does, for screen readers, such as "Up next: Teardrop. Open the queue". */
   openLabel: string;
   testID: string;
+  /** Whether the player shows, and so the panel could open: its content is made then. */
+  ready: boolean;
   children: ReactNode;
 }) {
   const { theme, rt } = useUnistyles();
@@ -173,9 +176,25 @@ export function MorphPanel({
     opacity: progress.value,
     transform: [{ scale: scale(progress.value) }],
   }));
-  const bodyStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(progress.value, [0.5, 1], [0, 1], 'clamp'),
-  }));
+  // The content keeps its open size and its place on the screen while the panel grows over
+  // it, so nothing in it is laid out again on each frame; the panel only uncovers it.
+  const contentTop = topInset + HEADER_HEIGHT;
+  const bodyStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: interpolate(p, [0.5, 1], [0, 1], 'clamp'),
+      left: -interpolate(p, [0, 1], [from.x, 0]),
+      top: contentTop - interpolate(p, [0, 1], [from.y, 0]),
+    };
+  });
+
+  // Made a moment after the player shows rather than when the panel opens, so opening it has
+  // nothing to make first.
+  useEffect(() => {
+    if (!ready || loaded) return;
+    const timer = setTimeout(() => setLoaded(true), 500);
+    return () => clearTimeout(timer);
+  }, [ready, loaded]);
 
   return (
     <Animated.View
@@ -211,7 +230,14 @@ export function MorphPanel({
           </Pressable>
         </Animated.View>
       </GestureDetector>
-      <Animated.View style={[styles.body, bodyStyle]} pointerEvents={open ? 'auto' : 'none'}>
+      <Animated.View
+        style={[
+          styles.body,
+          { width: player.width, height: player.height - contentTop },
+          bodyStyle,
+        ]}
+        pointerEvents={open ? 'auto' : 'none'}
+      >
         {loaded ? children : null}
       </Animated.View>
     </Animated.View>
@@ -229,5 +255,5 @@ const styles = StyleSheet.create({
   // Drawn at its open size and scaled, overflowing its place while smaller.
   centre: { alignItems: 'center', overflow: 'visible' },
   chevron: { overflow: 'visible' },
-  body: { flex: 1 },
+  body: { position: 'absolute' },
 });

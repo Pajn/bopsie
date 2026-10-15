@@ -31,10 +31,13 @@ export function OutputsPanel({
   name,
   pill,
   player,
+  ready,
 }: {
   name: string;
   pill: Frame;
   player: { width: number; height: number };
+  /** Whether the player shows; see `MorphPanel`. */
+  ready: boolean;
 }) {
   const { theme } = useUnistyles();
   return (
@@ -52,6 +55,7 @@ export function OutputsPanel({
       title="Play on"
       openLabel={`Playing on ${name}. Choose where to play`}
       testID="player-outputs"
+      ready={ready}
       closed={<PillContent name={name} />}
     >
       <OutputsScreen />

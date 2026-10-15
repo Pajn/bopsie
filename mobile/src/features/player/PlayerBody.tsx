@@ -170,8 +170,8 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
       </View>
       {/* The queue's bar is drawn over this space, from which it opens over the whole player. */}
       <View style={styles.barSpace} onLayout={({ nativeEvent }) => setBar(nativeEvent.layout)} />
-      {bar && size ? <QueuePanel queue={queue} bar={bar} player={size} /> : null}
-      {pill && size ? <OutputsPanel name={where} pill={pill} player={size} /> : null}
+      {bar && size ? <QueuePanel queue={queue} bar={bar} player={size} ready={open} /> : null}
+      {pill && size ? <OutputsPanel name={where} pill={pill} player={size} ready={open} /> : null}
     </View>
   );
 }

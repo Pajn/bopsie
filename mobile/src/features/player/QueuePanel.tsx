@@ -22,10 +22,13 @@ export function QueuePanel({
   queue,
   bar,
   player,
+  ready,
 }: {
   queue: HeardQueue;
   bar: Frame;
   player: { width: number; height: number };
+  /** Whether the player shows; see `MorphPanel`. */
+  ready: boolean;
 }) {
   const { theme } = useUnistyles();
   const next = queue.next_item && !queue.source ? describeItem(queue.next_item) : null;
@@ -51,6 +54,7 @@ export function QueuePanel({
       title="Queue"
       openLabel={`${label}: ${title}. Open the queue`}
       testID="player-queue"
+      ready={ready}
       closed={
         <View style={styles.bar}>
           <View style={styles.artwork}>
