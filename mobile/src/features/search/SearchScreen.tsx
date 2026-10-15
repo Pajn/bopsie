@@ -2,13 +2,15 @@ import { search } from '@bopsie/client/api/endpoints/library';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { AlbumRow, ArtistRow, PlaylistRow, TrackRow } from '@/features/library/rows';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
 import { InlineError, Screen, Stack, Text, TextField } from '@/ui/primitives';
+import { EVERYWHERE, type SearchScope, searchScopes } from './scope';
+import { useProviders } from './useProviders';
 
 /** Waits for typing to pause before searching, so each keystroke is not a request. */
 function useDebounced(value: string, ms: number): string {
@@ -26,9 +28,13 @@ export function SearchScreen() {
   const { theme } = useUnistyles();
   const [text, setText] = useState('');
   const query = useDebounced(text.trim(), 300);
+  const scopes = searchScopes(useProviders().data ?? []);
+  // Kept while the tab is, so the next search looks where the last one did.
+  const [scopeKey, setScopeKey] = useState(EVERYWHERE.key);
+  const scope: SearchScope = scopes.find((s) => s.key === scopeKey) ?? EVERYWHERE;
   const results = useQuery({
-    queryKey: queryKeys.search(account.id, query),
-    queryFn: () => search(connection, query),
+    queryKey: queryKeys.search(account.id, query, scope.key),
+    queryFn: () => search(connection, query, 25, scope.providers),
     enabled: query.length > 0,
   });
   const data = results.data;
@@ -47,6 +53,27 @@ export function SearchScreen() {
         returnKeyType="search"
         testID="search-input"
       />
+      {scopes.length > 0 ? (
+        <View style={styles.scopes} accessibilityRole="tablist">
+          {scopes.map((option) => {
+            const selected = option.key === scope.key;
+            return (
+              <Pressable
+                key={option.key}
+                onPress={() => setScopeKey(option.key)}
+                style={[styles.scope, selected && styles.scopeSelected]}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                testID={`search-scope-${option.key}`}
+              >
+                <Text variant="caption" style={selected ? styles.scopeSelectedText : undefined}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.results}>
         {results.isFetching && !data ? <ActivityIndicator color={theme.colors.accent} /> : null}
         {results.isError ? <InlineError message={describeError(results.error)} /> : null}
@@ -105,5 +132,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const styles = StyleSheet.create((theme) => ({
   title: { marginVertical: theme.spacing.md },
+  scopes: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.md },
+  scope: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  scopeSelected: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
+  scopeSelectedText: { color: theme.colors.onAccent },
   results: { paddingVertical: theme.spacing.lg },
 }));

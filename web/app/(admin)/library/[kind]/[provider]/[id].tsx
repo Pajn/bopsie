@@ -68,7 +68,8 @@ export default function ItemScreen() {
         <TargetPicker />
         <InlineError message={error ? describeError(error) : null} />
         {item.data && uri ? <ItemRow item={item.data} actions={<PlayButtons uri={uri} />} /> : null}
-        {item.data && KINDS.includes(kind as Kind) ? (
+        {/* Only the library's own items are edited; a catalog's, such as Spotify's, are as it says. */}
+        {item.data && provider === 'library' && KINDS.includes(kind as Kind) ? (
           <EditItem key={item.data.uri} item={item.data} kind={kind as Kind} />
         ) : null}
         {contents.data?.albums.length ? (

@@ -1,6 +1,6 @@
 import * as z from 'zod/mini';
 import type { MaConnection } from '../client';
-import { album, artist, playlist, searchResults, track } from '../schemas/media';
+import { album, artist, musicProvider, playlist, searchResults, track } from '../schemas/media';
 
 export type LibraryKind = 'artists' | 'albums' | 'tracks' | 'playlists';
 
@@ -83,9 +83,22 @@ export const playlistTracks = (connection: MaConnection, ref: ItemRef) =>
     timeoutMs: 60_000,
   });
 
-export const search = (connection: MaConnection, query: string, limit = 25) =>
+/**
+ * Searches by name. `providers` narrows it to some sources, by provider id: `library`, or a
+ * catalog such as `spotify`; left out, every source is searched.
+ */
+export const search = (connection: MaConnection, query: string, limit = 25, providers?: string[]) =>
   connection.command(
     'music/search',
-    { search_query: query, media_types: ['artist', 'album', 'track', 'playlist'], limit },
+    {
+      search_query: query,
+      media_types: ['artist', 'album', 'track', 'playlist'],
+      limit,
+      ...(providers && { providers }),
+    },
     { schema: searchResults },
   );
+
+/** The music providers: the library's sources, and catalogs such as Spotify. */
+export const listProviders = (connection: MaConnection) =>
+  connection.command('providers', {}, { schema: z.array(musicProvider) });

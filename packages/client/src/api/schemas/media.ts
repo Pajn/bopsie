@@ -78,3 +78,13 @@ export type SearchResults = z.infer<typeof searchResults>;
 export type WithImages =
   | { metadata: { images: MediaImage[] } }
   | { image?: MediaImage | null | undefined };
+
+/** `ProviderInstance`: a source of music, scanned into the library or searched as it is. */
+export const musicProvider = z.looseObject({
+  instance_id: z.string(),
+  domain: z.string(),
+  name: z.string(),
+  /** A catalog, such as Spotify, searched and browsed as it is rather than scanned in. */
+  is_streaming_provider: booleanOr(false),
+});
+export type MusicProvider = z.infer<typeof musicProvider>;

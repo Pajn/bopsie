@@ -2,12 +2,20 @@ import type { Album, Artist, Playlist, Track } from '@bopsie/client/api/schemas/
 import { useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
+import { sourceName } from '@/features/search/scope';
+import { useProviders } from '@/features/search/useProviders';
 import { formatDuration } from '@/player/progress';
 import { Text } from '@/ui/primitives';
 import { Artwork } from './Artwork';
 
 export const artistNames = (item: { artists: Array<{ name: string }> }) =>
   item.artists.map((artist) => artist.name).join(', ');
+
+/** A subtitle led by where the item comes from, when that is not the library: "Spotify · …". */
+function useMarked(provider: string, ...parts: Array<string | number | null | undefined>): string {
+  const providers = useProviders().data;
+  return [sourceName(providers, provider), ...parts].filter(Boolean).join(' · ');
+}
 
 function Row({
   onPress,
@@ -52,6 +60,7 @@ function Row({
 
 export function ArtistRow({ artist }: { artist: Artist }) {
   const router = useRouter();
+  const subtitle = useMarked(artist.provider);
   return (
     <Row
       onPress={() =>
@@ -63,12 +72,14 @@ export function ArtistRow({ artist }: { artist: Artist }) {
       testID={`artist-${artist.item_id}`}
       artwork={<Artwork item={artist} size={48} imageSize={80} round placeholder="user" />}
       title={artist.name}
+      {...(subtitle ? { subtitle } : {})}
     />
   );
 }
 
 export function AlbumRow({ album }: { album: Album }) {
   const router = useRouter();
+  const subtitle = useMarked(album.provider, artistNames(album), album.year);
   return (
     <Row
       onPress={() =>
@@ -80,13 +91,14 @@ export function AlbumRow({ album }: { album: Album }) {
       testID={`album-${album.item_id}`}
       artwork={<Artwork item={album} size={48} imageSize={80} />}
       title={album.name}
-      subtitle={[artistNames(album), album.year].filter(Boolean).join(' · ')}
+      subtitle={subtitle}
     />
   );
 }
 
 export function PlaylistRow({ playlist }: { playlist: Playlist }) {
   const router = useRouter();
+  const subtitle = useMarked(playlist.provider, playlist.owner);
   return (
     <Row
       onPress={() =>
@@ -98,7 +110,7 @@ export function PlaylistRow({ playlist }: { playlist: Playlist }) {
       testID={`playlist-${playlist.item_id}`}
       artwork={<Artwork item={playlist} size={48} imageSize={80} placeholder="list" />}
       title={playlist.name}
-      {...(playlist.owner ? { subtitle: playlist.owner } : {})}
+      {...(subtitle ? { subtitle } : {})}
     />
   );
 }
@@ -115,6 +127,7 @@ export function TrackRow({
   showArtwork?: boolean;
   index?: number;
 }) {
+  const subtitle = useMarked(track.provider, artistNames(track));
   return (
     <Row
       onPress={onPress}
@@ -129,7 +142,7 @@ export function TrackRow({
         )
       }
       title={track.name}
-      subtitle={artistNames(track)}
+      subtitle={subtitle}
       {...(track.duration ? { trailing: formatDuration(track.duration) } : {})}
     />
   );
