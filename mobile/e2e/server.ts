@@ -1,19 +1,19 @@
 import { device } from 'detox';
 
-/** The test server as seen from the test process. See scripts/ma-server.sh. */
-export const SERVER_URL = process.env.MA_URL ?? 'http://127.0.0.1:18095';
+/** The test server as seen from the test process. See scripts/test-server.sh. */
+export const SERVER_URL = process.env.TEST_SERVER_URL ?? 'http://127.0.0.1:18095';
 
 /**
  * The same server as seen from the app. The Android emulator reaches the
  * host at 10.0.2.2; the iOS simulator shares the host's loopback.
  */
 export const APP_SERVER_URL =
-  process.env.E2E_APP_MA_URL ??
+  process.env.E2E_APP_SERVER_URL ??
   (device.getPlatform() === 'android'
     ? SERVER_URL.replace('127.0.0.1', '10.0.2.2').replace('localhost', '10.0.2.2')
     : SERVER_URL);
-export const USERNAME = process.env.MA_USERNAME ?? 'bopsie';
-export const PASSWORD = process.env.MA_PASSWORD ?? 'bopsie-test';
+export const USERNAME = process.env.TEST_SERVER_USERNAME ?? 'bopsie';
+export const PASSWORD = process.env.TEST_SERVER_PASSWORD ?? 'bopsie-test';
 
 let token: string | null = null;
 

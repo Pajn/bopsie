@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Runs a throwaway Music Assistant server in a container for integration and end-to-end tests.
+# Runs a throwaway Music Assistant server in a container, with the library the tests expect. The
+# tests run against Bopsie's own server (scripts/test-server.sh); this one is kept for checking the
+# app against Music Assistant by hand, and for recording the server's golden responses.
 #
 #   scripts/ma-server.sh start   # start (or reuse) the server, create the user, add a library
 #   scripts/ma-server.sh stop    # remove the container and its data
-#   scripts/ma-server.sh env     # print the MA_* variables the tests read
+#   scripts/ma-server.sh env     # print the TEST_SERVER_* variables the tests read
 #
 # The library is generated inside the container with ffmpeg: two albums of short tones with
 # tags and cover art, enough to browse and to play.
@@ -115,9 +117,9 @@ case "${1:-}" in
   start) start ;;
   stop) "$RUNTIME" rm -f "$CONTAINER" >/dev/null 2>&1 || true ;;
   env)
-    echo "export MA_URL=$URL"
-    echo "export MA_USERNAME=$MA_USERNAME"
-    echo "export MA_PASSWORD=$MA_PASSWORD"
+    echo "export TEST_SERVER_URL=$URL"
+    echo "export TEST_SERVER_USERNAME=$MA_USERNAME"
+    echo "export TEST_SERVER_PASSWORD=$MA_PASSWORD"
     ;;
   *)
     echo "usage: $0 start|stop|env" >&2

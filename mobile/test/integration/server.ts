@@ -2,25 +2,30 @@ import { MaConnection, type SocketLike } from '@bopsie/client/api/client';
 import { libraryItems } from '@bopsie/client/api/endpoints/library';
 import { signIn } from '@bopsie/client/auth/signIn';
 
-export const MA_URL = process.env.MA_URL;
-export const MA_USERNAME = process.env.MA_USERNAME ?? 'bopsie';
-export const MA_PASSWORD = process.env.MA_PASSWORD ?? 'bopsie-test';
+export const TEST_SERVER_URL = process.env.TEST_SERVER_URL;
+export const TEST_SERVER_USERNAME = process.env.TEST_SERVER_USERNAME ?? 'bopsie';
+export const TEST_SERVER_PASSWORD = process.env.TEST_SERVER_PASSWORD ?? 'bopsie-test';
 
 /** `describe` when a server is configured, `describe.skip` otherwise. */
-export const describeServer = MA_URL ? describe : describe.skip;
+export const describeServer = TEST_SERVER_URL ? describe : describe.skip;
 
 /** Node's built-in WebSocket, which the app's client speaks to like React Native's. */
 export const createSocket = (url: string) => new WebSocket(url) as unknown as SocketLike;
 
 export function serverUrl(): string {
-  if (!MA_URL) throw new Error('MA_URL is not set');
-  return MA_URL;
+  if (!TEST_SERVER_URL) throw new Error('TEST_SERVER_URL is not set');
+  return TEST_SERVER_URL;
 }
 
 /** Signs in as the test user and opens an authenticated connection. */
 export async function connect(deviceName = 'Bopsie integration tests') {
   const { account, token } = await signIn(
-    { serverUrl: serverUrl(), username: MA_USERNAME, password: MA_PASSWORD, deviceName },
+    {
+      serverUrl: serverUrl(),
+      username: TEST_SERVER_USERNAME,
+      password: TEST_SERVER_PASSWORD,
+      deviceName,
+    },
     { createSocket },
   );
   const connection = new MaConnection({ serverUrl: account.serverUrl, token, createSocket });

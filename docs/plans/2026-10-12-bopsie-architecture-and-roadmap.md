@@ -121,7 +121,7 @@ control will use.
 |---|---|
 | Unit, JavaScript | Jest for the API client, schemas, sign-in, accounts and queue math |
 | Unit, Kotlin | JUnit for protocol framing, the time filter and the scheduler (`pnpm test:native`) |
-| Integration | Jest against a disposable Music Assistant container (`pnpm ma:start`), with generated audio in a filesystem library |
+| Integration | Jest against a disposable Bopsie server container (`pnpm server:start`), with generated audio in a filesystem library |
 | End-to-end | Detox on an Android emulator against the same container |
 
 ## Roadmap

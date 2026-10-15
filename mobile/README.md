@@ -136,19 +136,21 @@ pnpm perf:startup:android -- --skip-install --compile speed-profile --out perf/a
 
 ## Integration tests
 
-The API layer, and the server's side of Sendspin, are tested against a real Music Assistant server
-without the app. A disposable server runs in a container (docker or podman), with a small library
-of generated tones:
+The API layer, and the server's side of Sendspin, are tested against a real Bopsie server without
+the app. A disposable one runs in a container (docker or podman), built from this repository's
+`server/Dockerfile`, with a small library of generated tones:
 
 ```sh
-pnpm ma:start                          # start the server, create a user, add a library
-eval "$(scripts/ma-server.sh env)"     # export MA_URL, MA_USERNAME, MA_PASSWORD
+pnpm server:start                        # build the image, start the server, create a user, add a library
+eval "$(scripts/test-server.sh env)"     # export TEST_SERVER_URL, TEST_SERVER_USERNAME, TEST_SERVER_PASSWORD
 pnpm test:integration
-pnpm ma:stop
+pnpm server:stop
 ```
 
-Point `MA_URL`, `MA_USERNAME` and `MA_PASSWORD` at any other server to test against it instead.
-Without `MA_URL` the integration suites are skipped.
+`BOPSIE_IMAGE` names an image to use as it is instead of building one. Point `TEST_SERVER_URL`,
+`TEST_SERVER_USERNAME` and `TEST_SERVER_PASSWORD` at any other server to test against it instead.
+Without `TEST_SERVER_URL` the integration suites are skipped. `scripts/ma-server.sh` starts a Music
+Assistant server with the same library, for trying the app against it by hand.
 
 ## End-to-end tests
 
@@ -158,7 +160,7 @@ Android-only for now, so Android is the only configuration.
 ```sh
 nix develop .#emulator
 avdmanager create avd -n Pixel_8_API_36 -d pixel_8 -k "system-images;android-36;google_apis;arm64-v8a"
-pnpm ma:start
+pnpm server:start
 pnpm e2e:build:android && pnpm e2e:android
 ```
 

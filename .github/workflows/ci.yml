@@ -45,10 +45,21 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: .
-      - run: pnpm ma:start
-      - run: eval "$(scripts/ma-server.sh env)" && pnpm test:integration --ci
+      # The server as it is in this commit, sharing its layers' cache with the server-image job.
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          load: true
+          tags: bopsie-server:ci
+          cache-from: type=gha
+      - run: pnpm server:start
+        env:
+          BOPSIE_IMAGE: bopsie-server:ci
+      - run: eval "$(scripts/test-server.sh env)" && pnpm test:integration --ci
       - if: always()
-        run: pnpm ma:stop
+        run: pnpm server:stop
 
   mobile-native:
     runs-on: ubuntu-latest

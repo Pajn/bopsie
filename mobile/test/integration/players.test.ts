@@ -14,6 +14,9 @@ import { activeLeaderId, describeOutputs } from '@/features/outputs/outputs';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
 import { albumUri, connect, describeServer } from './server';
 
+/** Speakers, which Music Assistant lists for every client, unlike another client's phone. */
+const SPEAKER = 'Test Speaker';
+
 async function eventually(check: () => Promise<boolean>, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await check())) {
@@ -36,8 +39,8 @@ describeServer('remote control', () => {
   beforeAll(async () => {
     const session = await connect();
     connection = session.connection;
-    players.push(await registerPlayer(session, kitchen, 'Kitchen'));
-    players.push(await registerPlayer(session, bedroom, 'Bedroom'));
+    players.push(await registerPlayer(session, kitchen, 'Kitchen', SPEAKER));
+    players.push(await registerPlayer(session, bedroom, 'Bedroom', SPEAKER));
   });
 
   afterAll(async () => {

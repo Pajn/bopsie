@@ -79,6 +79,11 @@ export async function registerPlayer(
   session: { connection: MaConnection; token: string; account: { serverUrl: string } },
   clientId: string,
   name: string,
+  /**
+   * What the player says it is. Music Assistant counts a "Mobile Application" as someone's own
+   * phone, which other clients keep private; a speaker is shared.
+   */
+  productName = 'Mobile Application',
 ): Promise<TestPlayer> {
   const { connection } = session;
   const player = new TestPlayer(socketUrl(session.account.serverUrl, '/sendspin'));
@@ -100,7 +105,7 @@ export async function registerPlayer(
       version: 1,
       supported_roles: ['player@v1', 'controller@v1', 'metadata@v1'],
       device_info: {
-        product_name: 'Mobile Application',
+        product_name: productName,
         manufacturer: 'Bopsie',
         software_version: '0.0.0',
       },

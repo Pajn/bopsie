@@ -231,13 +231,15 @@ artists, an album's year and artists, and artwork. An edit is kept apart from wh
 and applied again after every sync, so it outlasts a change to its file. Resetting a field
 brings back what the scan found.
 
-To run Bopsie's integration suites against this server, give it the library they expect:
+The app's integration suites run against this server in CI: `mobile/scripts/test-server.sh`
+builds its image, starts it with the library they expect and creates the user (see the app's
+README). To run them against a server started another way, give it that library:
 
 ```sh
 cargo run -p bopsie-fixtures -- /tmp/bopsie-music   # then add the folder under [library]
 cd ../mobile
-MA_URL=http://localhost:8095 MA_USERNAME=admin MA_PASSWORD=at-least-8-characters \
-  pnpm test:integration
+TEST_SERVER_URL=http://localhost:8095 TEST_SERVER_USERNAME=admin \
+  TEST_SERVER_PASSWORD=at-least-8-characters pnpm test:integration
 ```
 
 ### In a container

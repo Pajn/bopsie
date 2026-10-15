@@ -1,14 +1,14 @@
 import { MaConnection } from '@bopsie/client/api/client';
 import { SignInError, signIn } from '@bopsie/client/auth/signIn';
-import { connect, createSocket, describeServer, MA_USERNAME, serverUrl } from './server';
+import { connect, createSocket, describeServer, serverUrl, TEST_SERVER_USERNAME } from './server';
 
 describeServer('sign-in', () => {
   it('signs in with a password and keeps a long-lived token that authenticates', async () => {
     const { account, connection } = await connect();
-    expect(account.username).toBe(MA_USERNAME);
+    expect(account.username).toBe(TEST_SERVER_USERNAME);
     expect(account.id).toBe(`${account.serverId}#${account.userId}`);
     const me = await connection.command<{ username: string }>('auth/me');
-    expect(me.username).toBe(MA_USERNAME);
+    expect(me.username).toBe(TEST_SERVER_USERNAME);
     connection.close();
   });
 
@@ -17,7 +17,7 @@ describeServer('sign-in', () => {
       signIn(
         {
           serverUrl: serverUrl(),
-          username: MA_USERNAME,
+          username: TEST_SERVER_USERNAME,
           password: 'wrong-password',
           deviceName: 'x',
         },
