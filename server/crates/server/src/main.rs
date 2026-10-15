@@ -253,11 +253,16 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     // quarter of an hour after: a run with nothing due does nothing, and one MusicBrainz cut
     // short carries on at the next.
     if let Some(enricher) = enricher {
+        let wanted = library.metadata_wanted();
         tokio::spawn(async move {
             tokio::time::sleep(ENRICH_FIRST).await;
             let mut every = tokio::time::interval(ENRICH_EVERY);
             loop {
-                every.tick().await;
+                // An album refreshed by hand is looked up at once.
+                tokio::select! {
+                    _ = every.tick() => {}
+                    () = wanted.notified() => {}
+                }
                 enricher.run().await;
             }
         });

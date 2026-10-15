@@ -123,6 +123,10 @@ export const decideRelease = (
   decision: 'accept' | 'reject',
 ) => connection.command<void>('admin/library/decide_release', { item_id: albumId, decision });
 
+/** Has an album looked up on MusicBrainz again now, as if it had never been. */
+export const refreshMetadata = (connection: MaConnection, albumId: string) =>
+  connection.command<void>('admin/library/refresh_metadata', { item_id: albumId });
+
 /** Asks an AirPlay speaker that pairs with a PIN to show one. */
 export const pairStart = (connection: MaConnection, playerId: string) =>
   connection.command<void>('airplay/pair_start', { player_id: playerId });

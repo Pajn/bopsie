@@ -48,6 +48,39 @@ pub struct Library {
     /// One sync at a time.
     syncing: Arc<tokio::sync::Mutex<()>>,
     last_sync: Arc<std::sync::Mutex<Option<LastSync>>>,
+    /// Woken when an album should be looked up on a metadata service now.
+    metadata_wanted: Arc<tokio::sync::Notify>,
+    /// The metadata job: whether it runs, and how its last run went.
+    metadata_run: Arc<std::sync::Mutex<MetadataRun>>,
+}
+
+/// How looking albums up on a metadata service goes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MetadataRun {
+    pub running: bool,
+    /// The last run that finished: when, in Unix seconds, and what came of it.
+    pub last: Option<MetadataRunSummary>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MetadataRunSummary {
+    pub finished: i64,
+    pub matched: usize,
+    pub suggested: usize,
+    pub unmatched: usize,
+    pub failed: usize,
+}
+
+/// How far the library's albums have been looked up.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MetadataStatus {
+    pub albums: u32,
+    /// Asked about since they last changed or were refreshed.
+    pub checked: u32,
+    /// Identified as a release.
+    pub identified: u32,
+    /// With a release suggested, awaiting a person.
+    pub suggested: u32,
 }
 
 /// How the last sync went.
@@ -88,6 +121,8 @@ impl Library {
             artwork_dir,
             syncing: Arc::default(),
             last_sync: Arc::default(),
+            metadata_wanted: Arc::default(),
+            metadata_run: Arc::default(),
         }
     }
 
@@ -579,6 +614,69 @@ impl Library {
             .await?;
         self.publish(&changes, false).await?;
         Ok(album)
+    }
+
+    /// Has album `id` looked up on a metadata service again now, as if never asked about.
+    pub async fn refresh_metadata(&self, id: i64) -> Result<()> {
+        let id = self.resolved(MediaType::Album, id).await?;
+        let updated = self
+            .db
+            .call(move |conn| {
+                Ok(conn.execute(
+                    "UPDATE albums SET metadata_checked = NULL WHERE id = ?1",
+                    [id],
+                )?)
+            })
+            .await?;
+        if updated == 0 {
+            return Err(Error::new(
+                bopsie_core::ErrorCode::MediaNotFound,
+                format!("No album {id}"),
+            ));
+        }
+        self.metadata_wanted.notify_one();
+        Ok(())
+    }
+
+    /// Woken when an album should be looked up now, for the metadata job to wait on.
+    pub fn metadata_wanted(&self) -> Arc<tokio::sync::Notify> {
+        self.metadata_wanted.clone()
+    }
+
+    /// The metadata job says it started or finished a run.
+    pub fn metadata_ran(&self, finished: Option<MetadataRunSummary>) {
+        let mut run = self.metadata_run.lock().unwrap();
+        run.running = finished.is_none();
+        if finished.is_some() {
+            run.last = finished;
+        }
+    }
+
+    /// How looking albums up goes: the job, and how far the library is.
+    pub async fn metadata_status(&self) -> Result<(MetadataRun, MetadataStatus)> {
+        let run = self.metadata_run.lock().unwrap().clone();
+        let status = self
+            .read(move |conn| {
+                conn.query_row(
+                    "SELECT count(*),
+                         count(metadata_checked),
+                         (SELECT count(DISTINCT item_id) FROM external_ids
+                          WHERE media_type = 'album' AND provider_instance = ?1),
+                         (SELECT count(*) FROM release_suggestions WHERE decision IS NULL)
+                     FROM albums",
+                    [enrich::MUSICBRAINZ],
+                    |row| {
+                        Ok(MetadataStatus {
+                            albums: row.get(0)?,
+                            checked: row.get(1)?,
+                            identified: row.get(2)?,
+                            suggested: row.get(3)?,
+                        })
+                    },
+                )
+            })
+            .await?;
+        Ok((run, status))
     }
 
     /// Albums a metadata service was not asked about since `before`, those with files first.

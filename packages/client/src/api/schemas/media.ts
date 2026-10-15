@@ -46,6 +46,8 @@ const mediaItemFields = {
   favorite: booleanOr(false),
   metadata,
   provider_mappings: arrayOr(providerMapping),
+  /** What identifies it beyond its name, as `[kind, value]`: ISRCs, MusicBrainz ids. */
+  external_ids: arrayOr(z.tuple([z.string(), z.string()])),
 };
 
 export const artist = z.looseObject({ ...mediaItemFields });

@@ -1,3 +1,4 @@
+import type { AdminServer } from '@bopsie/client/api/schemas/admin';
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView } from 'react-native';
@@ -22,6 +23,7 @@ export default function ServerScreen() {
   const info = connection.serverInfo;
   const view = server.data;
   const sync = view?.library.last_sync;
+  const metadata = view?.library.metadata;
   // A Spotify login comes back here, saying how it went.
   const { spotify_error: spotifyError } = useLocalSearchParams<{ spotify_error?: string }>();
 
@@ -74,6 +76,7 @@ export default function ServerScreen() {
                   'Failed sources',
                   sync?.failed.map((f) => `${f.provider}: ${f.error}`).join('\n') || 'none',
                 ],
+                ...(metadata ? [musicBrainzRow(metadata)] : []),
               ]}
             />
           ) : null}
@@ -103,4 +106,19 @@ export default function ServerScreen() {
       </Stack>
     </ScrollView>
   );
+}
+
+type Metadata = NonNullable<AdminServer['library']['metadata']>;
+
+/** How far the library's albums have been looked up on MusicBrainz, and how the last run went. */
+function musicBrainzRow(metadata: Metadata): [string, string] {
+  if (!metadata.enabled) return ['MusicBrainz', 'off'];
+  const progress = `${metadata.checked} of ${metadata.albums} albums looked up, ${metadata.identified} identified, ${metadata.suggested} to decide`;
+  const last = metadata.last_run;
+  const run = metadata.running
+    ? 'looking up now'
+    : last
+      ? `last run ${at(last.finished)}: ${last.matched} matched, ${last.suggested} suggested, ${last.unmatched} unmatched, ${last.failed} failed`
+      : 'no run since the server started';
+  return ['MusicBrainz', `${progress}\n${run}`];
 }

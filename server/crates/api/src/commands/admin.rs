@@ -479,6 +479,35 @@ pub struct LibraryView {
     pub syncing: bool,
     /// The last sync since the server started.
     pub last_sync: Option<SyncView>,
+    /// Looking albums up on MusicBrainz.
+    pub metadata: MetadataView,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MetadataView {
+    /// Whether albums are looked up at all, as `[metadata] musicbrainz` says.
+    pub enabled: bool,
+    /// A run is under way.
+    pub running: bool,
+    pub albums: u32,
+    /// Albums looked up since they last changed or were refreshed.
+    pub checked: u32,
+    /// Albums identified as a release.
+    pub identified: u32,
+    /// Albums with a release suggested, awaiting a person.
+    pub suggested: u32,
+    /// The last run that finished since the server started.
+    pub last_run: Option<MetadataRunView>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MetadataRunView {
+    /// Unix seconds.
+    pub finished: i64,
+    pub matched: usize,
+    pub suggested: usize,
+    pub unmatched: usize,
+    pub failed: usize,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -561,6 +590,22 @@ impl Command for Server {
                 .map(|(provider, error)| SyncFailure { provider, error })
                 .collect(),
         });
+        let (run, status) = api.library.metadata_status().await?;
+        let metadata = MetadataView {
+            enabled: api.config.metadata.musicbrainz,
+            running: run.running,
+            albums: status.albums,
+            checked: status.checked,
+            identified: status.identified,
+            suggested: status.suggested,
+            last_run: run.last.map(|last| MetadataRunView {
+                finished: last.finished,
+                matched: last.matched,
+                suggested: last.suggested,
+                unmatched: last.unmatched,
+                failed: last.failed,
+            }),
+        };
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -583,6 +628,7 @@ impl Command for Server {
                 playlists: count(MediaType::Playlist).await?,
                 syncing: api.library.syncing(),
                 last_sync,
+                metadata,
             },
             config: redacted(&api.config),
         })

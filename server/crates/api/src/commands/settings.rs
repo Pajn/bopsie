@@ -413,3 +413,26 @@ impl Command for DecideRelease {
             .await
     }
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RefreshMetadataArgs {
+    /// The album's library id.
+    pub item_id: String,
+}
+
+pub struct RefreshMetadata;
+impl Command for RefreshMetadata {
+    const NAME: &'static str = "admin/library/refresh_metadata";
+    const ACCESS: Access = Access::Scope(Scope::Admin);
+    const SUMMARY: &'static str =
+        "Look an album up on MusicBrainz again now, as if it had never been.";
+    type Args = RefreshMetadataArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: RefreshMetadataArgs) -> Result<()> {
+        ctx.api
+            .library
+            .refresh_metadata(item_id(&args.item_id)?)
+            .await
+    }
+}

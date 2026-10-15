@@ -178,6 +178,9 @@ and `fpcalc` ([Chromaprint](https://acoustid.org/chromaprint)) is on the path: e
 album the search left unmatched is fingerprinted and looked up on AcoustID, and the release
 most of them are on is taken, or suggested when it holds some but not all of them.
 
+The web UI's server page says how far the lookups are and how the last run went. An album's
+page lists its ids, linked to MusicBrainz, and Refresh metadata looks it up again at once.
+
 Files are never written to. `[metadata]` turns each of these off.
 
 A new server has no users. Create the first, an admin, before signing in:

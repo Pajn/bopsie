@@ -152,6 +152,26 @@ export const adminServer = z.looseObject({
         failed: z.array(z.object({ provider: z.string(), error: z.string() })),
       }),
     ),
+    /** Looking albums up on MusicBrainz. Older servers leave it out. */
+    metadata: z.optional(
+      z.looseObject({
+        enabled: z.boolean(),
+        running: z.boolean(),
+        albums: z.number(),
+        checked: z.number(),
+        identified: z.number(),
+        suggested: z.number(),
+        last_run: z.nullable(
+          z.looseObject({
+            finished: z.number(),
+            matched: z.number(),
+            suggested: z.number(),
+            unmatched: z.number(),
+            failed: z.number(),
+          }),
+        ),
+      }),
+    ),
   }),
   config: z.unknown(),
 });

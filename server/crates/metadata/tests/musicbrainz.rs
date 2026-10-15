@@ -403,6 +403,25 @@ async fn albums_are_identified_suggested_and_accepted() {
     assert_eq!(enricher.run().await, Summary::default());
     assert_eq!(stand.lock().unwrap().requests.len(), asked);
 
+    // Refreshed by hand, it is looked up again at once.
+    library.refresh_metadata(first_id).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), library.metadata_wanted().notified())
+        .await
+        .expect("the job is woken");
+    assert_eq!(enricher.run().await.matched, 1);
+    let (run, status) = library.metadata_status().await.unwrap();
+    assert!(!run.running);
+    assert_eq!(run.last.unwrap().matched, 1);
+    assert_eq!(
+        (
+            status.albums,
+            status.checked,
+            status.identified,
+            status.suggested
+        ),
+        (2, 2, 1, 1)
+    );
+
     // Accepted, it is taken.
     library
         .decide_release(suggestions[0].album_id, "accept".to_owned())

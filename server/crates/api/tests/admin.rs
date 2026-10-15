@@ -616,6 +616,23 @@ async fn suggestions_decisions_and_separating_are_for_admins() {
         )
         .await;
     assert_eq!(code, 2, "nothing suggested");
+    // Looked up again at once, as if never; an album that is not there cannot be.
+    client
+        .result("admin/library/refresh_metadata", json!({"item_id": first}))
+        .await;
+    let code = client
+        .error_code(
+            "admin/library/refresh_metadata",
+            json!({"item_id": "999999"}),
+        )
+        .await;
+    assert_eq!(code, 2, "no such album");
+    let server = client.result("admin/server", json!({})).await;
+    assert_eq!(
+        server["library"]["metadata"]["albums"],
+        albums.as_array().unwrap().len()
+    );
+    assert_eq!(server["library"]["metadata"]["checked"], 0);
     // Held by the files alone, there is nothing to separate.
     assert_eq!(
         client

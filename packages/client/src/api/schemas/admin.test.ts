@@ -110,4 +110,33 @@ test('a suggestion reads both albums and their sources', () => {
   expect(parsed.b.provider_mappings[0]?.provider_instance).toBe('spotify--def');
   expect(parsed.a.metadata.images).toEqual([]);
   expect(parsed.decision).toBeNull();
+  expect(parsed.a.external_ids).toEqual([]);
+});
+
+test("an item's external ids read as kind and value", () => {
+  const parsed = librarySuggestion.parse({
+    id: 1,
+    media_type: 'album',
+    a: {
+      item_id: '1',
+      provider: 'library',
+      name: 'A',
+      uri: 'library://album/1',
+      media_type: 'album',
+      external_ids: [['musicbrainz_albumid', '11111111-1111-1111-1111-111111111111']],
+    },
+    b: {
+      item_id: '2',
+      provider: 'library',
+      name: 'B',
+      uri: 'library://album/2',
+      media_type: 'album',
+    },
+    reason: '',
+    decision: null,
+  });
+  expect(parsed.a.external_ids[0]).toEqual([
+    'musicbrainz_albumid',
+    '11111111-1111-1111-1111-111111111111',
+  ]);
 });

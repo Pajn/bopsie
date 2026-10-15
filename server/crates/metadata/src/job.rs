@@ -170,6 +170,7 @@ impl Enricher {
 
     /// Looks up every album that is due, and logs what came of it.
     pub async fn run(&self) -> Summary {
+        self.library.metadata_ran(None);
         let mut summary = Summary::default();
         let started = now();
         loop {
@@ -213,6 +214,14 @@ impl Enricher {
     }
 
     fn report(&self, summary: Summary) -> Summary {
+        self.library
+            .metadata_ran(Some(bopsie_library::MetadataRunSummary {
+                finished: now(),
+                matched: summary.matched,
+                suggested: summary.suggested,
+                unmatched: summary.unmatched,
+                failed: summary.failed,
+            }));
         if summary != Summary::default() {
             tracing::info!(
                 matched = summary.matched,

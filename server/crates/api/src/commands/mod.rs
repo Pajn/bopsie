@@ -88,6 +88,7 @@ pub fn registry() -> Registry {
         .add::<settings::LibrarySeparate>()
         .add::<settings::ReleaseSuggestions>()
         .add::<settings::DecideRelease>()
+        .add::<settings::RefreshMetadata>()
         .add::<spotify::Status>()
         .add::<spotify::SetClientId>()
         .add::<spotify::Login>()

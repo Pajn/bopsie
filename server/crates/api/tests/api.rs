@@ -470,6 +470,7 @@ async fn info_and_the_command_list_need_no_auth() {
             "admin/library/decide",
             "admin/library/decide_release",
             "admin/library/edits",
+            "admin/library/refresh_metadata",
             "admin/library/release_suggestions",
             "admin/library/separate",
             "admin/library/suggestions",
