@@ -1,7 +1,7 @@
 import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Artwork } from '@/features/library/Artwork';
@@ -9,8 +9,10 @@ import { useOutputs } from '@/features/outputs/useOutputs';
 import { formatDuration, queuePosition } from '@/player/progress';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
+import type { Frame } from './MorphPanel';
 import { itemLinks, nowPlaying } from './nowPlaying';
-import { type Frame, QUEUE_BAR_HEIGHT, QueuePanel } from './QueuePanel';
+import { OutputsPanel, PILL_CHEVRON, PillContent } from './OutputsPanel';
+import { QUEUE_BAR_HEIGHT, QueuePanel } from './QueuePanel';
 import { nextRepeatMode } from './repeat';
 import { useNow } from './useNow';
 import { usePlaybackActions, useQueue } from './usePlayback';
@@ -27,6 +29,22 @@ export function NowPlayingScreen() {
   const active = useOutputs()?.active;
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [bar, setBar] = useState<Frame | null>(null);
+  const [pill, setPill] = useState<Frame | null>(null);
+  const screen = useRef<View>(null);
+  const pillSpace = useRef<View>(null);
+
+  // Where the pill sits in the player, which anything above it moves, so after every render.
+  useLayoutEffect(() => {
+    const root = screen.current;
+    if (!root || !pillSpace.current) return;
+    pillSpace.current.measureLayout(root, (x, y, width, height) =>
+      setPill((last) =>
+        last && last.x === x && last.y === y && last.width === width && last.height === height
+          ? last
+          : { x, y, width, height },
+      ),
+    );
+  });
 
   if (!queue || !current) {
     return (
@@ -44,9 +62,14 @@ export function NowPlayingScreen() {
   const position = dragging ?? queuePosition(queue, now);
   const duration = current.duration;
   const hasLinks = queue.current_item ? itemLinks(queue.current_item).length > 0 : false;
+  const where = active?.name ?? 'Choose a player';
 
   return (
-    <View style={styles.screen} onLayout={({ nativeEvent }) => setSize(nativeEvent.layout)}>
+    <View
+      ref={screen}
+      style={styles.screen}
+      onLayout={({ nativeEvent }) => setSize(nativeEvent.layout)}
+    >
       <Header {...(hasLinks && { onMore: () => router.push('/player-menu') })} />
       <View style={styles.main}>
         <View style={styles.artwork}>
@@ -60,19 +83,16 @@ export function NowPlayingScreen() {
             {current.subtitle}
           </Text>
           <View style={styles.where}>
-            <Pressable
-              onPress={() => router.push('/outputs')}
-              style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
-              accessibilityRole="button"
-              accessibilityLabel={`Playing on ${active?.name ?? 'this phone'}. Choose where to play`}
-              testID="player-outputs"
+            {/* The pill is drawn over this stand-in, from which it opens Play on over the player. */}
+            <View
+              ref={pillSpace}
+              style={styles.pill}
+              importantForAccessibility="no-hide-descendants"
+              accessibilityElementsHidden
             >
-              <Icon name="speaker" size={14} color={theme.colors.accent} />
-              <Text variant="label" style={styles.pillText} numberOfLines={1}>
-                {active?.name ?? 'Choose a player'}
-              </Text>
-              <Icon name="chevron-down" size={14} color={theme.colors.accent} />
-            </Pressable>
+              <PillContent name={where} />
+              <View style={styles.pillChevron} />
+            </View>
           </View>
         </View>
         <View>
@@ -138,6 +158,7 @@ export function NowPlayingScreen() {
       {/* The queue's bar is drawn over this space, from which it opens over the whole player. */}
       <View style={styles.barSpace} onLayout={({ nativeEvent }) => setBar(nativeEvent.layout)} />
       {bar && size ? <QueuePanel queue={queue} bar={bar} player={size} /> : null}
+      {pill && size ? <OutputsPanel name={where} pill={pill} player={size} /> : null}
     </View>
   );
 }
@@ -293,15 +314,15 @@ const styles = StyleSheet.create((theme, rt) => ({
     justifyContent: 'center',
   },
   where: { alignItems: 'center', marginTop: theme.spacing.sm },
+  // Laid out as the pill is, unseen.
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.xs,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
-    borderRadius: theme.radius.full,
-    backgroundColor: theme.colors.surfaceVariant,
+    opacity: 0,
   },
-  pillText: { color: theme.colors.accent, flexShrink: 1 },
+  pillChevron: { width: PILL_CHEVRON, height: PILL_CHEVRON },
   pressed: { opacity: 0.6 },
 }));

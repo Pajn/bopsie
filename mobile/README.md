@@ -15,8 +15,8 @@ queue and other clients see it, with notification and lock-screen controls. iOS 
 not play yet.
 
 The app also controls any other Music Assistant player. It works on one active group at a time —
-the phone until you choose another — and the speaker button on the mini player opens the list of
-players: set each member's volume or the group's, remove members, and for any other player choose
+the phone until you choose another — and the speaker button on the mini player, or the pill under
+the full player's track, which grows into it, opens the list of players: set each member's volume or the group's, remove members, and for any other player choose
 to join it to the group, move the queue to it, or control it instead. On iOS this is how music
 plays.
 
