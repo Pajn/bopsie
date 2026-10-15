@@ -53,7 +53,7 @@ librespot-playback = { version = "0.8", default-features = false, features = ["r
 lofty = "0.25"
 mime_guess = "2.0"
 mdns-sd = "0.21"
-nix = { version = "0.31", features = ["fs", "signal"] }
+nix = { version = "0.31", features = ["fs", "net", "signal"] }
 rand = "0.10"
 rcgen = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }

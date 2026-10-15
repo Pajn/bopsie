@@ -115,8 +115,9 @@ pub struct SpotifyConfig {
     /// Show speakers in the Spotify app as Spotify Connect devices, each one that its settings
     /// do not turn off.
     pub enabled: bool,
-    /// The addresses the devices are announced at. Unset, the address the server reaches the
-    /// network from: a host with container networks has others that phones cannot reach.
+    /// The addresses the devices are announced at. Unset, those of the network interface the
+    /// server reaches the network from: a host with container networks has others that phones
+    /// cannot reach.
     pub addresses: Vec<std::net::IpAddr>,
     /// What a speaker is called in the Spotify app, where `{name}` is its name. A speaker's
     /// own Spotify name, from its settings, wins over this.

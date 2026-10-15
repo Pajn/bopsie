@@ -27,7 +27,7 @@ pub struct Config {
     pub data_dir: PathBuf,
     /// Stable across restarts, so each device keeps its identity in the Spotify app.
     pub server_id: String,
-    /// The addresses the devices are announced at; empty for [`local_address`]'s.
+    /// The addresses the devices are announced at; empty for [`local_addresses`].
     pub addresses: Vec<IpAddr>,
     /// What speakers are called, unless their settings say: `[spotify]` in the config file.
     pub names: SpotifyConfig,
@@ -51,7 +51,7 @@ impl SpotifyConnect {
     /// and change. Needs a Tokio runtime.
     pub fn start(mut config: Config, devices: Devices, sources: Sources) -> Self {
         if config.addresses.is_empty() {
-            config.addresses.extend(local_address());
+            config.addresses = local_addresses();
         }
         tracing::info!(addresses = ?config.addresses, "announcing Spotify Connect devices");
         let connect = Self {
@@ -143,10 +143,43 @@ fn wanted(device: &Device, names: &SpotifyConfig) -> Option<(String, u8)> {
     )
 }
 
+/// The addresses of the network interface this host reaches the network from, the one its
+/// default route leaves by: IPv4 and IPv6 alike, since phones ask over either. Empty without a
+/// route, when every address is announced.
+pub fn local_addresses() -> Vec<IpAddr> {
+    let Some(local) = local_address() else {
+        return Vec::new();
+    };
+    let Ok(interfaces) = nix::ifaddrs::getifaddrs() else {
+        return vec![local];
+    };
+    let interfaces: Vec<_> = interfaces.collect();
+    let address = |entry: &nix::ifaddrs::InterfaceAddress| -> Option<IpAddr> {
+        let address = entry.address.as_ref()?;
+        if let Some(v4) = address.as_sockaddr_in() {
+            return Some(IpAddr::V4(v4.ip()));
+        }
+        address.as_sockaddr_in6().map(|v6| IpAddr::V6(v6.ip()))
+    };
+    let Some(interface) = interfaces
+        .iter()
+        .find(|entry| address(entry) == Some(local))
+        .map(|entry| entry.interface_name.clone())
+    else {
+        return vec![local];
+    };
+    let mut addresses: Vec<IpAddr> = interfaces
+        .iter()
+        .filter(|entry| entry.interface_name == interface)
+        .filter_map(address)
+        .collect();
+    addresses.dedup();
+    addresses
+}
+
 /// The address this host reaches the network from: the one its default route leaves by. Found
-/// by connecting a UDP socket, which sends nothing. `None` without a route, when every address
-/// is announced.
-pub fn local_address() -> Option<IpAddr> {
+/// by connecting a UDP socket, which sends nothing.
+fn local_address() -> Option<IpAddr> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("192.0.2.1:9").ok()?;
     Some(socket.local_addr().ok()?.ip()).filter(|ip| !ip.is_unspecified())
@@ -179,8 +212,12 @@ mod tests {
     }
 
     #[test]
-    fn the_local_address_is_a_real_one() {
-        if let Some(address) = local_address() {
+    fn the_local_addresses_are_the_routes_interfaces() {
+        let addresses = local_addresses();
+        if let Some(local) = local_address() {
+            assert!(addresses.contains(&local), "{addresses:?}");
+        }
+        for address in addresses {
             assert!(
                 !address.is_unspecified() && !address.is_loopback(),
                 "{address}"
