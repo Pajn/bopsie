@@ -18,6 +18,9 @@ export const expansion = makeMutable(0);
  */
 export const panelCoverage = makeMutable(0);
 
+/** How far the full player's artwork is swiped sideways, for the flying artwork to follow. */
+export const coverSwipe = makeMutable(0);
+
 /**
  * Firm enough to feel placed rather than thrown. Critically damped, at 2√(stiffness × mass),
  * so it arrives without sailing past; the clamp keeps it so if the others are nudged.

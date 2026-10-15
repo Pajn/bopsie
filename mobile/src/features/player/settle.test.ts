@@ -1,4 +1,4 @@
-import { dragged, settlesOpen } from './settle';
+import { dragged, settlesOpen, skipFor } from './settle';
 
 describe('settlesOpen', () => {
   const travel = 600;
@@ -34,5 +34,21 @@ describe('dragged', () => {
 
   it('stays put before it has been measured', () => {
     expect(dragged(0.4, -300, 0)).toBe(0.4);
+  });
+});
+
+describe('skipFor', () => {
+  it('skips to the next track for a swipe to the left, the previous for one to the right', () => {
+    expect(skipFor(-150, 0, 400)).toBe('next');
+    expect(skipFor(150, 0, 400)).toBe('previous');
+  });
+
+  it('skips for a short flick', () => {
+    expect(skipFor(-30, -1200, 400)).toBe('next');
+  });
+
+  it('stays for a short, slow swipe, or a flick back the way it came', () => {
+    expect(skipFor(-60, -100, 400)).toBeNull();
+    expect(skipFor(-150 * 0.1, 1200, 400)).toBeNull();
   });
 });

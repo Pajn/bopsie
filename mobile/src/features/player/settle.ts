@@ -22,3 +22,25 @@ export function dragged(from: number, translationY: number, travel: number): num
   if (travel <= 0) return from;
   return Math.min(1, Math.max(0, from - translationY / travel));
 }
+
+/** How far across, as a share of its width, a swipe goes before it skips. */
+const SKIP_SHARE = 0.3;
+/** A flick faster than this, in points a second, skips however short it is. */
+const SKIP_FLICK = 800;
+
+/**
+ * Where a sideways swipe on what plays goes once let go: to the next track for a swipe to the
+ * left, the previous for one to the right, or nowhere for a short, slow one.
+ */
+export function skipFor(
+  translationX: number,
+  velocityX: number,
+  width: number,
+): 'next' | 'previous' | null {
+  'worklet';
+  const far = width > 0 && Math.abs(translationX) > width * SKIP_SHARE;
+  const flick =
+    Math.abs(velocityX) > SKIP_FLICK && Math.sign(velocityX) === Math.sign(translationX);
+  if (!far && !flick) return null;
+  return translationX < 0 ? 'next' : 'previous';
+}

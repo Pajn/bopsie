@@ -6,6 +6,7 @@ import { PlayingBars, usePlayingState } from '@/features/player/PlayingBars';
 import { sourceName } from '@/features/search/scope';
 import { useProviders } from '@/features/search/useProviders';
 import { formatDuration } from '@/player/progress';
+import { haptics } from '@/ui/haptics';
 import { Text } from '@/ui/primitives';
 import { Artwork } from './Artwork';
 import { MoreButton } from './menu';
@@ -46,7 +47,10 @@ function Row({
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onMenu}
+      onLongPress={() => {
+        haptics.longPress();
+        onMenu();
+      }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={title}

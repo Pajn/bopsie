@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Gesture } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import { haptics } from '@/ui/haptics';
 import { dragged, settlesOpen } from './settle';
 import { expansion, settlePlayer } from './sheetStore';
 
@@ -29,6 +30,7 @@ export function useSheetDrag(travel: number, direction: 'up' | 'down') {
           expansion.value = dragged(from.value, event.translationY, travel);
         })
         .onEnd((event) => {
+          scheduleOnRN(haptics.settle);
           // The spring picks up at the finger's speed, in the expansion a second it moves in.
           scheduleOnRN(
             settlePlayer,

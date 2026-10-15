@@ -1,12 +1,13 @@
 import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { GestureDetector, type GestureType } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useOutputs } from '@/features/outputs/useOutputs';
 import { formatDuration, queuePosition } from '@/player/progress';
+import { haptics } from '@/ui/haptics';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { FULL_COVER, useCoverSlot } from './FlyingCover';
@@ -15,10 +16,11 @@ import { itemLinks, nowPlaying } from './nowPlaying';
 import { OutputsPanel, PILL_CHEVRON, PillContent } from './OutputsPanel';
 import { QUEUE_BAR_HEIGHT, QueuePanel } from './QueuePanel';
 import { nextRepeatMode } from './repeat';
-import { collapsePlayer } from './sheetStore';
+import { collapsePlayer, coverSwipe } from './sheetStore';
 import { useNow } from './useNow';
 import { usePlaybackActions, useQueue } from './usePlayback';
 import { useSheetDrag } from './useSheetDrag';
+import { useSkipSwipe } from './useSkipSwipe';
 
 /**
  * The full player: what plays, where, and its controls, with the queue and Play on growing out
@@ -35,6 +37,8 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
   const grip = useSheetDrag(travel, 'down');
   const artworkGrip = useSheetDrag(travel, 'down');
   const cover = useCoverSlot('full');
+  const skip = useCallback((to: 'next' | 'previous') => playback.command(to), [playback]);
+  const artworkSwipe = useSkipSwipe(coverSwipe, FULL_COVER, skip);
   const [dragging, setDragging] = useState<number | null>(null);
   const current = queue ? nowPlaying(queue) : null;
   const router = useRouter();
@@ -84,7 +88,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
     >
       <Header grip={grip} {...(hasLinks && { onMore: () => router.push('/player-menu') })} />
       <View style={styles.main}>
-        <GestureDetector gesture={artworkGrip}>
+        <GestureDetector gesture={Gesture.Race(artworkGrip, artworkSwipe)}>
           <View style={styles.artwork}>
             {/* The artwork is drawn over this, by the sheet, having flown in from the mini player. */}
             <View ref={cover.ref} onLayout={cover.onLayout} style={styles.cover} />
@@ -142,7 +146,10 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
             label="Shuffle"
             on={queue.shuffle_enabled}
             hidden={queue.source !== null}
-            onPress={() => playback.shuffle(!queue.shuffle_enabled)}
+            onPress={() => {
+              haptics.toggle(!queue.shuffle_enabled);
+              playback.shuffle(!queue.shuffle_enabled);
+            }}
             testID="player-shuffle"
           />
           <Control icon="skip-back" label="Previous" onPress={() => playback.command('previous')} />
@@ -165,7 +172,11 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
             on={queue.repeat_mode !== 'off'}
             badge={queue.repeat_mode === 'one' ? '1' : undefined}
             hidden={queue.source !== null}
-            onPress={() => playback.repeat(nextRepeatMode(queue.repeat_mode))}
+            onPress={() => {
+              const mode = nextRepeatMode(queue.repeat_mode);
+              haptics.toggle(mode !== 'off');
+              playback.repeat(mode);
+            }}
             testID="player-repeat"
           />
         </View>

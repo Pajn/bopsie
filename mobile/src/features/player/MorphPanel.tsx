@@ -13,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { scheduleOnRN } from 'react-native-worklets';
+import { haptics } from '@/ui/haptics';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { dragged, settlesOpen } from './settle';
@@ -131,6 +132,7 @@ export function MorphPanel({
       progress.value = dragged(dragStart.value, event.translationY, travel);
     })
     .onEnd((event) => {
+      scheduleOnRN(haptics.settle);
       scheduleOnRN(toggle, settlesOpen(progress.value, event.velocityY, travel));
     });
 

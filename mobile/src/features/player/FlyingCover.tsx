@@ -15,7 +15,7 @@ import Animated, { interpolate, useAnimatedStyle } from 'react-native-reanimated
 import { StyleSheet } from 'react-native-unistyles';
 import { Artwork } from '@/features/library/Artwork';
 import { coverMotion, type Square } from './coverMotion';
-import { expansion, panelCoverage } from './sheetStore';
+import { coverSwipe, expansion, panelCoverage } from './sheetStore';
 
 /** The artwork's sizes in the mini player and the full player. */
 export const MINI_COVER = 40;
@@ -94,11 +94,15 @@ export function FlyingCover({
 }) {
   const style = useAnimatedStyle(() => {
     const motion = coverMotion(mini, full, expansion.value, RADIUS);
+    // A swipe on the full player's artwork carries it sideways; docked, nothing does.
+    const swipe = coverSwipe.value * expansion.value;
     return {
-      opacity: interpolate(panelCoverage.value, [0, 0.3], [1, 0], 'clamp'),
+      opacity:
+        interpolate(panelCoverage.value, [0, 0.3], [1, 0], 'clamp') *
+        interpolate(Math.abs(swipe), [0, full.size], [1, 0.2], 'clamp'),
       borderRadius: motion.borderRadius,
       transform: [
-        { translateX: motion.translateX },
+        { translateX: motion.translateX + swipe },
         { translateY: motion.translateY },
         { scale: motion.scale },
       ],
