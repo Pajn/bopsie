@@ -56,6 +56,15 @@ pub fn order_clause(media_type: MediaType, order_by: Option<&str>) -> String {
     format!("{column} {direction}, id {direction}")
 }
 
+/// The table crediting artists on items of `media_type`, and its column for the item.
+fn credits(media_type: MediaType) -> Option<(&'static str, &'static str)> {
+    match media_type {
+        MediaType::Album => Some(("album_artists", "album_id")),
+        MediaType::Track => Some(("track_artists", "track_id")),
+        _ => None,
+    }
+}
+
 fn filters(media_type: MediaType, query: &ListQuery) -> (String, Vec<rusqlite::types::Value>) {
     use rusqlite::types::Value;
     let mut clauses = Vec::new();
@@ -65,8 +74,23 @@ fn filters(media_type: MediaType, query: &ListQuery) -> (String, Vec<rusqlite::t
         params.push(Value::Integer(favorite.into()));
     }
     if let Some(search) = query.search.as_deref().filter(|s| !s.trim().is_empty()) {
-        clauses.push("instr(lower(name), lower(?)) > 0".to_owned());
-        params.push(Value::Text(search.trim().to_owned()));
+        let search = Value::Text(search.trim().to_owned());
+        match credits(media_type) {
+            // An album or a track is found by its artists' names too.
+            Some((credits, column)) => {
+                clauses.push(format!(
+                    "(instr(lower(name), lower(?)) > 0 OR id IN (SELECT credit.{column} \
+                     FROM {credits} credit JOIN artists ON artists.id = credit.artist_id \
+                     WHERE instr(lower(artists.name), lower(?)) > 0))"
+                ));
+                params.push(search.clone());
+                params.push(search);
+            }
+            None => {
+                clauses.push("instr(lower(name), lower(?)) > 0".to_owned());
+                params.push(search);
+            }
+        }
     }
     if media_type == MediaType::Artist && query.album_artists_only {
         clauses.push("id IN (SELECT artist_id FROM album_artists)".to_owned());
@@ -659,7 +683,12 @@ pub fn playlist_tracks(conn: &Connection, playlist_id: i64) -> Result<Vec<Track>
     Ok(result)
 }
 
-/// Items of `media_type` whose names match `query`, best first.
+/// Rank added to an item found by its artists' names, which puts it after every item found by
+/// its own: FTS5's ranks are negative.
+const BY_ARTIST: f64 = 1_000_000.0;
+
+/// Items of `media_type` whose names match `query`, best first; albums and tracks also by their
+/// artists' names, after those matched by their own.
 pub fn search(
     conn: &Connection,
     media_type: MediaType,
@@ -669,17 +698,23 @@ pub fn search(
     let fts = fts_queries(query);
     let mut parts = Vec::new();
     let mut params: Vec<rusqlite::types::Value> = Vec::new();
-    if let Some(trigram) = fts.trigram {
-        parts.push("SELECT item_id, rank FROM search_trigram WHERE search_trigram MATCH ? AND media_type = ?");
-        params.push(trigram.into());
+    for (table, text) in [("search_trigram", fts.trigram), ("search_words", fts.words)] {
+        let Some(text) = text else {
+            continue;
+        };
+        parts.push(format!(
+            "SELECT item_id, rank FROM {table} WHERE {table} MATCH ? AND media_type = ?"
+        ));
+        params.push(text.clone().into());
         params.push(media_type.as_str().to_owned().into());
-    }
-    if let Some(words) = fts.words {
-        parts.push(
-            "SELECT item_id, rank FROM search_words WHERE search_words MATCH ? AND media_type = ?",
-        );
-        params.push(words.into());
-        params.push(media_type.as_str().to_owned().into());
+        if let Some((credits, column)) = credits(media_type) {
+            parts.push(format!(
+                "SELECT credit.{column} AS item_id, found.rank + {BY_ARTIST} AS rank \
+                 FROM {table} found JOIN {credits} credit ON credit.artist_id = found.item_id \
+                 WHERE found.name MATCH ? AND found.media_type = 'artist'"
+            ));
+            params.push(text.into());
+        }
     }
     if parts.is_empty() {
         return Ok(Vec::new());

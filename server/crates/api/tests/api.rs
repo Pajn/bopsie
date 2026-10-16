@@ -245,6 +245,25 @@ async fn browsing_the_library() {
     let found = client.result("music/search", search).await;
     assert_eq!(names(&found["tracks"]), ["Gamma"]);
     assert_eq!(found["albums"], json!([]));
+    // Albums and tracks are found by their artists' names too, after those named so themselves.
+    let search = json!({"search_query": "other", "media_types": ["album", "track"], "limit": 25});
+    let found = client.result("music/search", search).await;
+    assert_eq!(names(&found["albums"]), ["Second Album"]);
+    assert_eq!(names(&found["tracks"]).len(), 3);
+    let albums_by = client
+        .result(
+            "music/albums/library_items",
+            json!({"search": "test artist"}),
+        )
+        .await;
+    assert_eq!(names(&albums_by), ["First Album"]);
+    let tracks_by = client
+        .result(
+            "music/tracks/library_items",
+            json!({"search": "other artist"}),
+        )
+        .await;
+    assert_eq!(names(&tracks_by).len(), 3);
 
     let playlists = client
         .result("music/playlists/library_items", json!({}))
