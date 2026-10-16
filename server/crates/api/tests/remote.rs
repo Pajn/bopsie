@@ -180,3 +180,52 @@ async fn a_button_on_any_speaker_controls_its_whole_group() {
     .await;
     queue_state(&mut client, "playing").await;
 }
+
+#[tokio::test]
+async fn a_speaker_the_server_moved_to_another_protocol_is_not_taken_for_released() {
+    let (server, token) = start_set_up_with(10).await;
+    // A speaker reached over AirPlay and Sendspin, as a WiiM is over LinkPlay and Cast.
+    let _airplay = Speaker::register(&server.players, "kitchen", "airplay", &[CD], Some("aa"));
+    let sendspin = Speaker::register(&server.players, "kitchen-ss", "sendspin", &[CD], Some("aa"));
+    let phone = Speaker::register(&server.players, "phone", "sendspin", &[CD], None);
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    until(&mut client, "players/all", json!({}), |all| {
+        all.as_array().unwrap().len() == 2
+    })
+    .await;
+    let album = client
+        .result("music/albums/library_items", json!({}))
+        .await
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "First Album")
+        .unwrap()["uri"]
+        .clone();
+    client
+        .result(
+            "player_queues/play_media",
+            json!({"queue_id": "kitchen", "media": album, "option": "replace"}),
+        )
+        .await;
+    queue_state(&mut client, "playing").await;
+
+    // The phone joins, which the speaker plays with over Sendspin: it leaves AirPlay, and its
+    // AirPlay endpoint says so, as LinkPlay does when the WiiM goes to its Cast receiver.
+    client
+        .result(
+            "players/cmd/group",
+            json!({"player_id": "phone", "target_player": "kitchen"}),
+        )
+        .await;
+    eventually("the speaker over Sendspin", || sendspin.frames() > 0).await;
+    eventually("the phone", || phone.frames() > 0).await;
+    server.players.remote("kitchen", Remote::Released);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    queue_state(&mut client, "playing").await;
+
+    // Released on the endpoint it plays through still pauses it.
+    server.players.remote("kitchen-ss", Remote::Released);
+    queue_state(&mut client, "paused").await;
+}

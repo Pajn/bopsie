@@ -118,6 +118,9 @@ struct Inner {
     settling: Mutex<BTreeMap<String, Instant>>,
     /// Groups playing a calibration, by leader: nothing else plays to them meanwhile.
     calibrating: Mutex<BTreeSet<String>>,
+    /// Endpoints the server just moved a device off, as from LinkPlay to its Cast receiver, and
+    /// when: the device leaving the old one's input is the server's doing, not someone's at it.
+    left: Mutex<BTreeMap<String, Instant>>,
     rng: Mutex<StdRng>,
     /// Sources that play to groups, once [`Playback::follow_sources`] is called.
     sources: OnceLock<Sources>,
@@ -233,6 +236,7 @@ impl Playback {
                 closing: AtomicBool::new(false),
                 settling: Mutex::default(),
                 calibrating: Mutex::default(),
+                left: Mutex::default(),
                 rng: Mutex::new(StdRng::from_rng(&mut rand::rng())),
                 sources: OnceLock::new(),
             }),
@@ -290,6 +294,21 @@ impl Playback {
                 .entry(&queue)
                 .is_ok_and(|entry| entry.session.snapshot().state == PlaybackState::Playing),
         };
+        if remote == Remote::Released
+            && self
+                .inner
+                .left
+                .lock()
+                .unwrap()
+                .get(endpoint)
+                .is_some_and(|at| at.elapsed() < SETTLING)
+        {
+            tracing::debug!(
+                endpoint,
+                "an endpoint the server moved its device off released it"
+            );
+            return;
+        }
         let result = match remote {
             // Some speakers answer the server's own play or pause with the same command;
             // one that changes nothing is taken for that.
@@ -943,6 +962,14 @@ impl Playback {
                 to = ?plan.strategy,
                 "the group changes how it plays to carry a member"
             );
+            let now = Instant::now();
+            let mut left = self.inner.left.lock().unwrap();
+            for carrier in &running.carriers {
+                if plan.carrier(&carrier.device).map(|c| &c.endpoint) != Some(&carrier.endpoint) {
+                    left.insert(carrier.endpoint.clone(), now);
+                }
+            }
+            drop(left);
             let position = leading.session.position(clock::now());
             self.begin(leader, resume_at(position))?;
         }
