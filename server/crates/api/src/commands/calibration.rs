@@ -49,6 +49,9 @@ pub struct CalibrationView {
     pub ends_at_us: i64,
     /// Players the group carries in their own multiroom, which are not measured.
     pub skipped: Vec<String>,
+    /// The server's clock as it answered, in microseconds: what a phone whose own idea of the
+    /// server's clock is off can take its times from.
+    pub now_us: i64,
 }
 
 pub struct CalibrationStart;
@@ -82,6 +85,7 @@ impl Command for CalibrationStart {
                 .collect(),
             ends_at_us: calibration.ends_at,
             skipped: calibration.skipped,
+            now_us: bopsie_core::clock::now(),
         })
     }
 }

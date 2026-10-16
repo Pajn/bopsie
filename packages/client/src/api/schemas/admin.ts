@@ -239,6 +239,8 @@ export const calibration = z.looseObject({
   ),
   ends_at_us: z.number(),
   skipped: z.array(z.string()),
+  /** The server's clock as it answered. */
+  now_us: z.number(),
 });
 export type Calibration = z.infer<typeof calibration>;
 

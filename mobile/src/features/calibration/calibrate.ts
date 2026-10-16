@@ -1,6 +1,6 @@
 import type { MaConnection } from '@bopsie/client/api/client';
 import { startCalibration } from '@bopsie/client/api/endpoints/admin';
-import type { LocalPlayer } from '@/player/Player';
+import type { LocalPlayer, MicRecording } from '@/player/Player';
 import { hearChirps, type SpeakerResult, speakerResults } from './detect';
 
 /** How long past the last chirp the phone keeps listening, for its echo and for the network. */
@@ -27,25 +27,41 @@ export async function listen(
   onListening: (ms: number) => void,
 ): Promise<Heard> {
   const calibration = await startCalibration(connection, playerId);
-  const now = await player.serverNowUs();
-  if (now === null) {
+  const phoneNow = await player.serverNowUs();
+  if (phoneNow === null) {
     throw new Error('This phone needs to be connected as a player, to keep time with the server.');
   }
-  const ms = Math.min((calibration.ends_at_us - now) / 1000 + TAIL_MS, MAX_LISTEN_MS);
-  // The server's clock starts again when it restarts; the phone's player follows a moment later.
-  if (ms <= TAIL_MS) {
-    throw new Error(
-      "This phone hasn't caught up with the server's clock yet, as after the server restarted. Try again in a moment.",
-    );
-  }
+  const ms = Math.min(
+    (calibration.ends_at_us - calibration.now_us) / 1000 + TAIL_MS,
+    MAX_LISTEN_MS,
+  );
   onListening(ms);
-  const recording = await player.recordCalibration(ms);
-  if (recording === null) throw new Error('This phone cannot record.');
+  const recorded = await player.recordCalibration(ms);
+  if (recorded === null) throw new Error('This phone cannot record.');
+  const recording = onServerClock(recorded, phoneNow, calibration.now_us);
   // Lets the screen say it is working before the search takes the thread.
   await new Promise((resolve) => setTimeout(resolve, 50));
   return {
     results: speakerResults(hearChirps(recording, calibration)),
     skipped: calibration.skipped,
+  };
+}
+
+/**
+ * `recording` with its times on the server's own clock: corrected by how far the phone's idea of
+ * it, `phoneNowUs`, was from `serverNowUs`, the server's clock as it answered. The answer's way
+ * over the network adds a few milliseconds, the same for every speaker, which only the
+ * differences between them see past.
+ */
+export function onServerClock(
+  recording: MicRecording,
+  phoneNowUs: number,
+  serverNowUs: number,
+): MicRecording {
+  if (recording.firstSampleServerUs === null) return recording;
+  return {
+    ...recording,
+    firstSampleServerUs: recording.firstSampleServerUs - (phoneNowUs - serverNowUs),
   };
 }
 

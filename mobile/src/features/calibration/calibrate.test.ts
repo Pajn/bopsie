@@ -1,4 +1,4 @@
-import { delaysOf, describeResults } from './calibrate';
+import { delaysOf, describeResults, onServerClock } from './calibrate';
 import type { SpeakerResult } from './detect';
 
 const result = (
@@ -40,5 +40,19 @@ describe('delaysOf', () => {
     expect(delaysOf([result('kitchen', 40.2), result('patio', null, 'not-heard')])).toEqual({
       kitchen: 40.2,
     });
+  });
+});
+
+describe('onServerClock', () => {
+  it("takes the recording's times from the server's clock when the phone's is off", () => {
+    const recording = {
+      sampleRate: 48_000,
+      samples: new Int16Array(0),
+      firstSampleServerUs: 50_000_000,
+    };
+    // The phone thought the server's clock 20 s ahead of what the server said it was.
+    expect(onServerClock(recording, 120_000_000, 100_000_000).firstSampleServerUs).toBe(30_000_000);
+    const unknown = { ...recording, firstSampleServerUs: null };
+    expect(onServerClock(unknown, 1, 0).firstSampleServerUs).toBeNull();
   });
 });

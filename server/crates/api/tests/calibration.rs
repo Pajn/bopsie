@@ -67,6 +67,12 @@ async fn a_group_is_calibrated_from_what_a_phone_heard() {
     );
     assert_eq!(calibration["ends_at_us"], times[0] + 9_000_000);
     assert_eq!(chirps[0]["name"], "Kitchen");
+    let now = calibration["now_us"].as_i64().unwrap();
+    assert!(
+        now < times[0] && times[0] - now < 5_000_000,
+        "{now} then {}",
+        times[0]
+    );
 
     let again = client
         .send("admin/calibration/start", json!({"player_id": "kitchen"}))

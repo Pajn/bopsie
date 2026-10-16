@@ -75,6 +75,7 @@ function scenario(delaysMs: Record<string, number | null>, slotUs = 1_000_000) {
     chirps,
     ends_at_us: start + 3 * ids.length * slotUs,
     skipped: [],
+    now_us: firstSampleServerUs,
   };
   const length = Math.round(((calibration.ends_at_us - firstSampleServerUs) / 1e6 + 0.5) * RATE);
   const signal = new Float64Array(length);
