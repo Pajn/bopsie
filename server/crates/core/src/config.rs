@@ -50,9 +50,10 @@ pub struct ServerConfig {
     pub bind: SocketAddr,
     /// The name clients show for this server.
     pub name: String,
-    /// The URL clients reach the server at, reported in server info. Unset, the server reports
-    /// none rather than guess one from the bind address; the artwork URLs it gives players then
-    /// use its own address on the network.
+    /// The URL clients reach the server at, reported in server info and used for the artwork
+    /// URLs players are given; it may be a proxy's, such as an HTTPS one. Unset, the server
+    /// reports none rather than guess one from the bind address, and artwork URLs use its own
+    /// address on the network. LinkPlay streams always use the local address.
     pub base_url: Option<String>,
 }
 

@@ -393,7 +393,9 @@ fn start_linkplay(config: &Config, players: Players) -> Option<LinkplayProvider>
     }
     let mut linkplay_config = LinkplayConfig::new(LinkplayServer {
         port: config.server.bind.port(),
-        base_url: config.server.base_url.clone(),
+        // Devices pull streams over the local network, from the address the server reaches
+        // each one from: base_url is for clients, and may be behind a proxy they cannot use.
+        base_url: None,
     });
     if let Some(path) = &config.linkplay.certificate {
         match std::fs::read(path) {

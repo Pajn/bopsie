@@ -6,8 +6,9 @@
 bind = "0.0.0.0:8095"
 # The name clients show for this server.
 name = "Bopsie"
-# The URL clients reach the server at, reported in server info. Unset, none is reported, and the
-# artwork URLs players are given use the server's own address on the network.
+# The URL clients reach the server at, such as a proxy's HTTPS one: reported in server info and
+# used for the artwork URLs players are given. Unset, none is reported, and artwork URLs use the
+# server's own address on the network. LinkPlay streams always use the local address.
 # base_url = "http://music.local:8095"
 
 [storage]
