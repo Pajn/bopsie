@@ -10,11 +10,11 @@ import {
 import type { ManagedUser } from '@bopsie/client/api/schemas/users';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { describeError } from '@/lib/errors';
-import { Badge, Button, Card, InlineError, Stack, Text, TextField } from '@/ui/primitives';
+import { Badge, Button, Card, InlineError, Page, Stack, Text, TextField } from '@/ui/primitives';
 
 const usersKey = (accountId: string) => ['users', accountId] as const;
 const tokensKey = (accountId: string, userId: string) => ['users', accountId, userId] as const;
@@ -233,16 +233,13 @@ export default function UsersScreen() {
     queryFn: () => listUsers(connection),
   });
   return (
-    <ScrollView>
-      <Stack gap="lg">
-        <Text variant="title">Users</Text>
-        <InlineError message={users.error ? describeError(users.error) : null} />
-        {users.data?.map((user) => (
-          <UserCard key={user.user_id} user={user} isMe={user.user_id === account.userId} />
-        ))}
-        <NewUser />
-      </Stack>
-    </ScrollView>
+    <Page title={'Users'}>
+      <InlineError message={users.error ? describeError(users.error) : null} />
+      {users.data?.map((user) => (
+        <UserCard key={user.user_id} user={user} isMe={user.user_id === account.userId} />
+      ))}
+      <NewUser />
+    </Page>
   );
 }
 

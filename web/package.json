@@ -13,6 +13,7 @@
   "dependencies": {
     "@bopsie/client": "workspace:*",
     "@expo/metro-runtime": "~58.0.14",
+    "@expo/vector-icons": "^15.1.1",
     "@tanstack/react-query": "^5.102.8",
     "expo": "58.0.13",
     "expo-constants": "~58.0.12",

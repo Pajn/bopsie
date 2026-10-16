@@ -1,6 +1,6 @@
 import type { AdminEndpoint, AdminGroup, Format } from '@bopsie/client/api/schemas/admin';
 import { useLocalSearchParams } from 'expo-router';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useDevices, useGroups, usePlayers } from '@/data/admin';
 import JsonTree from '@/debug/JsonTree';
@@ -9,7 +9,7 @@ import { airplayRoute, healthTone, playerRows } from '@/features/players/model';
 import { PlayerControls } from '@/features/players/PlayerControls';
 import { PlayerSettings } from '@/features/players/PlayerSettings';
 import { describeError } from '@/lib/errors';
-import { Badge, Card, Facts, InlineError, Stack, Text } from '@/ui/primitives';
+import { Badge, Card, Facts, InlineError, Page, Stack, Text } from '@/ui/primitives';
 
 type Json = Parameters<typeof JsonTree>[0]['value'];
 
@@ -199,31 +199,28 @@ export default function PlayerScreen() {
   const names = new Map((devices.data ?? []).map((d) => [d.id, d.name]));
 
   return (
-    <ScrollView>
-      <Stack gap="lg">
-        <Text variant="title">{device?.name ?? id}</Text>
-        <InlineError message={error ? describeError(error) : null} />
-        {devices.isSuccess && !device ? <Text muted>The server knows no player {id}.</Text> : null}
-        {row?.available ? (
-          <Card title="Controls">
-            <PlayerControls row={row} rows={rows} />
-          </Card>
-        ) : null}
-        {group ? <Plan group={group} names={names} /> : null}
-        {device ? <PlayerSettings device={device} /> : null}
-        {device?.members.map((endpoint) => (
-          <Endpoint key={endpoint.id} endpoint={endpoint} />
-        ))}
-        {device ? (
-          <Card title="Raw">
-            <JsonTree
-              value={json({ device, player: row?.player ?? null, group: group ?? null })}
-              colors={colors}
-            />
-          </Card>
-        ) : null}
-      </Stack>
-    </ScrollView>
+    <Page title={device?.name ?? id} back={{ href: '/players', label: 'Players' }}>
+      <InlineError message={error ? describeError(error) : null} />
+      {devices.isSuccess && !device ? <Text muted>The server knows no player {id}.</Text> : null}
+      {row?.available ? (
+        <Card title="Controls">
+          <PlayerControls row={row} rows={rows} />
+        </Card>
+      ) : null}
+      {group ? <Plan group={group} names={names} /> : null}
+      {device ? <PlayerSettings device={device} /> : null}
+      {device?.members.map((endpoint) => (
+        <Endpoint key={endpoint.id} endpoint={endpoint} />
+      ))}
+      {device ? (
+        <Card title="Raw">
+          <JsonTree
+            value={json({ device, player: row?.player ?? null, group: group ?? null })}
+            colors={colors}
+          />
+        </Card>
+      ) : null}
+    </Page>
   );
 }
 

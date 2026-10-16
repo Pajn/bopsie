@@ -1,9 +1,11 @@
+import { Link } from 'expo-router';
 import { type ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
   type PressableProps,
   Text as RNText,
+  ScrollView,
   TextInput,
   type TextInputProps,
   type TextProps,
@@ -11,6 +13,72 @@ import {
   type ViewProps,
 } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+
+/**
+ * A page's frame: it scrolls, holds its content to a readable width, and leads with its title,
+ * an optional line under it, and actions beside it. `back` names the page it sits under.
+ * `fill` leaves the scrolling to the content, as a log does.
+ */
+export function Page({
+  title,
+  subtitle,
+  back,
+  actions,
+  fill,
+  wide,
+  children,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  back?: { href: string; label: string };
+  actions?: ReactNode;
+  fill?: boolean;
+  /** Up to the wider width, for tables and grids. */
+  wide?: boolean;
+  children: ReactNode;
+}) {
+  const header = (
+    <View style={styles.pageHeader}>
+      {back ? (
+        <Link href={back.href as never} asChild>
+          <Pressable accessibilityRole="link" style={styles.back}>
+            <Text variant="label" style={styles.backText}>
+              ‹ {back.label}
+            </Text>
+          </Pressable>
+        </Link>
+      ) : null}
+      <View style={styles.titleRow}>
+        <View style={styles.titleText}>
+          <Text variant="title" numberOfLines={2}>
+            {title}
+          </Text>
+          {typeof subtitle === 'string' ? <Text muted>{subtitle}</Text> : subtitle}
+        </View>
+        {actions ? <View style={styles.actions}>{actions}</View> : null}
+      </View>
+    </View>
+  );
+  if (fill) {
+    return (
+      <View style={[styles.page(wide ?? false), styles.fill]}>
+        {header}
+        <View style={styles.fill}>{children}</View>
+      </View>
+    );
+  }
+  return (
+    <ScrollView contentContainerStyle={styles.scroll}>
+      <View style={styles.page(wide ?? false)}>
+        {header}
+        <View style={styles.pageBody}>{children}</View>
+      </View>
+    </ScrollView>
+  );
+}
+
+/** What a Pressable's style is given on the web, where it also knows the pointer is over it. */
+export type WebPress = { pressed: boolean; hovered?: boolean };
 
 type Variant = 'title' | 'heading' | 'body' | 'label' | 'caption' | 'mono';
 type Gap = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
@@ -186,6 +254,28 @@ export function Choice({
 }
 
 const styles = StyleSheet.create((theme) => ({
+  scroll: { flexGrow: 1 },
+  fill: { flex: 1, minHeight: 0 },
+  page: (wide: boolean) => ({
+    width: '100%',
+    maxWidth: wide ? 1280 : 960,
+    alignSelf: 'center',
+    paddingHorizontal: { xs: theme.spacing.lg, md: theme.spacing.xl },
+    paddingTop: { xs: theme.spacing.lg, md: theme.spacing.xl },
+    paddingBottom: theme.spacing.xxl,
+  }),
+  pageHeader: { gap: theme.spacing.xs, marginBottom: theme.spacing.lg },
+  back: { alignSelf: 'flex-start' },
+  backText: { color: theme.colors.accent },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: theme.spacing.md,
+    flexWrap: 'wrap',
+  },
+  titleText: { flex: 1, minWidth: 200, gap: 2 },
+  actions: { flexDirection: 'row', gap: theme.spacing.sm, flexWrap: 'wrap' },
+  pageBody: { gap: theme.spacing.lg },
   badge: (tone: Tone) => ({
     borderWidth: 1,
     borderColor: toneColor(theme, tone),

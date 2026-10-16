@@ -1,11 +1,11 @@
 import { Link } from 'expo-router';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useDevices, useGroups, usePlayers } from '@/data/admin';
 import { healthTone, type PlayerRow, playerRows } from '@/features/players/model';
 import { PlayerControls } from '@/features/players/PlayerControls';
 import { describeError } from '@/lib/errors';
-import { Badge, Card, InlineError, Stack, Text } from '@/ui/primitives';
+import { Badge, Card, InlineError, Page, Stack, Text } from '@/ui/primitives';
 
 function Row({ row, rows }: { row: PlayerRow; rows: PlayerRow[] }) {
   const state = row.player?.playback_state ?? 'idle';
@@ -49,18 +49,15 @@ export default function PlayersScreen() {
   const error = devices.error ?? players.error ?? groups.error;
   const rows = playerRows(devices.data ?? [], players.data ?? [], groups.data ?? []);
   return (
-    <ScrollView>
-      <Stack gap="lg">
-        <Text variant="title">Players</Text>
-        <InlineError message={error ? describeError(error) : null} />
-        {devices.isSuccess && rows.length === 0 ? (
-          <Text muted>No players yet. Speakers show here once the server finds them.</Text>
-        ) : null}
-        {rows.map((row) => (
-          <Row key={row.id} row={row} rows={rows} />
-        ))}
-      </Stack>
-    </ScrollView>
+    <Page title={'Players'}>
+      <InlineError message={error ? describeError(error) : null} />
+      {devices.isSuccess && rows.length === 0 ? (
+        <Text muted>No players yet. Speakers show here once the server finds them.</Text>
+      ) : null}
+      {rows.map((row) => (
+        <Row key={row.id} row={row} rows={rows} />
+      ))}
+    </Page>
   );
 }
 
