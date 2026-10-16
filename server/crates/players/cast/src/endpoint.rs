@@ -223,7 +223,7 @@ impl Endpoint for CastEndpoint {
 
     /// Plays through the receiver's client. Without one, as when it rejoins a group that
     /// already plays, the receiver is launched, unless another app took the device, and the
-    /// sink plays through it once it connects.
+    /// sink plays through it once it connects, dropping what comes before.
     fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {
         if let Some(client) = self.shared.live() {
             return client.output(format, timeline);
@@ -240,6 +240,7 @@ impl Endpoint for CastEndpoint {
             self.shared.send(Command::Launch);
         }
         Box::new(Pending {
+            deadline: Instant::now() + self.shared.settings.launch_timeout,
             shared: self.shared.clone(),
             format,
             timeline,
@@ -327,38 +328,37 @@ impl Endpoint for CastEndpoint {
     }
 }
 
-/// A sink for a receiver being launched: its first write waits for the receiver to connect,
-/// and it plays through the receiver's client from then on. Audio due while it waited is late,
-/// and the client drops it.
+/// A sink for a receiver being launched: what it is given before the receiver connects is
+/// dropped, as it would be too late by then anyway, and it plays through the receiver's client
+/// from then on. It never waits, as the engine writes every output of the group in turn.
 struct Pending {
     shared: Arc<Shared>,
     format: OutputFormat,
     timeline: Timeline,
     client: Option<Box<dyn Sink>>,
+    /// Gives up once the receiver has had this long to connect.
+    deadline: Instant,
 }
 
 impl Pending {
-    fn client(&mut self) -> io::Result<&mut Box<dyn Sink>> {
+    /// The receiver's client, once it is connected; an error once it will not be.
+    fn client(&mut self) -> io::Result<Option<&mut Box<dyn Sink>>> {
         if self.client.is_none() {
-            let deadline = Instant::now() + self.shared.settings.launch_timeout;
-            let client = loop {
-                if let Some(client) = self.shared.live() {
-                    break client;
-                }
+            if let Some(client) = self.shared.live() {
+                self.client = Some(client.output(self.format, self.timeline));
+            } else {
                 let status = self.shared.status.lock().unwrap();
                 let given_up = status.taken || !status.wanted;
                 drop(status);
-                if given_up || Instant::now() >= deadline {
+                if given_up || Instant::now() >= self.deadline {
                     return Err(io::Error::new(
                         io::ErrorKind::NotConnected,
                         "the Cast receiver did not connect",
                     ));
                 }
-                std::thread::sleep(Duration::from_millis(50));
-            };
-            self.client = Some(client.output(self.format, self.timeline));
+            }
         }
-        Ok(self.client.as_mut().expect("just set"))
+        Ok(self.client.as_mut())
     }
 }
 
@@ -368,7 +368,10 @@ impl Sink for Pending {
     }
 
     fn write(&mut self, at: u64, data: &[u8]) -> io::Result<()> {
-        self.client()?.write(at, data)
+        match self.client()? {
+            Some(client) => client.write(at, data),
+            None => Ok(()),
+        }
     }
 
     fn clear(&mut self) -> io::Result<()> {
