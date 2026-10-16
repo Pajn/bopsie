@@ -1,46 +1,96 @@
 import { playMedia, type QueueOption } from '@bopsie/client/api/endpoints/players';
 import { useState } from 'react';
+import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { usePlayers } from '@/data/admin';
 import { describeError } from '@/lib/errors';
-import { Button, Choice, InlineError, Stack, Text } from '@/ui/primitives';
-import { useTarget } from './target';
+import { IconButton } from '@/ui/controls';
+import { Button, Choice, InlineError, Text } from '@/ui/primitives';
+import { usePlayTarget } from './target';
 
 /** Picks the player the library plays to. */
 export function TargetPicker() {
-  const players = usePlayers();
-  const { playerId, setPlayerId } = useTarget();
-  const available = (players.data ?? []).filter((p) => p.available && !p.synced_to);
-  const current = players.data?.find((p) => p.player_id === playerId);
+  const { player, leaders, setPlayerId } = usePlayTarget();
   return (
-    <Stack horizontal gap="sm">
-      <Text muted>Plays to</Text>
+    <View style={styles.target}>
+      <Text muted>Plays on</Text>
       <Choice
-        title={current?.name ?? 'Choose a player'}
-        options={available.map((p) => ({ value: p.player_id, label: p.name }))}
+        title={player?.name ?? 'No player'}
+        options={leaders.map((p) => ({ value: p.player_id, label: p.name }))}
         onChoose={setPlayerId}
       />
-    </Stack>
+    </View>
   );
 }
 
-/** Play now, or add to the end, on the chosen player's queue. */
-export function PlayButtons({ uri, startItem }: { uri: string; startItem?: string }) {
+/** Plays `uri`, or adds it to the end, on the chosen player's queue. */
+function usePlay(uri: string, startItem?: string) {
   const { connection } = useConnection();
-  const playerId = useTarget((state) => state.playerId);
+  const { player } = usePlayTarget();
   const [error, setError] = useState<string | null>(null);
   const play = (option: QueueOption) => {
-    if (!playerId) return;
+    if (!player) return;
     setError(null);
-    playMedia(connection, playerId, uri, { option, ...(startItem && { startItem }) }).catch(
-      (e: unknown) => setError(describeError(e)),
-    );
+    playMedia(connection, player.player_id, uri, {
+      option,
+      ...(startItem && { startItem }),
+    }).catch((e: unknown) => setError(describeError(e)));
   };
+  return { play, error, target: player?.name ?? null };
+}
+
+/** Play now, or add to the end, as icons: for a row of a list. */
+export function PlayButtons({ uri, startItem }: { uri: string; startItem?: string }) {
+  const { play, error, target } = usePlay(uri, startItem);
   return (
-    <Stack horizontal gap="xs">
-      <Button title="Play" disabled={!playerId} onPress={() => play('replace')} />
-      <Button title="Add" variant="secondary" disabled={!playerId} onPress={() => play('add')} />
+    <View style={styles.row}>
       <InlineError message={error} />
-    </Stack>
+      <IconButton
+        icon="play"
+        label={target ? `Play on ${target}` : 'Play'}
+        variant="ghost"
+        size="sm"
+        disabled={!target}
+        onPress={() => play('replace')}
+      />
+      <IconButton
+        icon="plus"
+        label={target ? `Add to ${target}'s queue` : 'Add to queue'}
+        variant="ghost"
+        size="sm"
+        disabled={!target}
+        onPress={() => play('add')}
+      />
+    </View>
   );
 }
+
+/** Play now, or add to the end, as buttons with words: for the head of an item's page. */
+export function PlayActions({ uri }: { uri: string }) {
+  const { play, error, target } = usePlay(uri);
+  return (
+    <View style={styles.actions}>
+      <Button title="Play" icon="play" disabled={!target} onPress={() => play('replace')} />
+      <Button
+        title="Add to queue"
+        icon="plus"
+        variant="secondary"
+        disabled={!target}
+        onPress={() => play('add')}
+      />
+      <TargetPicker />
+      <InlineError message={error} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create((theme) => ({
+  target: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
+}));

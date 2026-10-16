@@ -225,5 +225,5 @@ const styles = StyleSheet.create((theme) => ({
     gap: theme.spacing.sm,
   },
   columns: { flexDirection: { xs: 'column', lg: 'row' }, gap: theme.spacing.lg },
-  column: { flex: { xs: 0, lg: 1 } },
+  column: { flexGrow: 1, flexBasis: { xs: 'auto', lg: 0 } },
 }));

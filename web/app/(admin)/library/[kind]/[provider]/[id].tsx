@@ -8,23 +8,32 @@ import {
   getTrack,
   playlistTracks,
 } from '@bopsie/client/api/endpoints/library';
+import type { Track } from '@bopsie/client/api/schemas/media';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
+import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
 import { EditItem } from '@/features/library/EditItem';
-import { type Item, ItemRow } from '@/features/library/ItemRow';
-import { PlayButtons, TargetPicker } from '@/features/library/PlayButtons';
+import { ItemGrid } from '@/features/library/ItemGrid';
+import { ItemHero } from '@/features/library/ItemHero';
+import type { Item } from '@/features/library/ItemRow';
 import { Sources } from '@/features/library/Sources';
+import { TrackList } from '@/features/library/TrackList';
 import { describeError } from '@/lib/errors';
-import { Card, InlineError, Page } from '@/ui/primitives';
+import { Disclosure } from '@/ui/controls';
+import { Card, InlineError, Page, Text } from '@/ui/primitives';
 
 const KINDS = ['album', 'artist', 'playlist', 'track'] as const;
 type Kind = (typeof KINDS)[number];
 
-/** An album, artist, playlist or track: what it holds, and its metadata to edit. */
+/**
+ * An album, artist, playlist or track: what it holds and plays, and beside that, or below it
+ * on a narrower screen, where it comes from and its metadata to edit.
+ */
 export default function ItemScreen() {
   const { kind, provider, id } = useLocalSearchParams<{
     kind: string;
@@ -47,7 +56,7 @@ export default function ItemScreen() {
   });
   const contents = useQuery({
     queryKey: [...queryKeys.item(account.id, kind, id, provider), 'contents'],
-    queryFn: async (): Promise<{ albums: Item[]; tracks: Item[] }> => {
+    queryFn: async (): Promise<{ albums: Item[]; tracks: Track[] }> => {
       if (kind === 'track') return { albums: [], tracks: [] };
       if (kind === 'album') return { albums: [], tracks: await albumTracks(connection, ref) };
       if (kind === 'playlist') return { albums: [], tracks: await playlistTracks(connection, ref) };
@@ -59,48 +68,65 @@ export default function ItemScreen() {
     },
   });
   const error = item.error ?? contents.error;
-  const uri = item.data?.uri;
+  const data = item.data;
+  // Only the library's own items are edited; a catalog's, such as Spotify's, are as it says.
+  const editable = data && provider === 'library' && KINDS.includes(kind as Kind);
+  const albums = contents.data?.albums ?? [];
+  const tracks = contents.data?.tracks ?? [];
 
   return (
-    <Page title={item.data?.name ?? id} back={{ href: '/library', label: 'Library' }}>
-      <TargetPicker />
+    <Page
+      title={data?.name ?? id}
+      back={{ href: '/library', label: 'Library' }}
+      wide
+      hero={data ? <ItemHero item={data} tracks={kind === 'artist' ? undefined : tracks} /> : null}
+    >
       <InlineError message={error ? describeError(error) : null} />
-      {item.data && uri ? <ItemRow item={item.data} actions={<PlayButtons uri={uri} />} /> : null}
-      {/* Only the library's own items are edited; a catalog's, such as Spotify's, are as it says. */}
-      {item.data && provider === 'library' && KINDS.includes(kind as Kind) ? (
-        <EditItem key={item.data.uri} item={item.data} kind={kind as Kind} />
-      ) : null}
-      {item.data && provider === 'library' ? <Sources item={item.data} /> : null}
-      {contents.data?.albums.length ? (
-        <Card title="Albums">
-          {contents.data.albums.map((album) => (
-            <ItemRow key={album.uri} item={album} actions={<PlayButtons uri={album.uri} />} />
-          ))}
-        </Card>
-      ) : null}
-      {contents.data?.tracks.length ? (
-        <Card title="Tracks">
-          {contents.data.tracks.map((track) => (
-            <ItemRow
-              key={track.uri}
-              item={track}
-              actions={
-                // Inside an album or playlist, play it from this track on.
-                uri && kind !== 'artist' ? (
-                  <PlayButtons uri={uri} startItem={track.item_id} />
-                ) : (
-                  <PlayButtons uri={track.uri} />
-                )
-              }
-            />
-          ))}
-        </Card>
-      ) : null}
-      {item.data ? (
-        <Card title="Raw">
-          <JsonTree value={JSON.parse(JSON.stringify(item.data))} colors={colors} />
-        </Card>
-      ) : null}
+      <View style={styles.columns}>
+        <View style={styles.main}>
+          {albums.length > 0 ? (
+            <View style={styles.section}>
+              <Text variant="heading">Albums</Text>
+              <ItemGrid items={albums} />
+            </View>
+          ) : null}
+          {tracks.length > 0 ? (
+            <Card {...(kind === 'artist' && { title: 'Tracks' })}>
+              <TrackList
+                tracks={tracks}
+                from={kind === 'album' || kind === 'playlist' ? data?.uri : undefined}
+                numbered={kind === 'album'}
+                artists={kind !== 'album'}
+              />
+            </Card>
+          ) : null}
+        </View>
+        {data ? (
+          <View style={styles.side}>
+            {provider === 'library' ? <Sources item={data} /> : null}
+            {editable ? (
+              <Disclosure title="Edit details" hint="Outlasts a rescan">
+                <EditItem key={data.uri} item={data} kind={kind as Kind} />
+              </Disclosure>
+            ) : null}
+            <Disclosure title="Raw" hint="What the server reports">
+              <JsonTree value={JSON.parse(JSON.stringify(data))} colors={colors} />
+            </Disclosure>
+          </View>
+        ) : null}
+      </View>
     </Page>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  columns: {
+    flexDirection: { xs: 'column', lg: 'row' },
+    alignItems: { xs: 'stretch', lg: 'flex-start' },
+    gap: theme.spacing.lg,
+  },
+  // Grows beside the side column; above it, as tall as it holds.
+  main: { flexGrow: 1, flexBasis: { xs: 'auto', lg: 0 }, minWidth: 0, gap: theme.spacing.lg },
+  side: { width: { xs: 'auto', lg: 380 }, gap: theme.spacing.lg },
+  section: { gap: theme.spacing.sm },
+}));

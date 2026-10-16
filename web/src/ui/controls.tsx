@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { duration } from '@/lib/time';
 import { Icon, type IconName } from './Icon';
@@ -185,6 +185,46 @@ export function SeekBar({
 }
 
 /**
+ * A row of tabs that picks one of `tabs`, scrolling sideways where they do not fit. `after`
+ * starts a second group, set apart, as for tools beside what is browsed.
+ */
+export function Tabs<T extends string>({
+  tabs,
+  after = [],
+  value,
+  onChange,
+}: {
+  tabs: ReadonlyArray<{ value: T; label: string }>;
+  after?: ReadonlyArray<{ value: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  const tab = (t: { value: T; label: string }) => (
+    <Pressable
+      key={t.value}
+      onPress={() => onChange(t.value)}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: t.value === value }}
+      style={({ hovered }: WebPress) => [
+        styles.tab(t.value === value),
+        hovered && t.value !== value && styles.tabHover,
+      ]}
+    >
+      <Text style={styles.tabText(t.value === value)}>{t.label}</Text>
+    </Pressable>
+  );
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist">
+      <View style={styles.tabs}>
+        {tabs.map(tab)}
+        {after.length > 0 ? <View style={styles.tabDivider} /> : null}
+        {after.map(tab)}
+      </View>
+    </ScrollView>
+  );
+}
+
+/**
  * A section that opens on request, closed by default: for what only some want to see, such
  * as the raw data behind a page. On its own it is a card; `inline`, it is a section of one.
  */
@@ -260,6 +300,24 @@ const styles = StyleSheet.create((theme) => ({
   seek: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, minWidth: 0 },
   time: { width: 44, fontVariant: ['tabular-nums'] },
   timeEnd: { textAlign: 'right' },
+  tabs: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
+  tab: (selected: boolean) => ({
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs + 2,
+    borderRadius: theme.radius.full,
+    backgroundColor: selected ? theme.colors.text : 'transparent',
+  }),
+  tabHover: { backgroundColor: theme.colors.surfaceVariant },
+  tabText: (selected: boolean) => ({
+    fontWeight: '600',
+    color: selected ? theme.colors.background : theme.colors.textMuted,
+  }),
+  tabDivider: {
+    width: 1,
+    height: 20,
+    marginHorizontal: theme.spacing.sm,
+    backgroundColor: theme.colors.border,
+  },
   disclosure: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.border,

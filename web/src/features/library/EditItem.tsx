@@ -13,7 +13,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import ArtworkPicker from '@/debug/ArtworkPicker';
 import { describeError } from '@/lib/errors';
-import { Badge, Button, Card, InlineError, Stack, Text, TextField } from '@/ui/primitives';
+import { Badge, Button, InlineError, Stack, Text, TextField } from '@/ui/primitives';
 import type { Item } from './ItemRow';
 
 /** The fields of each kind, as the edit form shows them. */
@@ -109,7 +109,7 @@ export function EditItem({ item, kind }: { item: Item; kind: LibraryKindName }) 
   const artwork = imageUrl(account.serverUrl, item, 160);
 
   return (
-    <Card title="Edit">
+    <Stack gap="md">
       <Text variant="caption" muted>
         Edits outlast a rescan of the file. Reset brings back what the scan found
         {kind === 'track' || kind === 'playlist' ? ', reading the file again' : ''}.
@@ -194,17 +194,14 @@ export function EditItem({ item, kind }: { item: Item; kind: LibraryKindName }) 
           onPress={() => setDrafts({})}
         />
       </Stack>
-    </Card>
+    </Stack>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  row: {
-    flexDirection: { xs: 'column', md: 'row' },
-    alignItems: { xs: 'stretch', md: 'center' },
-    gap: theme.spacing.sm,
-  },
-  label: { width: { xs: 'auto', md: 160 } },
+  // The label above its field: the form sits in a narrow column beside the item's contents.
+  row: { gap: theme.spacing.xs },
+  label: { flexDirection: 'row', alignItems: 'baseline', gap: theme.spacing.sm },
   input: { flex: 1 },
   art: { width: 80, height: 80, borderRadius: theme.radius.sm },
 }));

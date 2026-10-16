@@ -9,7 +9,7 @@ import { Text } from '@/ui/primitives';
 
 export type Item = Album | Artist | Playlist | Track;
 
-function subtitle(item: Item): string {
+export function subtitle(item: Item): string {
   const names = (artists: Album['artists']) => artists.map((a) => a.name).join(', ');
   if (item.media_type === 'album') {
     const album = item as Album;

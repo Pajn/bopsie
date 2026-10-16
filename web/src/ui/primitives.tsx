@@ -13,11 +13,13 @@ import {
   type ViewProps,
 } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { Icon, type IconName } from './Icon';
 
 /**
  * A page's frame: it scrolls, holds its content to a readable width, and leads with its title,
  * an optional line under it, and actions beside it. `back` names the page it sits under.
- * `fill` leaves the scrolling to the content, as a log does.
+ * `fill` leaves the scrolling to the content, as a log does. `hero` takes the title's place,
+ * for a page that leads with more than words, as an album's does with its cover.
  */
 export function Page({
   title,
@@ -26,6 +28,7 @@ export function Page({
   actions,
   fill,
   wide,
+  hero,
   children,
 }: {
   title: string;
@@ -35,6 +38,7 @@ export function Page({
   fill?: boolean;
   /** Up to the wider width, for tables and grids. */
   wide?: boolean;
+  hero?: ReactNode;
   children: ReactNode;
 }) {
   const header = (
@@ -48,15 +52,17 @@ export function Page({
           </Pressable>
         </Link>
       ) : null}
-      <View style={styles.titleRow}>
-        <View style={styles.titleText}>
-          <Text variant="title" numberOfLines={2}>
-            {title}
-          </Text>
-          {typeof subtitle === 'string' ? <Text muted>{subtitle}</Text> : subtitle}
+      {hero ?? (
+        <View style={styles.titleRow}>
+          <View style={styles.titleText}>
+            <Text variant="title" numberOfLines={2}>
+              {title}
+            </Text>
+            {typeof subtitle === 'string' ? <Text muted>{subtitle}</Text> : subtitle}
+          </View>
+          {actions ? <View style={styles.actions}>{actions}</View> : null}
         </View>
-        {actions ? <View style={styles.actions}>{actions}</View> : null}
-      </View>
+      )}
     </View>
   );
   if (fill) {
@@ -110,12 +116,14 @@ export function TextField({ label, style, ...props }: TextInputProps & { label: 
 
 export function Button({
   title,
+  icon,
   loading,
   variant = 'primary',
   disabled,
   ...props
 }: Omit<PressableProps, 'children'> & {
   title: string;
+  icon?: IconName;
   loading?: boolean;
   variant?: 'primary' | 'secondary';
 }) {
@@ -125,8 +133,9 @@ export function Button({
     <Pressable
       accessibilityRole="button"
       disabled={inactive}
-      style={({ pressed }) => [
+      style={({ pressed, hovered }: WebPress) => [
         styles.button(variant),
+        hovered && !inactive && styles.buttonHover(variant),
         pressed && styles.pressed,
         inactive && styles.disabled,
       ]}
@@ -138,7 +147,16 @@ export function Button({
           color={variant === 'primary' ? theme.colors.onAccent : theme.colors.accent}
         />
       ) : (
-        <Text style={styles.buttonText(variant)}>{title}</Text>
+        <>
+          {icon ? (
+            <Icon
+              name={icon}
+              size={15}
+              color={variant === 'primary' ? theme.colors.onAccent : theme.colors.text}
+            />
+          ) : null}
+          <Text style={styles.buttonText(variant)}>{title}</Text>
+        </>
       )}
     </Pressable>
   );
@@ -211,7 +229,10 @@ export function Badge({ label, tone = 'muted' }: { label: string; tone?: Tone })
   );
 }
 
-/** A button that opens a list to pick one of `options` from. */
+/**
+ * A button that opens a list to pick one of `options` from. The list is the browser's own, a
+ * select drawn over the button, so it opens over the page and as a phone's picker.
+ */
 export function Choice({
   title,
   options,
@@ -223,32 +244,49 @@ export function Choice({
   onChoose: (value: string) => void;
   disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const { theme } = useUnistyles();
+  const [hovered, setHovered] = useState(false);
+  const inactive = disabled || options.length === 0;
   return (
-    <View>
-      <Button
-        title={open ? `${title} ▴` : `${title} ▾`}
-        variant="secondary"
-        disabled={disabled || options.length === 0}
-        onPress={() => setOpen(!open)}
-      />
-      {open ? (
-        <View style={styles.menu}>
-          {options.map((option) => (
-            <Pressable
-              key={option.value}
-              accessibilityRole="menuitem"
-              style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}
-              onPress={() => {
-                setOpen(false);
-                onChoose(option.value);
-              }}
-            >
-              <Text>{option.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
+    <View
+      style={[
+        styles.button('secondary'),
+        hovered && !inactive && styles.buttonHover('secondary'),
+        inactive && styles.disabled,
+      ]}
+    >
+      <Text style={styles.buttonText('secondary')} numberOfLines={1}>
+        {title}
+      </Text>
+      <Icon name="chevron-down" size={14} color={theme.colors.textMuted} />
+      <select
+        aria-label={title}
+        value=""
+        disabled={inactive}
+        onChange={(event) => {
+          if (event.currentTarget.value) onChoose(event.currentTarget.value);
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          opacity: 0,
+          cursor: inactive ? 'default' : 'pointer',
+          font: 'inherit',
+        }}
+      >
+        <option value="" disabled>
+          {title}
+        </option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </View>
   );
 }
@@ -285,15 +323,6 @@ const styles = StyleSheet.create((theme) => ({
     alignSelf: 'flex-start',
   }),
   badgeText: (tone: Tone) => ({ color: toneColor(theme, tone) }),
-  menu: {
-    marginTop: theme.spacing.xs,
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
-    borderWidth: 1,
-    borderRadius: theme.radius.md,
-    overflow: 'hidden',
-  },
-  menuItem: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm },
   text: (variant: Variant) => ({ ...theme.typography[variant], color: theme.colors.text }),
   muted: { color: theme.colors.textMuted },
   field: { gap: theme.spacing.xs },
@@ -309,8 +338,10 @@ const styles = StyleSheet.create((theme) => ({
   },
   errorText: { ...theme.typography.body, color: theme.colors.danger },
   button: (variant: 'primary' | 'secondary') => ({
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: theme.spacing.xs,
     minHeight: 34,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
@@ -320,6 +351,10 @@ const styles = StyleSheet.create((theme) => ({
     ...theme.typography.body,
     fontWeight: '600',
     color: variant === 'primary' ? theme.colors.onAccent : theme.colors.text,
+  }),
+  buttonHover: (variant: 'primary' | 'secondary') => ({
+    backgroundColor: variant === 'primary' ? theme.colors.accent : theme.colors.border,
+    opacity: variant === 'primary' ? 0.9 : 1,
   }),
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.5 },
@@ -340,8 +375,8 @@ const styles = StyleSheet.create((theme) => ({
     gap: { xs: 0, md: theme.spacing.md },
     paddingVertical: { xs: 2, md: 0 },
   },
-  factLabel: { width: { xs: 'auto', md: 180 }, paddingTop: { xs: 0, md: 2 } },
-  factValue: { flex: { xs: 0, md: 1 }, minWidth: 0 },
+  factLabel: { width: { xs: 'auto', md: 140 }, paddingTop: { xs: 0, md: 2 } },
+  factValue: { flexGrow: 1, flexBasis: { xs: 'auto', md: 0 }, minWidth: 0 },
 }));
 
 type ToneColors = Record<'good' | 'warning' | 'danger' | 'textMuted' | 'accent', string>;
