@@ -33,15 +33,16 @@ export function useToast(): Toasts {
   return useContext(ToastContext);
 }
 
-/** Runs `action`, saying what went wrong if it fails, and `done` once it succeeds. */
+/**
+ * Runs `action`, saying what went wrong if it fails. `said` is said at once, rather than when the
+ * server answers: starting a speaker can take seconds, which would be seconds of saying nothing.
+ */
 export function useRun() {
   const { show } = useToast();
   return useCallback(
-    (action: () => Promise<unknown>, done?: string) => {
-      action().then(
-        () => done && show(done),
-        (e: unknown) => show(describeError(e), 'error'),
-      );
+    (action: () => Promise<unknown>, said?: string) => {
+      if (said) show(said);
+      action().catch((e: unknown) => show(describeError(e), 'error'));
     },
     [show],
   );

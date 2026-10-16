@@ -7,7 +7,7 @@ import {
 } from '@bopsie/client/api/endpoints/players';
 import type { PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
@@ -18,6 +18,7 @@ import { useTreeColors } from '@/debug/treeColors';
 import { describeItem, itemArtwork } from '@/features/queues/items';
 import { describeError } from '@/lib/errors';
 import { duration, elapsedNow } from '@/lib/time';
+import { useNow } from '@/lib/useNow';
 import { Artwork } from '@/ui/Artwork';
 import { Disclosure, IconButton, SeekBar } from '@/ui/controls';
 import { Icon } from '@/ui/Icon';
@@ -26,16 +27,6 @@ import { SkeletonRows } from '@/ui/Skeleton';
 import { useRun } from '@/ui/Toast';
 
 const REPEAT = ['off', 'all', 'one'] as const;
-
-/** The clock, a second at a time, for positions that move while playing. */
-function useNow(): number {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-}
 
 type Run = (action: () => Promise<unknown>) => void;
 

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAccountActions } from '@/auth/AuthProvider';
 import { ConnectionProvider, useConnection } from '@/connection/ConnectionProvider';
+import { NowPlayingBar } from '@/features/nowPlaying/NowPlayingBar';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text, type WebPress } from '@/ui/primitives';
 import { ToastProvider } from '@/ui/Toast';
@@ -194,9 +195,11 @@ function Shell() {
         <View style={styles.phoneOnly}>
           <TopBar />
         </View>
-        <View style={styles.main}>
+        {/* The page, as a landmark apart from the navigation and the now-playing bar. */}
+        <View style={styles.main} role="main">
           <Slot />
         </View>
+        <NowPlayingBar />
         <View style={styles.phoneOnly}>
           <TabBar pathname={pathname} />
         </View>

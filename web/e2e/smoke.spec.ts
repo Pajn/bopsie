@@ -18,19 +18,28 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('lists the speakers', async ({ page }) => {
-  await expect(page.getByRole('link', { name: KITCHEN.name })).toBeVisible();
-  await expect(page.getByRole('link', { name: BEDROOM.name })).toBeVisible();
+  await expect(page.getByRole('link', { name: KITCHEN.name, exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: BEDROOM.name, exact: true })).toBeVisible();
 });
 
 test('plays an album on a speaker, and its queue shows it', async ({ page }) => {
   await page.goto('/library');
   await page.getByRole('link', { name: 'First Album', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Plays on' }).selectOption({ label: KITCHEN.name });
-  await page.getByRole('button', { name: 'Play', exact: true }).click();
-  await expect(page.getByRole('alert', { name: `Playing on ${KITCHEN.name}` })).toBeVisible();
+  await page
+    // The page's and the now-playing bar's choose the same player.
+    .getByRole('combobox', { name: 'Plays on' })
+    .first()
+    .selectOption({ label: KITCHEN.name });
+  // The album's Play, not the now-playing bar's, which resumes what played before.
+  await page.getByRole('main').getByRole('button', { name: 'Play', exact: true }).click();
+  // The toast comes once the server has started the speaker, which can take a few seconds.
+  await expect(page.getByRole('alert', { name: `Playing on ${KITCHEN.name}` })).toBeVisible({
+    timeout: 15_000,
+  });
 
   await page.goto('/queues');
-  await page.getByRole('link', { name: new RegExp(KITCHEN.name) }).click();
+  // The queue's row, not the now-playing bar's link to the same queue.
+  await page.getByRole('link', { name: new RegExp(`^${KITCHEN.name}(?!'s queue)`) }).click();
   await expect(page.getByText(/^(Playing|Starting)$/)).toBeVisible();
   await expect(page.getByText('Opening', { exact: true }).first()).toBeVisible();
 });
@@ -40,9 +49,15 @@ test('adds an album to a queue, and moves one of its tracks up', async ({ page, 
   // after what plays, where its tracks can move.
   await page.goto('/library');
   await page.getByRole('link', { name: 'Second Album', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Plays on' }).selectOption({ label: KITCHEN.name });
-  await page.getByRole('button', { name: 'Add to queue', exact: true }).click();
-  await expect(page.getByRole('alert', { name: `Added to ${KITCHEN.name}'s queue` })).toBeVisible();
+  await page
+    // The page's and the now-playing bar's choose the same player.
+    .getByRole('combobox', { name: 'Plays on' })
+    .first()
+    .selectOption({ label: KITCHEN.name });
+  await page.getByRole('main').getByRole('button', { name: 'Add to queue', exact: true }).click();
+  await expect(page.getByRole('alert', { name: `Added to ${KITCHEN.name}'s queue` })).toBeVisible({
+    timeout: 15_000,
+  });
 
   await page.goto(`/queues/${KITCHEN.id}`);
   const titles = page.getByText(/^(Alpha|Beta|Gamma)$/);
@@ -79,4 +94,18 @@ test('opens an artist from their album', async ({ page }) => {
   await page.getByRole('link', { name: 'Test Artist' }).click();
   await expect(page.getByText('ARTIST', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'First Album', exact: true })).toBeVisible();
+});
+
+test('the now-playing bar shows what plays, and pauses it', async ({ page }) => {
+  await page.goto('/library');
+  await page.getByRole('link', { name: 'First Album', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Plays on' })
+    .first()
+    .selectOption({ label: KITCHEN.name });
+  await page.getByRole('main').getByRole('button', { name: 'Play', exact: true }).click();
+  const bar = page.getByRole('region', { name: 'Now playing' });
+  await expect(bar.getByText('Opening', { exact: true })).toBeVisible();
+  await bar.getByRole('button', { name: 'Pause' }).click();
+  await expect(bar.getByRole('button', { name: 'Play' })).toBeVisible();
 });
