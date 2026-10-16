@@ -77,3 +77,49 @@ it('preserves bare import order and the fallback without Metro helpers', () => {
   new Function('exports', 'require', fallback)(fallbackExports, () => commonjs);
   expect(fallbackExports.default).toBe(commonjs);
 });
+
+it('initializes the Android gesture registry before the root reads its module ID', () => {
+  const { readFileSync } = require('node:fs');
+  const { dirname, join } = require('node:path');
+  const { inlineRequiresPlugin } = require('@expo/metro/metro-transform-plugins');
+  const root = dirname(require.resolve('react-native-gesture-handler/package.json'));
+  const source = readFileSync(
+    join(root, 'lib/module/components/GestureHandlerRootView.android.js'),
+    'utf8',
+  );
+  const code = transformSync(source, {
+    babelrc: false,
+    configFile: false,
+    plugins: [
+      [
+        importExportLiveBindingsPlugin,
+        { importDefault: 'importDefault', performConstantFolding: true },
+      ],
+      [
+        inlineRequiresPlugin,
+        { inlineableCalls: ['importDefault'], importDefault: 'importDefault' },
+      ],
+    ],
+  }).code;
+  const runtime: { _RNGH_MODULE_ID?: number } = {};
+  const exports: {
+    default?: (props: object) => { props: { children: { props: { moduleId: number } } } };
+  } = {};
+  const load = (name: string) => {
+    if (name === '../specs/NativeRNGestureHandlerModule') {
+      runtime._RNGH_MODULE_ID = 7;
+      return {};
+    }
+    if (name === 'react-native') return { StyleSheet: { create: (styles: unknown) => styles } };
+    if (name === 'react/jsx-runtime')
+      return { jsx: (type: unknown, props: unknown) => ({ type, props }) };
+    return { __esModule: true, default: name };
+  };
+  new Function('exports', 'require', 'importDefault', 'globalThis', code)(
+    exports,
+    load,
+    (name: string) => load(name).default,
+    runtime,
+  );
+  expect(exports.default?.({}).props.children.props.moduleId).toBe(7);
+});

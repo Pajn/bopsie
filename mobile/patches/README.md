@@ -11,9 +11,12 @@ The workspace applies these patches to both apps through `pnpm-workspace.yaml`:
   evaluation. Preserve bare import order, live re-exports, and namespace getters.
 - `expo-router@58.0.22`: preserve the SDK 57 Android safe-area fix by seeding
   the root with `initialWindowMetrics` before the first native insets event.
-- `react-native-true-image@2.2.0`: suppress the accidental-override diagnostic
-  on the custom view delegate, as React Native 0.88 does in its own
-  `BaseViewManagerDelegate`. This accommodates Kotlin's Java compatibility bridges.
+- `react-native-gesture-handler@3.3.0`: eagerly load the Android native module
+  before the root view reads its JSI module ID. With inline requires, the root can
+  otherwise mount before the registry exists and crash on startup.
+- `react-native-true-image@2.2.0`: match React Native 0.88's Kotlin bridge
+  method names on the custom view delegate. This avoids duplicate JVM methods
+  alongside the Java compatibility bridges, including in optimized release builds.
 
 `pnpm test --runInBand scripts/expoPatches.test.ts` from `mobile/` checks Jest
 version validation and Metro import behavior against the installed patches.
@@ -21,3 +24,7 @@ Android compilation verifies the image delegate patch.
 
 On a future SDK/package upgrade, review each patch against upstream before
 removing it or rebasing it onto the new package version.
+
+The app config also keeps Glide's manifest-discovered `OkHttpGlideModule` in
+release builds. SDK 58 enables R8 by default; its reflective constructor must
+survive shrinking for artwork and palette loading.

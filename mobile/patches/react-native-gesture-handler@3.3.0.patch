@@ -1,0 +1,22 @@
+diff --git a/src/components/GestureHandlerRootView.android.tsx b/src/components/GestureHandlerRootView.android.tsx
+--- a/src/components/GestureHandlerRootView.android.tsx
++++ b/src/components/GestureHandlerRootView.android.tsx
+@@ -1,3 +1,7 @@
++// The root reads the JSI module ID before any gesture may have loaded the module.
++// Keep initialization eager even when Metro inlines default imports.
++import '../specs/NativeRNGestureHandlerModule';
++
+ import type { PropsWithChildren } from 'react';
+ import * as React from 'react';
+ import { StyleSheet } from 'react-native';
+diff --git a/lib/module/components/GestureHandlerRootView.android.js b/lib/module/components/GestureHandlerRootView.android.js
+--- a/lib/module/components/GestureHandlerRootView.android.js
++++ b/lib/module/components/GestureHandlerRootView.android.js
+@@ -1,3 +1,7 @@
++// The root reads the JSI module ID before any gesture may have loaded the module.
++// Keep initialization eager even when Metro inlines default imports.
++import '../specs/NativeRNGestureHandlerModule';
++
+ "use strict";
+
+ import * as React from 'react';

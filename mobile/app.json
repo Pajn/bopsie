@@ -44,7 +44,8 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "extraProguardRules": "-keep class com.bumptech.glide.integration.okhttp3.OkHttpGlideModule { *; }"
           }
         }
       ],

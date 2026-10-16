@@ -1,15 +1,19 @@
 diff --git a/android/src/main/java/com/trueimage/TrueImageViewManager.kt b/android/src/main/java/com/trueimage/TrueImageViewManager.kt
 --- a/android/src/main/java/com/trueimage/TrueImageViewManager.kt
 +++ b/android/src/main/java/com/trueimage/TrueImageViewManager.kt
-@@ -129,9 +129,11 @@
+@@ -129,9 +129,15 @@
    private class BorderAwareDelegate(manager: TrueImageViewManager) : ViewManagerDelegate<TrueImageView> {
      private val generated = TrueImageViewManagerDelegate<TrueImageView, TrueImageViewManager>(manager)
 
-+    @Suppress("ACCIDENTAL_OVERRIDE")
++    @Suppress("INAPPLICABLE_JVM_NAME")
++    @JvmName("kotlinCompat\$receiveCommand")
++    @JvmSynthetic
      override fun receiveCommand(view: TrueImageView, commandName: String, args: ReadableArray) =
        generated.receiveCommand(view, commandName, args)
 
-+    @Suppress("ACCIDENTAL_OVERRIDE")
++    @Suppress("INAPPLICABLE_JVM_NAME")
++    @JvmName("kotlinCompat\$setProperty")
++    @JvmSynthetic
      override fun setProperty(view: TrueImageView, propName: String, value: Any?) {
        RADII[propName]?.let { corner ->
          BackgroundStyleApplicator.setBorderRadius(
