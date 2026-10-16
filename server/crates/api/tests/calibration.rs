@@ -85,7 +85,16 @@ async fn a_group_is_calibrated_from_what_a_phone_heard() {
     })
     .await;
 
-    // The phone heard the speaker 24.6 ms ahead of the kitchen: it waits that long.
+    // What saving would set, without saving it.
+    let preview = client
+        .result(
+            "admin/calibration/apply",
+            json!({"delays_ms": {"kitchen": 40.0, "phone": 15.4}, "dry_run": true}),
+        )
+        .await;
+    assert_eq!(preview[1]["sync_adjust_ms"], 25);
+    // The phone heard the speaker 24.6 ms ahead of the kitchen: it waits that long, and had not
+    // been told to before.
     let applied = client
         .result(
             "admin/calibration/apply",

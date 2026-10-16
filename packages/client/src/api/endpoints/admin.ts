@@ -158,12 +158,16 @@ export const startCalibration = (connection: MaConnection, playerId: string) =>
 
 /**
  * Sets each endpoint's sync adjustment from how long after it was due its chirp was heard, in
- * milliseconds, by endpoint id. Admins only.
+ * milliseconds, by endpoint id; with `dryRun`, only says what it would set. Admins only.
  */
-export const applyCalibration = (connection: MaConnection, delaysMs: Record<string, number>) =>
+export const applyCalibration = (
+  connection: MaConnection,
+  delaysMs: Record<string, number>,
+  dryRun = false,
+) =>
   connection.command(
     'admin/calibration/apply',
-    { delays_ms: delaysMs },
+    { delays_ms: delaysMs, ...(dryRun ? { dry_run: true } : {}) },
     { schema: z.array(calibrationAdjustment) },
   );
 

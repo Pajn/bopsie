@@ -1,4 +1,4 @@
-import { delaysOf, describeResults, onServerClock } from './calibrate';
+import { delaysOf, describeAdjustment, describeResults, onServerClock } from './calibrate';
 import type { SpeakerResult } from './detect';
 
 const result = (
@@ -54,5 +54,16 @@ describe('onServerClock', () => {
     expect(onServerClock(recording, 120_000_000, 100_000_000).firstSampleServerUs).toBe(30_000_000);
     const unknown = { ...recording, firstSampleServerUs: null };
     expect(onServerClock(unknown, 1, 0).firstSampleServerUs).toBeNull();
+  });
+});
+
+describe('describeAdjustment', () => {
+  it('says what a speaker waits, and what it waited before', () => {
+    expect(describeAdjustment('Philips', { previous_ms: 477, sync_adjust_ms: 474 })).toBe(
+      'Philips: waits 474 ms (now 477 ms)',
+    );
+    expect(describeAdjustment('Living Room', { previous_ms: 0, sync_adjust_ms: 0 })).toBe(
+      'Living Room: waits 0 ms, as it does now',
+    );
   });
 });

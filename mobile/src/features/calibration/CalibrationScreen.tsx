@@ -8,14 +8,21 @@ import { useConnection } from '@/connection/ConnectionProvider';
 import { useOutputs } from '@/features/outputs/useOutputs';
 import { describeError } from '@/lib/errors';
 import { Button, InlineError, Screen, Stack, Text } from '@/ui/primitives';
-import { delaysOf, describeResults, type Heard, listen } from './calibrate';
+import { delaysOf, describeAdjustment, describeResults, type Heard, listen } from './calibrate';
 
 type State =
   | { step: 'ready' }
   | { step: 'starting' }
   | { step: 'listening'; seconds: number }
   | { step: 'analysing' }
-  | { step: 'heard'; heard: Heard; applying: boolean; error: string | null }
+  | {
+      step: 'heard';
+      heard: Heard;
+      /** What saving would set, once the server has said. */
+      preview: CalibrationAdjustment[] | null;
+      applying: boolean;
+      error: string | null;
+    }
   | { step: 'applied'; heard: Heard; adjustments: CalibrationAdjustment[] };
 
 async function microphoneAllowed(): Promise<boolean> {
@@ -61,20 +68,36 @@ export function CalibrationScreen() {
           ms,
         );
       });
-      setState({ step: 'heard', heard, applying: false, error: null });
+      setState({ step: 'heard', heard, preview: null, applying: false, error: null });
+      const delays = delaysOf(heard.results);
+      if (Object.keys(delays).length >= 2) {
+        applyCalibration(connection, delays, true)
+          .then((preview) =>
+            setState((now) =>
+              now.step === 'heard' && now.heard === heard ? { ...now, preview } : now,
+            ),
+          )
+          .catch(() => {});
+      }
     } catch (failure) {
       setError(describeError(failure));
       setState({ step: 'ready' });
     }
   };
 
-  const apply = async (heard: Heard) => {
-    setState({ step: 'heard', heard, applying: true, error: null });
+  const apply = async (heard: Heard, preview: CalibrationAdjustment[] | null) => {
+    setState({ step: 'heard', heard, preview, applying: true, error: null });
     try {
       const adjustments = await applyCalibration(connection, delaysOf(heard.results));
       setState({ step: 'applied', heard, adjustments });
     } catch (failure) {
-      setState({ step: 'heard', heard, applying: false, error: describeError(failure) });
+      setState({
+        step: 'heard',
+        heard,
+        preview,
+        applying: false,
+        error: describeError(failure),
+      });
     }
   };
 
@@ -154,6 +177,19 @@ export function CalibrationScreen() {
             </Stack>
           )}
 
+          {state.step === 'heard' && state.preview && (
+            <Stack gap="sm" testID="calibration-preview">
+              <Text variant="label" muted>
+                Saving sets
+              </Text>
+              {state.preview.map((adjustment) => (
+                <Text key={adjustment.endpoint_id}>
+                  {describeAdjustment(nameOf(state.heard, adjustment.endpoint_id), adjustment)}
+                </Text>
+              ))}
+            </Stack>
+          )}
+
           {state.step === 'applied' && (
             <Stack gap="sm" testID="calibration-applied">
               <Text variant="label" muted>
@@ -161,11 +197,7 @@ export function CalibrationScreen() {
               </Text>
               {state.adjustments.map((adjustment) => (
                 <Text key={adjustment.endpoint_id}>
-                  {nameOf(state.heard, adjustment.endpoint_id)}: waits {adjustment.sync_adjust_ms}{' '}
-                  ms
-                  {adjustment.previous_ms !== adjustment.sync_adjust_ms
-                    ? ` (was ${adjustment.previous_ms} ms)`
-                    : ''}
+                  {describeAdjustment(nameOf(state.heard, adjustment.endpoint_id), adjustment)}
                 </Text>
               ))}
             </Stack>
@@ -178,7 +210,7 @@ export function CalibrationScreen() {
             <Button
               title="Save"
               loading={state.applying}
-              onPress={() => void apply(state.heard)}
+              onPress={() => void apply(state.heard, state.preview)}
               testID="calibration-apply"
             />
           )}

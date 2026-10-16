@@ -95,6 +95,9 @@ pub struct CalibrationApplyArgs {
     /// By endpoint id: how long after it was due its chirp was heard, in milliseconds. Only
     /// the differences between endpoints count, so a constant the phone adds does no harm.
     pub delays_ms: BTreeMap<String, f64>,
+    /// Answers with what it would set, and saves nothing.
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -141,16 +144,20 @@ impl Command for CalibrationApply {
             .into_iter()
             .zip(&measured)
         {
-            let mut saved: SavedEndpoint = players.saved_endpoint(&id);
-            saved.quirks.sync_adjust_ms = Some(adjust);
-            players.save_endpoint(&id, saved).await?;
+            if !args.dry_run {
+                let mut saved: SavedEndpoint = players.saved_endpoint(&id);
+                saved.quirks.sync_adjust_ms = Some(adjust);
+                players.save_endpoint(&id, saved).await?;
+            }
             out.push(Adjustment {
                 endpoint_id: id,
                 previous_ms: *previous,
                 sync_adjust_ms: adjust,
             });
         }
-        tracing::info!(?out, "calibrated");
+        if !args.dry_run {
+            tracing::info!(?out, "calibrated");
+        }
         Ok(out)
     }
 }

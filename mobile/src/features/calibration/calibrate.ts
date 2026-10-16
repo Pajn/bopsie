@@ -106,3 +106,14 @@ export function delaysOf(results: SpeakerResult[]): Record<string, number> {
     results.flatMap((r) => (r.delayMs === null ? [] : [[r.endpointId, r.delayMs]])),
   );
 }
+
+/** What saving does to a speaker: how long it waits, and what it waited before. */
+export function describeAdjustment(
+  name: string,
+  adjustment: { previous_ms: number; sync_adjust_ms: number },
+): string {
+  const now = `${name}: waits ${adjustment.sync_adjust_ms} ms`;
+  return adjustment.previous_ms === adjustment.sync_adjust_ms
+    ? `${now}, as it does now`
+    : `${now} (now ${adjustment.previous_ms} ms)`;
+}
