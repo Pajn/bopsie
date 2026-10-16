@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use bopsie_audio::PcmFormat;
-use bopsie_audio::engine::{Input, LIVE_AHEAD, QUEUE_AHEAD};
+use bopsie_audio::engine::{Input, LIVE_AHEAD, Playable, QUEUE_AHEAD};
 use bopsie_audio::engine::{Realtime, Settings};
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
@@ -62,6 +62,8 @@ pub struct Config {
     pub base_url: Option<String>,
     /// What the group planner may choose from.
     pub policy: Policy,
+    /// The loudness tracks are brought to, in LUFS; `None` plays them as they are.
+    pub normalise: Option<f32>,
 }
 
 /// A device leading a group, or playing on its own.
@@ -655,7 +657,7 @@ impl Playback {
     /// idle where they were.
     pub async fn persist(&self, db: Database, library: Library) -> Result<()> {
         let saved = store::load(&db).await?;
-        let mut found: HashMap<String, Option<(Track, Input)>> = HashMap::new();
+        let mut found: HashMap<String, Option<(Track, Playable)>> = HashMap::new();
         for queue in saved.queues.values() {
             for item in &queue.items {
                 if !found.contains_key(&item.uri) {
@@ -1320,6 +1322,7 @@ impl Playback {
                 clock: clock::now,
             }),
         };
+        entry.session.normalise_to(self.inner.config.normalise);
         entry.session.attach(settings, sinks);
         self.set_plan(leader, Some(plan));
         Ok(())
@@ -1446,7 +1449,7 @@ impl Playback {
     pub fn play_media(
         &self,
         queue_id: &str,
-        tracks: Vec<(Track, Input)>,
+        tracks: Vec<(Track, Playable)>,
         option: QueueOption,
         start_at: Option<usize>,
     ) -> Result<()> {
@@ -2105,6 +2108,12 @@ impl Playback {
         // Bopsie's own: meant to be playing, but nothing heard yet, so its elapsed time stands
         // still. Music Assistant's states have no such state.
         value["buffering"] = json!(entry.session.buffering());
+        if let Some(applied) = queue
+            .current()
+            .and_then(|item| entry.session.normalised(&item.queue_item_id))
+        {
+            value["current_item"]["streamdetails"] = model::stream_details(&applied);
+        }
         Some(value)
     }
 

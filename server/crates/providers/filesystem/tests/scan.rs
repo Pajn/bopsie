@@ -888,7 +888,7 @@ async fn a_streaming_services_playlist_has_its_artwork_and_its_catalogs_tracks()
         .await
         .unwrap();
     assert_eq!(playable.len(), 1);
-    assert_eq!(playable[0].1, bopsie_audio::engine::Input::File(file));
+    assert_eq!(playable[0].1.input, bopsie_audio::engine::Input::File(file));
 }
 
 #[tokio::test]
@@ -1147,7 +1147,7 @@ async fn played_from(library: &Library, album: i64) -> Vec<std::path::PathBuf> {
         .await
         .unwrap()
         .into_iter()
-        .map(|(_, input)| match input {
+        .map(|(_, playable)| match playable.input {
             bopsie_audio::engine::Input::File(path) => path,
             _ => panic!("not a file"),
         })
@@ -1572,7 +1572,7 @@ async fn an_id_merged_away_finds_the_item_it_became() {
         .unwrap();
     assert_eq!(played.len(), 1);
     assert!(
-        matches!(&played[0].1, bopsie_audio::engine::Input::File(path) if path.starts_with(&m.music))
+        matches!(&played[0].1.input, bopsie_audio::engine::Input::File(path) if path.starts_with(&m.music))
     );
 }
 
@@ -1667,4 +1667,47 @@ async fn a_track_kept_twice_as_files_is_one_track_listed_with_both() {
         1
     );
     assert!(f.library.duplicate_files().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_files_loudness_tags_are_kept_and_played_with() {
+    let f = fixture();
+    let path = f
+        .dir
+        .path()
+        .join("music/Test Artist/First Album/01 - Opening.wav");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Opening".to_owned());
+    tag.set_artist("Test Artist".to_owned());
+    tag.set_album("First Album".to_owned());
+    tag.insert_text(ItemKey::ReplayGainTrackGain, "-4.50 dB".to_owned());
+    tag.insert_text(ItemKey::ReplayGainTrackPeak, "0.5".to_owned());
+    tag.insert_text(ItemKey::ReplayGainAlbumGain, "-3.00 dB".to_owned());
+    tag.insert_text(ItemKey::ReplayGainAlbumPeak, "0.75".to_owned());
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    f.library.sync().await.unwrap();
+
+    let track = id(&f.library, MediaType::Track, "Opening").await;
+    let played = f
+        .library
+        .playable(&format!("library://track/{track}"))
+        .await
+        .unwrap();
+    assert_eq!(
+        played[0].1.loudness,
+        Some(bopsie_audio::loudness::Loudness {
+            track_gain_db: -4.5,
+            track_peak: 0.5,
+            album_gain_db: Some(-3.0),
+            album_peak: Some(0.75),
+        })
+    );
+    // A file without tags has nothing yet.
+    let middle = id(&f.library, MediaType::Track, "Middle").await;
+    let played = f
+        .library
+        .playable(&format!("library://track/{middle}"))
+        .await
+        .unwrap();
+    assert_eq!(played[0].1.loudness, None);
 }

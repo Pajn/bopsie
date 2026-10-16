@@ -13,7 +13,8 @@ pub mod scan;
 mod schema;
 pub mod search;
 
-use bopsie_audio::engine::Input;
+use bopsie_audio::engine::Playable;
+use bopsie_audio::loudness::Loudness;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -116,6 +117,13 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
     tokio::task::spawn_blocking(f)
         .await
         .map_err(|_| Error::unexpected())
+}
+
+/// A provider holding a track: its id there, and how loud the track is there.
+struct TrackSource {
+    instance: String,
+    item: String,
+    loudness: Option<Loudness>,
 }
 
 impl Library {
@@ -251,36 +259,61 @@ impl Library {
     }
 
     /// What the track plays from: the first of its providers that can play it.
-    pub async fn track_media(&self, track_id: i64) -> Result<Option<Input>> {
+    pub async fn track_media(&self, track_id: i64) -> Result<Option<Playable>> {
         let track_id = self.resolved(MediaType::Track, track_id).await?;
         let mappings = self.track_sources(track_id).await?;
         self.media_from(mappings).await
     }
 
-    /// The providers holding a track and its id with each, the preferred first.
-    async fn track_sources(&self, track_id: i64) -> Result<Vec<(String, String)>> {
+    /// The providers holding a track, its id with each and how loud it is there, the
+    /// preferred first.
+    async fn track_sources(&self, track_id: i64) -> Result<Vec<TrackSource>> {
         self.read(move |conn| {
             let mut statement = conn.prepare(
-                "SELECT provider_instance, provider_item_id FROM provider_mappings
+                "SELECT provider_instance, provider_item_id, track_gain, track_peak, album_gain,
+                     album_peak
+                 FROM provider_mappings
                  WHERE media_type = 'track' AND item_id = ?1 ORDER BY priority DESC",
             )?;
             statement
-                .query_map([track_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .query_map([track_id], |row| {
+                    let track_gain: Option<f32> = row.get(2)?;
+                    Ok(TrackSource {
+                        instance: row.get(0)?,
+                        item: row.get(1)?,
+                        loudness: match track_gain {
+                            Some(track_gain_db) => Some(Loudness {
+                                track_gain_db,
+                                track_peak: row.get::<_, Option<f32>>(3)?.unwrap_or(0.0),
+                                album_gain_db: row.get(4)?,
+                                album_peak: row.get(5)?,
+                            }),
+                            None => None,
+                        },
+                    })
+                })?
                 .collect()
         })
         .await
     }
 
-    /// What the first of `mappings` that can play its item plays.
-    async fn media_from(&self, mappings: Vec<(String, String)>) -> Result<Option<Input>> {
+    /// What the first of `sources` that can play its item plays.
+    async fn media_from(&self, sources: Vec<TrackSource>) -> Result<Option<Playable>> {
         let providers = self.providers.clone();
         let catalogs = self.catalogs.clone();
         blocking(move || {
-            mappings.iter().find_map(|(instance, item)| {
-                match providers.iter().find(|p| p.instance_id() == instance) {
-                    Some(provider) => provider.media(item),
-                    None => catalogs.get(instance)?.media(item),
-                }
+            sources.into_iter().find_map(|source| {
+                let input = match providers
+                    .iter()
+                    .find(|p| p.instance_id() == source.instance)
+                {
+                    Some(provider) => provider.media(&source.item),
+                    None => catalogs.get(&source.instance)?.media(&source.item),
+                }?;
+                Some(Playable {
+                    input,
+                    loudness: source.loudness,
+                })
             })
         })
         .await
@@ -320,7 +353,7 @@ impl Library {
     /// The tracks a URI stands for, with what they play from: a track itself, an album's or
     /// artist's tracks, or a playlist's, in order, from the library or from a catalog. Tracks
     /// nothing can play are left out.
-    pub async fn playable(&self, uri: &str) -> Result<Vec<(Track, Input)>> {
+    pub async fn playable(&self, uri: &str) -> Result<Vec<(Track, Playable)>> {
         let not_found = || {
             Error::new(
                 bopsie_core::ErrorCode::MediaNotFound,
@@ -343,7 +376,7 @@ impl Library {
                 .into_iter()
                 .filter_map(|track| {
                     let media = catalog.media(&track.fields.item_id)?;
-                    Some((track, media))
+                    Some((track, media.into()))
                 })
                 .collect());
         };
@@ -372,11 +405,11 @@ impl Library {
             .flatten()
             .next()
             .and_then(|first| {
-                first.iter().map(|(instance, _)| instance).find(|instance| {
+                first.iter().map(|s| &s.instance).find(|instance| {
                     sources
                         .iter()
                         .flatten()
-                        .all(|mappings| mappings.iter().any(|(i, _)| i == *instance))
+                        .all(|mappings| mappings.iter().any(|s| s.instance == **instance))
                 })
             })
             .cloned();
@@ -386,14 +419,15 @@ impl Library {
             let media = match mappings {
                 Some(mut mappings) => {
                     if let Some(shared) = &shared {
-                        mappings.sort_by_key(|(instance, _)| instance != shared);
+                        mappings.sort_by_key(|source| &source.instance != shared);
                     }
                     self.media_from(mappings).await?
                 }
                 _ => self
                     .catalogs
                     .get(&track.fields.provider)
-                    .and_then(|catalog| catalog.media(&track.fields.item_id)),
+                    .and_then(|catalog| catalog.media(&track.fields.item_id))
+                    .map(Playable::from),
             };
             if let Some(media) = media {
                 playable.push((track, media));

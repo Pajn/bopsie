@@ -75,7 +75,7 @@ fn path(dir: &Path, index: usize) -> PathBuf {
 }
 
 impl Fixture {
-    fn tracks(&self) -> Vec<(Track, bopsie_audio::engine::Input)> {
+    fn tracks(&self) -> Vec<(Track, bopsie_audio::engine::Playable)> {
         (0..self.samples.len())
             .map(|i| {
                 let name = ((b'a' + i as u8) as char).to_string();
@@ -242,4 +242,66 @@ async fn a_held_start_plays_when_released_unless_stopped_first() {
     );
     session.shutdown();
     assert!(f.played() == f.expected(&[1]));
+}
+
+#[tokio::test]
+async fn an_album_in_order_plays_at_its_albums_gain_and_a_lone_track_at_its_own() {
+    let f = fixture(&[3_000, 3_000, 3_000]);
+    let session = f.session();
+    session.normalise_to(Some(-18.0));
+    let mut notices = session.notices();
+    let mut rng = StdRng::seed_from_u64(1);
+    // Each is 6 dB louder than the reference on its own, its album at the reference.
+    let loudness = bopsie_audio::loudness::Loudness {
+        track_gain_db: -6.0206,
+        track_peak: 0.0,
+        album_gain_db: Some(0.0),
+        album_peak: Some(0.0),
+    };
+    let mut tracks = f.tracks();
+    for (i, (track, playable)) in tracks.iter_mut().enumerate() {
+        playable.loudness = Some(loudness);
+        if i < 2 {
+            track.album = Some(bopsie_core::media::ItemMapping {
+                item_id: "x".to_owned(),
+                provider: "library".to_owned(),
+                name: "X".to_owned(),
+                version: String::new(),
+                sort_name: "x".to_owned(),
+                uri: "library://album/x".to_owned(),
+                external_ids: Vec::new(),
+                is_playable: true,
+                media_type: MediaType::Album,
+                available: true,
+                image: None,
+                year: None,
+            });
+        }
+    }
+    session.update(|queue| ((), queue.enqueue(tracks, QueueOption::Replace, &mut rng)));
+    until_finished(&mut notices).await;
+    let queue = session.snapshot();
+    let last = session.normalised(&queue.items[2].queue_item_id).unwrap();
+    assert_eq!(last.mode, bopsie_audio::loudness::Mode::Track);
+    session.shutdown();
+
+    let played: Vec<i16> = f
+        .played()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| i16::from_le_bytes(b))
+        .collect();
+    // The album's two play as they are; the lone track at half.
+    let album_part = 3_000 * 2 * 2;
+    assert_eq!(
+        &played[..album_part],
+        &[f.samples[0].clone(), f.samples[1].clone()].concat()[..]
+    );
+    for (heard, original) in played[album_part..].iter().zip(&f.samples[2]) {
+        assert!(
+            (i32::from(*heard) - i32::from(*original) / 2).abs() <= 1,
+            "{heard} from {original}"
+        );
+    }
 }

@@ -1,6 +1,6 @@
 //! `player_queues/*` commands. A queue's id is its player's id.
 
-use bopsie_audio::engine::Input;
+use bopsie_audio::engine::Playable;
 
 use bopsie_core::media::Track;
 use bopsie_core::{Error, Result};
@@ -146,7 +146,7 @@ impl Command for PlayMedia {
 
     async fn handle(ctx: Context, args: PlayMediaArgs) -> Result<()> {
         let option = option(args.option.as_deref())?;
-        let mut tracks: Vec<(Track, Input)> = Vec::new();
+        let mut tracks: Vec<(Track, Playable)> = Vec::new();
         for uri in uris(&args.media) {
             tracks.extend(ctx.api.library.playable(&uri).await?);
         }

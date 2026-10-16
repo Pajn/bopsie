@@ -156,7 +156,7 @@ impl Setup {
         self.playback.player(id, None).unwrap()
     }
 
-    fn track(&self) -> (Track, bopsie_audio::engine::Input) {
+    fn track(&self) -> (Track, bopsie_audio::engine::Playable) {
         let path = self.dir.path().join("a.wav");
         write_wav(&path, 44_100, 2, &noise(1, 44_100 * 2 * 5)).unwrap();
         let track = Track {

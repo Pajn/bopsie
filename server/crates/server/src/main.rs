@@ -158,6 +158,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         PlaybackConfig {
             ffmpeg,
             base_url: config.server.reachable_url(),
+            normalise: config.audio.normalise(),
             policy: Policy {
                 protocols: config.planner.protocols.clone(),
             },

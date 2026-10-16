@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use bopsie_audio::engine::Input;
+use bopsie_audio::engine::Playable;
 use bopsie_core::db::{Database, Migrations};
 use bopsie_core::media::Track;
 use serde::{Deserialize, Serialize};
@@ -71,12 +71,12 @@ impl SavedQueue {
     /// The queue again, idle where it was, with each item's track as `resolve` finds it now.
     /// Items whose track is gone are dropped; if the current one is, the queue rests on the
     /// next that is left, from its start.
-    pub fn restore(&self, mut resolve: impl FnMut(&str) -> Option<(Track, Input)>) -> Queue {
+    pub fn restore(&self, mut resolve: impl FnMut(&str) -> Option<(Track, Playable)>) -> Queue {
         let mut current = None;
         let mut position = Duration::from_millis(self.position_ms);
         let mut items = Vec::new();
         for (index, saved) in self.items.iter().enumerate() {
-            let Some((track, input)) = resolve(&saved.uri) else {
+            let Some((track, playable)) = resolve(&saved.uri) else {
                 if Some(index) == self.current_index {
                     position = Duration::ZERO;
                 }
@@ -89,7 +89,8 @@ impl SavedQueue {
                 queue_item_id: saved.queue_item_id.clone(),
                 sort_index: saved.sort_index,
                 track,
-                input,
+                input: playable.input,
+                loudness: playable.loudness,
             });
         }
         if current.is_none() {
@@ -253,7 +254,9 @@ mod tests {
         }
     }
 
-    fn resolve_all_but<'a>(gone: &'a [&'a str]) -> impl FnMut(&str) -> Option<(Track, Input)> + 'a {
+    fn resolve_all_but<'a>(
+        gone: &'a [&'a str],
+    ) -> impl FnMut(&str) -> Option<(Track, Playable)> + 'a {
         move |uri| {
             (!gone.contains(&uri))
                 .then(|| (track(uri), PathBuf::from(format!("/new/{uri}.flac")).into()))
@@ -280,7 +283,7 @@ mod tests {
         assert_eq!(queue.repeat_mode, RepeatMode::All);
         assert_eq!(
             queue.items[2].input,
-            Input::File(PathBuf::from("/new/c.flac")),
+            bopsie_audio::engine::Input::File(PathBuf::from("/new/c.flac")),
             "as the library has it"
         );
         assert_eq!(

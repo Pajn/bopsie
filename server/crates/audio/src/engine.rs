@@ -77,6 +77,28 @@ impl Input {
     }
 }
 
+/// What a track plays from, and how loud it is there, when that is known before it opens.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Playable {
+    pub input: Input,
+    pub loudness: Option<Loudness>,
+}
+
+impl From<PathBuf> for Playable {
+    fn from(path: PathBuf) -> Self {
+        Input::File(path).into()
+    }
+}
+
+impl From<Input> for Playable {
+    fn from(input: Input) -> Self {
+        Self {
+            input,
+            loudness: None,
+        }
+    }
+}
+
 impl From<PathBuf> for Input {
     fn from(path: PathBuf) -> Self {
         Self::File(path)

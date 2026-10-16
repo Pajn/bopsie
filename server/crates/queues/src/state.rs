@@ -5,7 +5,8 @@
 //! up to the higher of the two can be moved or removed, and new items go after it, so an edit
 //! never pulls the next track out from under the player.
 
-use bopsie_audio::engine::Input;
+use bopsie_audio::engine::{Input, Playable};
+use bopsie_audio::loudness::Loudness;
 use std::time::Duration;
 
 use bopsie_core::media::Track;
@@ -55,6 +56,8 @@ pub struct QueueItem {
     pub track: Track,
     /// What the track plays from: a file, or a provider's stream.
     pub input: Input,
+    /// How loud it is there, when known before it opens.
+    pub loudness: Option<Loudness>,
 }
 
 /// What the player must do after an operation.
@@ -151,16 +154,17 @@ impl Queue {
         Some(index + 1)
     }
 
-    fn make_items(&mut self, tracks: Vec<(Track, Input)>) -> Vec<QueueItem> {
+    fn make_items(&mut self, tracks: Vec<(Track, Playable)>) -> Vec<QueueItem> {
         tracks
             .into_iter()
-            .map(|(track, input)| {
+            .map(|(track, playable)| {
                 self.next_sort_index += 1;
                 QueueItem {
                     queue_item_id: uuid::Uuid::new_v4().simple().to_string(),
                     sort_index: self.next_sort_index,
                     track,
-                    input,
+                    input: playable.input,
+                    loudness: playable.loudness,
                 }
             })
             .collect()
@@ -190,7 +194,7 @@ impl Queue {
     /// Adds tracks as `option` says.
     pub fn enqueue(
         &mut self,
-        tracks: Vec<(Track, Input)>,
+        tracks: Vec<(Track, Playable)>,
         option: QueueOption,
         rng: &mut impl Rng,
     ) -> Effect {
@@ -391,6 +395,24 @@ impl Queue {
         Effect::NextChanged
     }
 
+    /// Whether the item at `index` plays as part of its album, at the album's gain: with
+    /// shuffle off, and the item before or after it from the same album.
+    pub fn plays_as_album(&self, index: usize) -> bool {
+        if self.shuffle_enabled {
+            return false;
+        }
+        let album = |i: usize| {
+            self.items
+                .get(i)
+                .and_then(|item| item.track.album.as_ref())
+                .map(|album| album.uri.as_str())
+        };
+        let Some(own) = album(index) else {
+            return false;
+        };
+        index.checked_sub(1).and_then(album) == Some(own) || album(index + 1) == Some(own)
+    }
+
     /// The player wants the item after the one it was handed last: the current item first,
     /// from where it was left. Returns the item and where in it to start.
     pub fn hand_over_next(&mut self) -> Option<(&QueueItem, Duration)> {
@@ -471,7 +493,7 @@ mod tests {
 
     use super::*;
 
-    fn track(name: &str) -> (Track, Input) {
+    fn track(name: &str) -> (Track, Playable) {
         let track = Track {
             fields: ItemFields {
                 item_id: name.to_owned(),
@@ -500,7 +522,7 @@ mod tests {
         (track, PathBuf::from(format!("{name}.wav")).into())
     }
 
-    fn tracks(names: &str) -> Vec<(Track, Input)> {
+    fn tracks(names: &str) -> Vec<(Track, Playable)> {
         names.chars().map(|c| track(&c.to_string())).collect()
     }
 
@@ -534,6 +556,48 @@ mod tests {
             .unwrap()
             .queue_item_id
             .clone()
+    }
+
+    /// Tracks of `names`, each on the album its letter in `albums` names, or none for `-`.
+    fn on_albums(names: &str, albums: &str) -> Vec<(Track, Playable)> {
+        tracks(names)
+            .into_iter()
+            .zip(albums.chars())
+            .map(|((mut track, playable), album)| {
+                track.album = (album != '-').then(|| bopsie_core::media::ItemMapping {
+                    item_id: album.to_string(),
+                    provider: "library".to_owned(),
+                    name: album.to_string(),
+                    version: String::new(),
+                    sort_name: album.to_string(),
+                    uri: format!("library://album/{album}"),
+                    external_ids: Vec::new(),
+                    is_playable: true,
+                    media_type: MediaType::Album,
+                    available: true,
+                    image: None,
+                    year: None,
+                });
+                (track, playable)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_track_plays_as_part_of_its_album_beside_another_of_it_unshuffled() {
+        let mut queue = Queue::default();
+        // An album of three, a lone track, two of another album apart, a track with none.
+        queue.enqueue(
+            on_albums("abcdefgh", "xxxyzyz-"),
+            QueueOption::Replace,
+            &mut rng(),
+        );
+        let album: String = (0..8)
+            .map(|i| if queue.plays_as_album(i) { 'A' } else { 'T' })
+            .collect();
+        assert_eq!(album, "AAATTTTT");
+        queue.shuffle_enabled = true;
+        assert!(!(0..8).any(|i| queue.plays_as_album(i)));
     }
 
     #[test]

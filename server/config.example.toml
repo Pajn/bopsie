@@ -28,6 +28,12 @@ bind = "0.0.0.0:8927"
 # The ffmpeg binary, used for AAC and ALAC in MP4 containers and for Opus. Unset, ffmpeg is
 # used if it is on the path.
 # ffmpeg = "/usr/bin/ffmpeg"
+# Brings every track to the same loudness, from its ReplayGain or R128 tags, Spotify's own
+# figures, or what the server measured of files without them.
+normalisation = true
+# The loudness, in LUFS. -18 is ReplayGain's; -14 is louder, but holds more tracks down to
+# their peak so that they do not clip.
+target_lufs = -18.0
 
 [airplay]
 # The cliairplay binary, which scripts/fetch-cliairplay.sh downloads. Unset, cliairplay is used

@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::quirks::Quirks;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub server: ServerConfig,
@@ -87,11 +87,34 @@ impl Default for SendspinConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AudioConfig {
     /// The ffmpeg binary. Unset, `ffmpeg` is used if it is on the path.
     pub ffmpeg: Option<PathBuf>,
+    /// Brings every track to `target_lufs`, from its ReplayGain or R128 tags, Spotify's own
+    /// figures, or what the server measured.
+    pub normalisation: bool,
+    /// The loudness tracks are brought to, in LUFS. -18 is ReplayGain 2's; higher is louder,
+    /// but holds more tracks down to their peak.
+    pub target_lufs: f32,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            ffmpeg: None,
+            normalisation: true,
+            target_lufs: -18.0,
+        }
+    }
+}
+
+impl AudioConfig {
+    /// The loudness tracks are brought to, or `None` when normalisation is off.
+    pub fn normalise(&self) -> Option<f32> {
+        (self.normalisation && self.target_lufs.is_finite()).then_some(self.target_lufs)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

@@ -2,6 +2,8 @@
 //! them for a Sendspin player. Fields this server has no value for are present and null or
 //! empty.
 
+use bopsie_audio::engine::Applied;
+use bopsie_audio::loudness::{Mode, REFERENCE_LUFS};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bopsie_core::media::Track;
@@ -85,6 +87,20 @@ pub fn queue_item(queue_id: &str, item: &QueueItem, index: usize) -> Value {
         "index": index,
         "available": true,
         "extra_attributes": {},
+    })
+}
+
+/// How the current item is normalised, as Music Assistant's `StreamDetails` says it: loudness in
+/// LUFS, and the gain applied in dB.
+pub fn stream_details(applied: &Applied) -> Value {
+    let lufs = |gain: f32| f64::from(REFERENCE_LUFS - gain);
+    let loudness = &applied.loudness;
+    json!({
+        "loudness": lufs(loudness.track_gain_db),
+        "loudness_album": loudness.album_gain_db.map(lufs),
+        "prefer_album_loudness": applied.mode == Mode::Album,
+        "target_loudness": f64::from(applied.target_lufs),
+        "volume_normalization_gain_correct": f64::from(applied.gain_db),
     })
 }
 

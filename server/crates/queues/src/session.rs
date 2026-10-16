@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{
-    self, Command, EngineHandle, Event, Input, Settings, Tagged, TrackRequest, TrackSource,
+    self, Applied, Command, EngineHandle, Event, Input, Settings, Tagged, TrackRequest, TrackSource,
 };
+use bopsie_audio::loudness::Normalise;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::clock;
@@ -82,6 +83,8 @@ const LIVE_ID: &str = "live";
 struct Source {
     queue: Arc<Mutex<Queue>>,
     live: Arc<Mutex<Live>>,
+    /// The loudness tracks are brought to, in LUFS; `None` plays them as they are.
+    target: Arc<Mutex<Option<f32>>>,
 }
 
 impl TrackSource for Source {
@@ -103,13 +106,19 @@ impl TrackSource for Source {
             return None;
         }
         let (item, start) = queue.hand_over_next()?;
-        Some(TrackRequest {
+        let mut request = TrackRequest {
             id: item.queue_item_id.clone(),
             input: item.input.clone(),
             start,
-            loudness: None,
+            loudness: item.loudness,
             normalise: None,
-        })
+        };
+        let index = queue.index_in_buffer?;
+        request.normalise = self.target.lock().unwrap().map(|target_lufs| Normalise {
+            target_lufs,
+            album: queue.plays_as_album(index),
+        });
+        Some(request)
     }
 }
 
@@ -131,6 +140,10 @@ pub struct QueueSession {
     epoch: Arc<Mutex<u64>>,
     position: Arc<Mutex<Position>>,
     notices: broadcast::Sender<Notice>,
+    /// The loudness tracks are brought to, in LUFS; `None` plays them as they are.
+    target: Arc<Mutex<Option<f32>>>,
+    /// The gain normalisation gave the item that started last, by its queue item id.
+    normalised: Arc<Mutex<Option<(String, Applied)>>>,
 }
 
 impl Default for QueueSession {
@@ -154,6 +167,22 @@ impl QueueSession {
             epoch: Arc::default(),
             position: Arc::new(Mutex::new(position)),
             notices: broadcast::channel(256).0,
+            target: Arc::default(),
+            normalised: Arc::default(),
+        }
+    }
+
+    /// Brings tracks handed to the engine from now on to `target` LUFS, or, with `None`, plays
+    /// them as they are.
+    pub fn normalise_to(&self, target: Option<f32>) {
+        *self.target.lock().unwrap() = target;
+    }
+
+    /// The gain normalisation gave queue item `id`, if it is the one that started last.
+    pub fn normalised(&self, id: &str) -> Option<Applied> {
+        match &*self.normalised.lock().unwrap() {
+            Some((started, applied)) if started == id => Some(*applied),
+            _ => None,
         }
     }
 
@@ -174,6 +203,7 @@ impl QueueSession {
             Box::new(Source {
                 queue: self.queue.clone(),
                 live: self.live.clone(),
+                target: self.target.clone(),
             }),
             sinks,
         );
@@ -501,7 +531,14 @@ async fn follow(
         let notice = {
             let mut queue = session.queue.lock().unwrap();
             match tagged.event {
-                Event::TrackStarted { id, start, .. } => queue.index_of(&id).map(|index| {
+                Event::TrackStarted {
+                    id,
+                    start,
+                    normalised,
+                    ..
+                } => queue.index_of(&id).map(|index| {
+                    *session.normalised.lock().unwrap() =
+                        normalised.map(|applied| (id.clone(), applied));
                     queue.started(index);
                     *session.position.lock().unwrap() = Position {
                         offset: start,
