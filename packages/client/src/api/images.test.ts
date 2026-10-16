@@ -1,4 +1,4 @@
-import { imageUrl } from './images';
+import { imageKey, imageUrl } from './images';
 
 const image = (extra: object = {}) => ({
   type: 'thumb',
@@ -38,5 +38,37 @@ describe('imageUrl', () => {
   it('is null for an item without images', () => {
     expect(imageUrl('http://ma:8095', { metadata: { images: [] } }, 80)).toBeNull();
     expect(imageUrl('http://ma:8095', { image: null }, 80)).toBeNull();
+  });
+});
+
+describe('imageKey', () => {
+  it('is the same for every size of a picture, by its proxy id', () => {
+    const item = {
+      image: {
+        type: 'thumb',
+        path: 'a.jpg',
+        provider: 'library',
+        remotely_accessible: false,
+        proxy_id: 'abc',
+      },
+    };
+    expect(imageKey(item)).toBe('abc');
+  });
+
+  it('falls back to the provider and path', () => {
+    const item = {
+      image: {
+        type: 'thumb',
+        path: 'a.jpg',
+        provider: 'library',
+        remotely_accessible: false,
+        proxy_id: null,
+      },
+    };
+    expect(imageKey(item)).toBe('library:a.jpg');
+  });
+
+  it('is null without images', () => {
+    expect(imageKey({ image: null })).toBeNull();
   });
 });

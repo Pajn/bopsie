@@ -36,3 +36,13 @@ export function imageUrl(serverUrl: string, item: WithImages, size: ImageSize): 
   const path = encodeURIComponent(encodeURIComponent(image.path));
   return `${stream.toString()}?provider=${encodeURIComponent(image.provider)}&size=${size}&fmt=jpeg&path=${path}`;
 }
+
+/**
+ * What names an item's picture whatever size it is asked for, so an image cache can count the
+ * proxy's sizes of it as one: the proxy id, or the provider and path. Null without images.
+ */
+export function imageKey(item: WithImages): string | null {
+  const image = primaryImage(item);
+  if (!image) return null;
+  return image.proxy_id ?? `${image.provider}:${image.path}`;
+}

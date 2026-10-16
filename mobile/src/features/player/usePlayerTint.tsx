@@ -1,4 +1,4 @@
-import { imageUrl } from '@bopsie/client/api/images';
+import { imageKey, imageUrl } from '@bopsie/client/api/images';
 import type { WithImages } from '@bopsie/client/api/schemas/media';
 import { useQuery } from '@tanstack/react-query';
 import { createContext, type ReactNode, useContext } from 'react';
@@ -18,7 +18,10 @@ export function useCoverTint(artwork: WithImages | null): PlayerTint | null {
   const url = artwork ? imageUrl(account.serverUrl, artwork, 256) : null;
   const colors = useQuery({
     queryKey: ['cover-colors', url],
-    queryFn: () => (url ? Image.getColors(url) : null),
+    queryFn: () => {
+      const cacheKey = artwork ? imageKey(artwork) : null;
+      return url ? Image.getColors({ uri: url, ...(cacheKey && { cacheKey }) }) : null;
+    },
     enabled: url !== null,
     staleTime: Number.POSITIVE_INFINITY,
   }).data;

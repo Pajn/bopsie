@@ -1,4 +1,4 @@
-import { type ImageSize, imageUrl } from '@bopsie/client/api/images';
+import { type ImageSize, imageKey, imageUrl } from '@bopsie/client/api/images';
 import type { WithImages } from '@bopsie/client/api/schemas/media';
 import { View } from 'react-native';
 import { Image } from 'react-native-true-image';
@@ -7,7 +7,11 @@ import { useConnection } from '@/connection/ConnectionProvider';
 import { markEach } from '@/lib/bench';
 import { Icon, type IconName } from '@/ui/Icon';
 
-/** Square artwork through the server's image proxy, with a glyph when an item has none. */
+/**
+ * Square artwork through the server's image proxy, with a glyph when an item has none. Every
+ * size of a picture shares a cache key, so a size already loaded stands in for, or does
+ * instead of, the one asked for.
+ */
 export function Artwork({
   item,
   size,
@@ -23,12 +27,13 @@ export function Artwork({
 }) {
   const { account } = useConnection();
   const uri = imageUrl(account.serverUrl, item, imageSize);
+  const cacheKey = imageKey(item) ?? undefined;
   const shape = { width: size, height: size, borderRadius: round ? size / 2 : 6 };
   return (
     <View style={[styles.frame, shape]}>
       {uri ? (
         <Image
-          source={{ uri }}
+          source={{ uri, ...(cacheKey && { cacheKey }) }}
           style={shape}
           resizeMode="cover"
           onDisplay={() => markEach('image')}

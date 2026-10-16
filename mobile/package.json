@@ -51,7 +51,7 @@
     "react-native-reorderable-list": "0.18.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.2",
-    "react-native-true-image": "^2.1.0",
+    "react-native-true-image": "^2.2.0",
     "react-native-unistyles": "^3.3.0",
     "react-native-worklets": "0.13.0",
     "zod": "^4.6.1",
