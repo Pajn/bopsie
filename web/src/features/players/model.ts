@@ -16,6 +16,8 @@ export interface PlayerRow {
   player: Player | undefined;
   /** The device it follows, by name. */
   follows: string | null;
+  /** The device it follows, by id. */
+  leaderId: string | null;
   /** The devices following it, by name. */
   followers: string[];
   /** How the group it leads plays, while it does. */
@@ -55,7 +57,8 @@ export function playerRows(
         protocols: device.members.map((member) => member.provider),
         health: worst(device.members.map((member) => member.health.level)),
         player,
-        follows: leader ? name(leader) : (player?.synced_to ?? null),
+        follows: leader ? name(leader) : player?.synced_to ? name(player.synced_to) : null,
+        leaderId: leader ?? player?.synced_to ?? null,
         followers: (group?.members ?? []).map(name),
         strategy: group?.plan?.strategy ?? null,
       };
@@ -63,6 +66,57 @@ export function playerRows(
     .sort((a, b) =>
       a.available === b.available ? a.name.localeCompare(b.name) : a.available ? -1 : 1,
     );
+}
+
+/** A player that leads, with those that play along with it. */
+export interface PlayerGroup {
+  leader: PlayerRow;
+  members: PlayerRow[];
+}
+
+/**
+ * The players as the players page shows them: groups that play or are paused, or that have
+ * members, first; then the rest that can play; then those that cannot be reached.
+ */
+export function arrange(rows: PlayerRow[]): {
+  active: PlayerGroup[];
+  idle: PlayerRow[];
+  unavailable: PlayerRow[];
+} {
+  const available = rows.filter((row) => row.available);
+  const membersOf = (leader: PlayerRow) => available.filter((row) => row.leaderId === leader.id);
+  const leaders = available.filter((row) => row.leaderId === null);
+  const busy = (row: PlayerRow) => {
+    const state = row.player?.playback_state;
+    return state === 'playing' || state === 'paused';
+  };
+  const active: PlayerGroup[] = [];
+  const idle: PlayerRow[] = [];
+  for (const leader of leaders) {
+    const members = membersOf(leader);
+    if (busy(leader) || members.length > 0) active.push({ leader, members });
+    else idle.push(leader);
+  }
+  // A member whose leader is not among the players still shows, as a player on its own.
+  const placed = new Set(active.flatMap((group) => group.members.map((member) => member.id)));
+  for (const row of available) {
+    if (
+      row.leaderId !== null &&
+      !placed.has(row.id) &&
+      !leaders.some((l) => l.id === row.leaderId)
+    ) {
+      idle.push(row);
+    }
+  }
+  // Playing before paused.
+  active.sort((a, b) =>
+    a.leader.player?.playback_state === b.leader.player?.playback_state
+      ? a.leader.name.localeCompare(b.leader.name)
+      : a.leader.player?.playback_state === 'playing'
+        ? -1
+        : 1,
+  );
+  return { active, idle, unavailable: rows.filter((row) => !row.available) };
 }
 
 /** The queue a player's controls act on: its leader's while it follows one. */

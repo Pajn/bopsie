@@ -1,12 +1,16 @@
+import { leaveGroup, setVolume } from '@bopsie/client/api/endpoints/players';
 import { reachableImageUrl } from '@bopsie/client/api/images';
 import { Link } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { useQueue } from '@/data/queues';
 import { itemArtwork } from '@/features/queues/items';
+import { describeError } from '@/lib/errors';
 import { Artwork } from '@/ui/Artwork';
-import { Badge, Card, Stack, Text } from '@/ui/primitives';
+import { IconButton, VolumeSlider } from '@/ui/controls';
+import { Badge, Card, InlineError, Stack, Text } from '@/ui/primitives';
 import { healthTone, type PlayerRow } from './model';
 import { PlayerControls } from './PlayerControls';
 
@@ -45,10 +49,13 @@ export function PlayerCard({
   row,
   rows,
   linked = true,
+  members,
 }: {
   row: PlayerRow;
   rows: PlayerRow[];
   linked?: boolean;
+  /** Those playing along, shown inside the card, each with its own volume. */
+  members?: PlayerRow[];
 }) {
   const state = row.player?.playback_state ?? 'idle';
   const media = row.player?.current_media;
@@ -80,7 +87,7 @@ export function PlayerCard({
               {media.album}
             </Text>
           ) : null}
-          {row.followers.length > 0 ? (
+          {row.followers.length > 0 && !members?.length ? (
             <Text variant="caption" muted numberOfLines={1}>
               With {row.followers.join(', ')}
               {row.strategy ? ` · ${row.strategy}` : ''}
@@ -97,11 +104,74 @@ export function PlayerCard({
         </Stack>
       </View>
       {row.available ? <PlayerControls row={row} rows={rows} /> : null}
+      {members?.length ? (
+        <View style={styles.members}>
+          <Text variant="label" muted>
+            PLAYING ALONG{row.strategy ? ` · ${row.strategy}` : ''}
+          </Text>
+          {members.map((member) => (
+            <MemberRow key={member.id} row={member} />
+          ))}
+        </View>
+      ) : null}
     </Card>
   );
 }
 
+/** A player in a group: its name, its own volume, and a way out of the group. */
+function MemberRow({ row }: { row: PlayerRow }) {
+  const { connection } = useConnection();
+  const [error, setError] = useState<string | null>(null);
+  const run = (action: () => Promise<unknown>) => {
+    setError(null);
+    action().catch((e: unknown) => setError(describeError(e)));
+  };
+  return (
+    <View>
+      <View style={styles.member}>
+        <View style={styles.memberName}>
+          <Link href={`/players/${encodeURIComponent(row.id)}`} asChild>
+            <Pressable accessibilityRole="link">
+              <Text numberOfLines={1} style={styles.name}>
+                {row.name}
+              </Text>
+            </Pressable>
+          </Link>
+        </View>
+        <View style={styles.memberVolume}>
+          <VolumeSlider
+            value={row.player?.volume_level ?? null}
+            muted={row.player?.volume_muted ?? null}
+            label={row.name}
+            onChange={(level) => run(() => setVolume(connection, row.id, level))}
+            onMute={(muted) =>
+              run(() => connection.command('players/cmd/volume_mute', { player_id: row.id, muted }))
+            }
+          />
+        </View>
+        <IconButton
+          icon="log-out"
+          label={`Take ${row.name} out of the group`}
+          variant="ghost"
+          size="sm"
+          onPress={() => run(() => leaveGroup(connection, row.id))}
+        />
+      </View>
+      <InlineError message={error} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create((theme) => ({
+  members: {
+    gap: theme.spacing.xs,
+    paddingTop: theme.spacing.md,
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  member: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md, minHeight: 36 },
+  memberName: { width: { xs: 96, md: 180 } },
+  memberVolume: { flex: 1, maxWidth: 360 },
   header: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md, flexWrap: 'wrap' },
   titles: { flex: 1, minWidth: 160, gap: 2 },
   name: { color: theme.colors.accent },

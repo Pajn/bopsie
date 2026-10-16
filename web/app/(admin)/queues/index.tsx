@@ -81,24 +81,53 @@ export default function QueuesScreen() {
     .sort((a, b) => a.name.localeCompare(b.name));
   const queues = useQueues(leaders.map((p) => p.player_id));
   const error = players.error ?? queues.find((q) => q.error)?.error;
+  const all = leaders.map((player, i) => ({ player, queue: queues[i]?.data }));
+  // Queues that hold something first, playing before the rest; the empty ones in a line.
+  const held = all
+    .filter(({ queue }) => (queue?.items ?? 0) > 0)
+    .sort((a, b) => Number(b.queue?.state === 'playing') - Number(a.queue?.state === 'playing'));
+  const empty = all.filter(({ queue }) => queue && queue.items === 0);
   return (
     <Page title="Queues" subtitle="What each player, or group, plays next">
       <InlineError message={error ? describeError(error) : null} />
       {players.isSuccess && leaders.length === 0 ? (
         <Text muted>No queues yet: each player has one once the server finds it.</Text>
       ) : null}
-      {leaders.length > 0 ? (
+      {held.length > 0 ? (
         <Card style={styles.list}>
-          {leaders.map((player, i) => (
+          {held.map(({ player, queue }, i) => (
             <QueueRow
               key={player.player_id}
               id={player.player_id}
               name={player.name}
-              queue={queues[i]?.data}
-              last={i === leaders.length - 1}
+              queue={queue}
+              last={i === held.length - 1}
             />
           ))}
         </Card>
+      ) : null}
+      {empty.length > 0 ? (
+        <View style={styles.empty}>
+          <Text variant="label" muted>
+            EMPTY · {empty.length}
+          </Text>
+          <View style={styles.names}>
+            {empty.map(({ player }, i) => (
+              <Link
+                key={player.player_id}
+                href={`/queues/${encodeURIComponent(player.player_id)}`}
+                asChild
+              >
+                <Pressable accessibilityRole="link">
+                  <Text muted>
+                    <Text style={styles.emptyName}>{player.name}</Text>
+                    {i < empty.length - 1 ? ',' : ''}
+                  </Text>
+                </Pressable>
+              </Link>
+            ))}
+          </View>
+        </View>
       ) : null}
     </Page>
   );
@@ -117,4 +146,7 @@ const styles = StyleSheet.create((theme) => ({
   hovered: { backgroundColor: theme.colors.surfaceVariant },
   text: { flex: 1, minWidth: 0, gap: 1 },
   name: { color: theme.colors.accent, fontWeight: '600' },
+  empty: { gap: theme.spacing.xs },
+  names: { flexDirection: 'row', flexWrap: 'wrap', columnGap: theme.spacing.sm, rowGap: 2 },
+  emptyName: { color: theme.colors.accent },
 }));

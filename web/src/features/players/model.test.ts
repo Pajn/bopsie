@@ -1,6 +1,6 @@
 import type { AdminDevice, AdminGroup } from '@bopsie/client/api/schemas/admin';
 import type { Player } from '@bopsie/client/api/schemas/player';
-import { airplayRoute, describeSource, playerRows, queueOf, worst } from './model';
+import { airplayRoute, arrange, describeSource, playerRows, queueOf, worst } from './model';
 
 function device(id: string, name: string, available: boolean, levels: string[]): AdminDevice {
   return {
@@ -109,4 +109,26 @@ describe('airplayRoute', () => {
       tone: 'muted',
     });
   });
+});
+
+test('groups that play come first with their members, then the idle, then the unreachable', () => {
+  const playing = (id: string) =>
+    ({ player_id: id, synced_to: null, playback_state: 'playing' }) as unknown as Player;
+  const rows = playerRows(
+    [
+      device('bedroom', 'Bedroom', true, ['good']),
+      device('kitchen', 'Kitchen', true, ['good']),
+      device('patio', 'Patio', true, ['good']),
+      device('garage', 'Garage', false, ['good']),
+      device('tv', 'TV', true, ['good']),
+    ],
+    [playing('tv'), player('bedroom', 'tv'), player('kitchen'), player('patio')],
+    [],
+  );
+  const { active, idle, unavailable } = arrange(rows);
+  expect(active.map((g) => [g.leader.name, g.members.map((m) => m.name)])).toEqual([
+    ['TV', ['Bedroom']],
+  ]);
+  expect(idle.map((row) => row.name)).toEqual(['Kitchen', 'Patio']);
+  expect(unavailable.map((row) => row.name)).toEqual(['Garage']);
 });
