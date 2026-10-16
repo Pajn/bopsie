@@ -256,10 +256,16 @@ struct Setup {
 }
 
 async fn setup() -> Setup {
+    setup_running(None).await
+}
+
+/// As [`setup`], with `app` running on the device before the server reaches it.
+async fn setup_running(app: Option<&'static str>) -> Setup {
     let players = Players::default();
     let hosted = Hosted::default();
     let sendspin = sendspin(players.clone(), hosted.clone()).await;
     let device = FakeDevice::start().await;
+    device.state.lock().unwrap().app = app;
     let provider = CastProvider::new(
         players.clone(),
         hosted,
@@ -456,5 +462,33 @@ async fn a_receiver_that_stopped_by_itself_is_launched_again_for_its_group() {
     eventually(|| endpoint.state().capabilities.formats.len() == 1).await;
     let writing = tokio::task::spawn_blocking(move || sink.write(441, &[0; 4 * 441]));
     assert!(writing.await.unwrap().is_ok());
+    provider.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_receiver_running_from_before_is_taken_on_then_released() {
+    // As after the server restarted while the receiver played.
+    let Setup {
+        provider,
+        mut device,
+        endpoint,
+        ..
+    } = setup_running(Some(APP)).await;
+    let connect = device
+        .expect("urn:x-cast:com.google.cast.tp.connection", "CONNECT")
+        .await;
+    assert!(connect["senderInfo"].is_object());
+    // Connected to as a sender, so that the device keeps it, and told where to play.
+    let config = device.expect("urn:x-cast:sendspin", "config").await;
+    assert_eq!(config["playerId"], format!("cast{UUID}"));
+    eventually(|| endpoint.state().capabilities.formats.len() == 1).await;
+
+    // Idle, it is released as one the server launched would be, and not taken on again.
+    device
+        .expect("urn:x-cast:com.google.cast.receiver", "STOP")
+        .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(device.state.lock().unwrap().app, None);
+    assert_eq!(endpoint.diagnostics()["wanted"], false);
     provider.shutdown();
 }

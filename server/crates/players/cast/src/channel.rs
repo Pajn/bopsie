@@ -260,6 +260,7 @@ impl Channel<'_> {
                 let running = {
                     let mut status = shared.status.lock().unwrap();
                     status.wanted = true;
+                    status.stopping = false;
                     status.seen = false;
                     // A receiver that is running is told again, in case its client gave up.
                     status.configured = None;
@@ -286,11 +287,13 @@ impl Channel<'_> {
                     let mut status = shared.status.lock().unwrap();
                     status.wanted = false;
                     status.configured = None;
-                    status
+                    let session = status
                         .app
                         .as_ref()
                         .filter(|app| app.app_id == shared.settings.app_id)
-                        .map(|app| app.session_id.clone())
+                        .map(|app| app.session_id.clone());
+                    status.stopping = session.is_some();
+                    session
                 };
                 match session {
                     Some(session) => {
@@ -409,7 +412,21 @@ impl Channel<'_> {
         let ours = app
             .as_ref()
             .is_some_and(|app| app.app_id == shared.settings.app_id);
-        if current.wanted && ours {
+        if !ours {
+            current.stopping = false;
+        }
+        if ours && !current.wanted && !current.stopping {
+            // Running from before, as when the server restarted while it played: it is taken
+            // on, as Cast stops an app no sender is connected to, and released once idle.
+            tracing::info!(
+                device = shared.id,
+                "the Cast receiver runs already; taking it on"
+            );
+            current.wanted = true;
+            current.seen = true;
+            current.configured = None;
+            shared.release_later();
+        } else if current.wanted && ours {
             current.seen = true;
         } else if current.wanted && current.seen {
             // It stopped, or another app took the device, which is not taken back.

@@ -78,6 +78,8 @@ pub(crate) struct Status {
     /// Another app took the device from the receiver: it is not launched again until a play
     /// asks for it.
     pub taken: bool,
+    /// The server stopped the receiver, and the device may still list it meanwhile.
+    pub stopping: bool,
     /// The receiver's transport the server told where to connect.
     pub configured: Option<String>,
     /// Where the receiver is told to connect.
@@ -124,6 +126,27 @@ impl Shared {
             .clone()
             .filter(|client| client.state().available)
     }
+
+    /// Stops the receiver after it has been idle for the settings' `release_after`, unless
+    /// something plays before then.
+    pub fn release_later(self: &Arc<Self>) {
+        let shared = self.clone();
+        let after = shared.settings.release_after;
+        let task = self.runtime.spawn(async move {
+            tokio::time::sleep(after).await;
+            tracing::debug!(device = shared.id, "releasing an idle Cast receiver");
+            shared.send(Command::Stop);
+        });
+        if let Some(old) = self.release.lock().unwrap().replace(task) {
+            old.abort();
+        }
+    }
+
+    fn keep(&self) {
+        if let Some(task) = self.release.lock().unwrap().take() {
+            task.abort();
+        }
+    }
 }
 
 pub struct CastEndpoint {
@@ -131,25 +154,12 @@ pub struct CastEndpoint {
 }
 
 impl CastEndpoint {
-    /// Stops the receiver after it has been idle for the settings' `release_after`, unless
-    /// something plays before then.
     fn release_later(&self) {
-        let shared = self.shared.clone();
-        let after = shared.settings.release_after;
-        let task = self.shared.runtime.spawn(async move {
-            tokio::time::sleep(after).await;
-            tracing::debug!(device = shared.id, "releasing an idle Cast receiver");
-            shared.send(Command::Stop);
-        });
-        if let Some(old) = self.shared.release.lock().unwrap().replace(task) {
-            old.abort();
-        }
+        self.shared.release_later();
     }
 
     fn keep(&self) {
-        if let Some(task) = self.shared.release.lock().unwrap().take() {
-            task.abort();
-        }
+        self.shared.keep();
     }
 }
 
