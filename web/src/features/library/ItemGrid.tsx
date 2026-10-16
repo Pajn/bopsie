@@ -6,6 +6,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Icon } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
+import { Skeleton } from '@/ui/Skeleton';
 import { type Item, itemHref, subtitle } from './ItemRow';
 import { PlayButtons } from './PlayButtons';
 
@@ -77,15 +78,28 @@ export function ItemGrid({
   items,
   caption = subtitle,
   narrow = false,
+  loading = 0,
 }: {
   items: Item[];
   caption?: (item: Item) => string;
   narrow?: boolean;
+  /** Tiles to hold the place of items still loading. */
+  loading?: number;
 }) {
   return (
     <View style={styles.grid}>
       {items.map((item) => (
         <Tile key={item.uri} item={item} caption={caption} narrow={narrow} />
+      ))}
+      {Array.from({ length: loading }, (_, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: placeholders have no identity but their place.
+        <View key={i} style={styles.cell(narrow)}>
+          <View style={styles.tile(false)}>
+            <Skeleton />
+            <Skeleton width="70%" height={12} radius={4} />
+            <Skeleton width="45%" height={10} radius={4} />
+          </View>
+        </View>
       ))}
     </View>
   );

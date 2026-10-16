@@ -15,6 +15,7 @@ import { describeError } from '@/lib/errors';
 import { useDebounced } from '@/lib/useDebounced';
 import { SearchField, Tabs } from '@/ui/controls';
 import { Button, Card, Choice, InlineError, Page, Text } from '@/ui/primitives';
+import { SkeletonRows } from '@/ui/Skeleton';
 
 type Tab = LibraryKind | 'suggestions' | 'duplicates';
 
@@ -141,6 +142,15 @@ export default function LibraryScreen() {
           ) : null}
           {items.isSuccess && all.length === 0 ? (
             <Text muted>{search ? `No ${kind} match “${search}”.` : `No ${kind} yet.`}</Text>
+          ) : null}
+          {items.isPending ? (
+            kind === 'tracks' ? (
+              <Card>
+                <SkeletonRows count={8} />
+              </Card>
+            ) : (
+              <ItemGrid items={[]} loading={10} />
+            )
           ) : null}
           {kind === 'tracks' ? (
             all.length > 0 ? (

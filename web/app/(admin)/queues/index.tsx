@@ -11,6 +11,7 @@ import { describeError } from '@/lib/errors';
 import { Artwork } from '@/ui/Artwork';
 import { Icon } from '@/ui/Icon';
 import { Card, InlineError, Page, Text } from '@/ui/primitives';
+import { SkeletonRows } from '@/ui/Skeleton';
 
 /** What a queue holds and does, in a line. */
 function summary(queue: PlayerQueue | null | undefined): string {
@@ -92,6 +93,11 @@ export default function QueuesScreen() {
       <InlineError message={error ? describeError(error) : null} />
       {players.isSuccess && leaders.length === 0 ? (
         <Text muted>No queues yet: each player has one once the server finds it.</Text>
+      ) : null}
+      {players.isPending || queues.some((q) => q.isPending) ? (
+        <Card>
+          <SkeletonRows count={3} art={48} />
+        </Card>
       ) : null}
       {held.length > 0 ? (
         <Card style={styles.list}>

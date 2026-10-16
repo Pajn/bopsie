@@ -27,6 +27,7 @@ import { TrackList } from '@/features/library/TrackList';
 import { describeError } from '@/lib/errors';
 import { Disclosure } from '@/ui/controls';
 import { Button, Card, InlineError, Page, Text } from '@/ui/primitives';
+import { Skeleton, SkeletonRows } from '@/ui/Skeleton';
 
 const KINDS = ['album', 'artist', 'playlist', 'track'] as const;
 
@@ -88,7 +89,20 @@ export default function ItemScreen() {
       title={data?.name ?? id}
       back={{ href: '/library', label: 'Library' }}
       wide
-      hero={data ? <ItemHero item={data} tracks={kind === 'artist' ? undefined : tracks} /> : null}
+      hero={
+        data ? (
+          <ItemHero item={data} tracks={kind === 'artist' ? undefined : tracks} />
+        ) : item.isPending ? (
+          <View style={styles.heroLoading}>
+            <Skeleton width={200} height={200} round={kind === 'artist'} />
+            <View style={styles.heroLines}>
+              <Skeleton width={60} height={10} radius={4} />
+              <Skeleton width="60%" height={32} radius={6} />
+              <Skeleton width="30%" height={14} radius={4} />
+            </View>
+          </View>
+        ) : null
+      }
     >
       <InlineError message={error ? describeError(error) : null} />
       <View style={styles.columns}>
@@ -102,6 +116,11 @@ export default function ItemScreen() {
                 caption={(album) => String((album as Album).year ?? '')}
               />
             </View>
+          ) : null}
+          {contents.isPending ? (
+            <Card>
+              <SkeletonRows count={8} art={null} />
+            </Card>
           ) : null}
           {tracks.length > 0 ? (
             <Card {...(kind === 'artist' && { title: 'Tracks' })}>
@@ -149,4 +168,10 @@ const styles = StyleSheet.create((theme) => ({
   main: { flexGrow: 1, flexBasis: { xs: 'auto', lg: 0 }, minWidth: 0, gap: theme.spacing.lg },
   side: { width: { xs: 'auto', lg: 380 }, gap: theme.spacing.lg },
   section: { gap: theme.spacing.sm },
+  heroLoading: {
+    flexDirection: { xs: 'column', md: 'row' },
+    alignItems: { xs: 'flex-start', md: 'flex-end' },
+    gap: theme.spacing.xl,
+  },
+  heroLines: { flex: 1, width: '100%', gap: theme.spacing.sm },
 }));

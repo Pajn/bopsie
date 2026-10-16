@@ -6,6 +6,7 @@ import { PlayerCard } from '@/features/players/PlayerCard';
 import { PlayerLine } from '@/features/players/PlayerLine';
 import { describeError } from '@/lib/errors';
 import { Card, InlineError, Page, Text } from '@/ui/primitives';
+import { SkeletonRows } from '@/ui/Skeleton';
 
 export default function PlayersScreen() {
   const devices = useDevices();
@@ -20,6 +21,11 @@ export default function PlayersScreen() {
       <InlineError message={error ? describeError(error) : null} />
       {devices.isSuccess && rows.length === 0 ? (
         <Text muted>No players yet. Speakers show here once the server finds them.</Text>
+      ) : null}
+      {devices.isPending ? (
+        <Card>
+          <SkeletonRows count={4} art={52} />
+        </Card>
       ) : null}
       {active.map((group) => (
         <PlayerCard key={group.leader.id} row={group.leader} rows={rows} members={group.members} />

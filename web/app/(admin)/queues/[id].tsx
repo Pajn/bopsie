@@ -22,6 +22,7 @@ import { Artwork } from '@/ui/Artwork';
 import { Disclosure, IconButton, SeekBar } from '@/ui/controls';
 import { Icon } from '@/ui/Icon';
 import { Button, Card, InlineError, Page, Text } from '@/ui/primitives';
+import { SkeletonRows } from '@/ui/Skeleton';
 
 const REPEAT = ['off', 'all', 'one'] as const;
 
@@ -276,25 +277,37 @@ export default function QueueScreen() {
     >
       <InlineError message={loadError ? describeError(loadError) : null} />
       {q ? <NowPlaying id={id} queue={q} run={run} /> : null}
+      {queue.isPending ? (
+        <Card>
+          <SkeletonRows count={1} art={96} />
+        </Card>
+      ) : null}
+      {items.isPending ? (
+        <Card>
+          <SkeletonRows count={6} art={40} />
+        </Card>
+      ) : null}
       <InlineError message={error} />
-      <Card title={count > 0 ? `${count} ${count === 1 ? 'item' : 'items'}` : 'Items'}>
-        {items.data?.length === 0 ? (
-          <Text muted>The queue is empty. Play something from the library to fill it.</Text>
-        ) : null}
-        <View>
-          {items.data?.map((item, index) => (
-            <ItemRow
-              key={item.queue_item_id}
-              id={id}
-              item={item}
-              index={index}
-              current={q?.current_index ?? -1}
-              held={held}
-              run={run}
-            />
-          ))}
-        </View>
-      </Card>
+      {items.isPending ? null : (
+        <Card title={count > 0 ? `${count} ${count === 1 ? 'item' : 'items'}` : 'Items'}>
+          {items.data?.length === 0 ? (
+            <Text muted>The queue is empty. Play something from the library to fill it.</Text>
+          ) : null}
+          <View>
+            {items.data?.map((item, index) => (
+              <ItemRow
+                key={item.queue_item_id}
+                id={id}
+                item={item}
+                index={index}
+                current={q?.current_index ?? -1}
+                held={held}
+                run={run}
+              />
+            ))}
+          </View>
+        </Card>
+      )}
       {q ? (
         <Disclosure title="Raw" hint="What the server reports">
           <JsonTree value={JSON.parse(JSON.stringify(q))} colors={colors} />
