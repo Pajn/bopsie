@@ -4,6 +4,7 @@
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use bopsie_core::backoff::{self, Backoff};
@@ -415,7 +416,8 @@ impl Channel<'_> {
         if !ours {
             current.stopping = false;
         }
-        if ours && !current.wanted && !current.stopping {
+        if ours && !current.wanted && !current.stopping && shared.discovered.load(Ordering::SeqCst)
+        {
             // Running from before, as when the server restarted while it played: it is taken
             // on, as Cast stops an app no sender is connected to, and released once idle.
             tracing::info!(
@@ -452,11 +454,11 @@ impl Channel<'_> {
         let shared = self.shared;
         let (transport, server_url) = {
             let status = shared.status.lock().unwrap();
-            let Some(app) = status
-                .app
-                .as_ref()
-                .filter(|app| status.wanted && app.app_id == shared.settings.app_id)
-            else {
+            let Some(app) = status.app.as_ref().filter(|app| {
+                status.wanted
+                    && app.app_id == shared.settings.app_id
+                    && shared.discovered.load(Ordering::SeqCst)
+            }) else {
                 return Ok(());
             };
             if status.configured.as_deref() == Some(app.transport_id.as_str()) {

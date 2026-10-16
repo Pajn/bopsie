@@ -492,3 +492,32 @@ async fn a_receiver_running_from_before_is_taken_on_then_released() {
     assert_eq!(endpoint.diagnostics()["wanted"], false);
     provider.shutdown();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_back_under_a_new_id_retires_the_old_one() {
+    let Setup {
+        players,
+        provider,
+        mut device,
+        endpoint,
+    } = setup_running(Some(APP)).await;
+    device.expect("urn:x-cast:sendspin", "config").await;
+    eventually(|| endpoint.state().available).await;
+
+    // Reset, it announces itself under a new id, at the same address.
+    let reset = FakeDevice::start().await;
+    let new_uuid = "fedcba9876543210fedcba9876543210";
+    provider.see(Sighting {
+        fullname: "WiiM-Amp._googlecast._tcp.local.".to_owned(),
+        uuid: new_uuid.to_owned(),
+        name: "Living Room".to_owned(),
+        model: Some("WiiM AMP".to_owned()),
+        address: LOCALHOST,
+        port: reset.port,
+    });
+    let renewed = players.get(&format!("cast{new_uuid}")).expect("registered");
+    eventually(|| renewed.state().available).await;
+    eventually(|| !endpoint.state().available).await;
+    assert_eq!(endpoint.diagnostics()["wanted"], false);
+    provider.shutdown();
+}

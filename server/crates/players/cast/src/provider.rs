@@ -119,6 +119,24 @@ impl CastProvider {
             .unwrap()
             .insert(sighting.fullname.clone(), id.clone());
         let mut endpoints = self.inner.endpoints.lock().unwrap();
+        // Another id at the same address is the same device from before it was reset, which
+        // gave it a new id: the old one is gone, so that the two do not both claim it.
+        for (old, endpoint) in endpoints.iter() {
+            let shared = &endpoint.shared;
+            let here = shared.sighting.lock().unwrap().address == sighting.address;
+            if *old != id && here && shared.discovered.swap(false, Ordering::SeqCst) {
+                tracing::info!(
+                    device = old,
+                    now = id,
+                    "a Cast device is here under a new id"
+                );
+                let mut status = shared.status.lock().unwrap();
+                status.wanted = false;
+                status.configured = None;
+                drop(status);
+                shared.players.changed(old);
+            }
+        }
         if let Some(endpoint) = endpoints.get(&id) {
             let shared = &endpoint.shared;
             *shared.sighting.lock().unwrap() = sighting;
