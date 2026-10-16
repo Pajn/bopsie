@@ -23,6 +23,7 @@ import { Disclosure, IconButton, SeekBar } from '@/ui/controls';
 import { Icon } from '@/ui/Icon';
 import { Button, Card, InlineError, Page, Text } from '@/ui/primitives';
 import { SkeletonRows } from '@/ui/Skeleton';
+import { useRun } from '@/ui/Toast';
 
 const REPEAT = ['off', 'all', 'one'] as const;
 
@@ -249,11 +250,7 @@ export default function QueueScreen() {
   const players = usePlayers();
   const queue = useQueue(id);
   const items = useQueueItems(id);
-  const [error, setError] = useState<string | null>(null);
-  const run: Run = (action) => {
-    setError(null);
-    action().catch((e: unknown) => setError(describeError(e)));
-  };
+  const run: Run = useRun();
   const name = players.data?.find((p) => p.player_id === id)?.name ?? id;
   const q = queue.data;
   // The server refuses moves and removals up to what the player already holds.
@@ -287,7 +284,6 @@ export default function QueueScreen() {
           <SkeletonRows count={6} art={40} />
         </Card>
       ) : null}
-      <InlineError message={error} />
       {items.isPending ? null : (
         <Card title={count > 0 ? `${count} ${count === 1 ? 'item' : 'items'}` : 'Items'}>
           {items.data?.length === 0 ? (

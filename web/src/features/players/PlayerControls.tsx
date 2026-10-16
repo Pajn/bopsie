@@ -5,23 +5,18 @@ import {
   setVolume,
   transferQueue,
 } from '@bopsie/client/api/endpoints/players';
-import { useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { describeError } from '@/lib/errors';
 import { IconButton, VolumeSlider } from '@/ui/controls';
-import { Button, Choice, InlineError, Stack } from '@/ui/primitives';
+import { Button, Choice, Stack } from '@/ui/primitives';
+import { useRun } from '@/ui/Toast';
 import { type PlayerRow, queueOf } from './model';
 
 /** Everything a player can be told through the API it already has. */
 export function PlayerControls({ row, rows }: { row: PlayerRow; rows: PlayerRow[] }) {
   const { connection } = useConnection();
-  const [error, setError] = useState<string | null>(null);
-  const run = (action: () => Promise<unknown>) => {
-    setError(null);
-    action().catch((e: unknown) => setError(describeError(e)));
-  };
+  const run = useRun();
   const player = row.player;
   const queue = queueOf(row);
   const volume = player?.volume_level ?? null;
@@ -88,7 +83,6 @@ export function PlayerControls({ row, rows }: { row: PlayerRow; rows: PlayerRow[
           onChoose={(target) => run(() => transferQueue(connection, queue, target))}
         />
       </Stack>
-      <InlineError message={error} />
     </Stack>
   );
 }

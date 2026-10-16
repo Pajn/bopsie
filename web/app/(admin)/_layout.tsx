@@ -7,6 +7,7 @@ import { useAccountActions } from '@/auth/AuthProvider';
 import { ConnectionProvider, useConnection } from '@/connection/ConnectionProvider';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text, type WebPress } from '@/ui/primitives';
+import { ToastProvider } from '@/ui/Toast';
 
 const PAGES: ReadonlyArray<{ href: string; title: string; icon: IconName }> = [
   { href: '/players', title: 'Players', icon: 'speaker' },
@@ -202,7 +203,9 @@ function Shell() {
 export default function AdminLayout() {
   return (
     <ConnectionProvider>
-      <Shell />
+      <ToastProvider>
+        <Shell />
+      </ToastProvider>
     </ConnectionProvider>
   );
 }

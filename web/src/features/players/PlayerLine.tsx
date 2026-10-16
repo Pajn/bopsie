@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { describeError } from '@/lib/errors';
 import { IconButton, VolumeSlider } from '@/ui/controls';
 import { Icon } from '@/ui/Icon';
-import { Badge, InlineError, Text } from '@/ui/primitives';
+import { Badge, Text } from '@/ui/primitives';
+import { useRun } from '@/ui/Toast';
 import { healthTone, type PlayerRow } from './model';
 import { PlayerControls } from './PlayerControls';
 
@@ -28,11 +28,7 @@ export function PlayerLine({
   const { connection } = useConnection();
   const { theme } = useUnistyles();
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run = (action: () => Promise<unknown>) => {
-    setError(null);
-    action().catch((e: unknown) => setError(describeError(e)));
-  };
+  const run = useRun();
   return (
     <View style={[styles.line, !last && styles.divided, !row.available && styles.unavailable]}>
       <View style={styles.row}>
@@ -77,7 +73,6 @@ export function PlayerLine({
           </>
         ) : null}
       </View>
-      <InlineError message={error} />
       {open ? (
         <View style={styles.more}>
           <PlayerControls row={row} rows={rows} />

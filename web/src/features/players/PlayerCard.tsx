@@ -1,16 +1,15 @@
 import { leaveGroup, setVolume } from '@bopsie/client/api/endpoints/players';
 import { reachableImageUrl } from '@bopsie/client/api/images';
 import { Link } from 'expo-router';
-import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { useQueue } from '@/data/queues';
 import { itemArtwork } from '@/features/queues/items';
-import { describeError } from '@/lib/errors';
 import { Artwork } from '@/ui/Artwork';
 import { IconButton, VolumeSlider } from '@/ui/controls';
-import { Badge, Card, InlineError, Stack, Text } from '@/ui/primitives';
+import { Badge, Card, Stack, Text } from '@/ui/primitives';
+import { useRun } from '@/ui/Toast';
 import { healthTone, type PlayerRow } from './model';
 import { PlayerControls } from './PlayerControls';
 
@@ -122,11 +121,7 @@ export function PlayerCard({
 /** A player in a group: its name, its own volume, and a way out of the group. */
 function MemberRow({ row }: { row: PlayerRow }) {
   const { connection } = useConnection();
-  const [error, setError] = useState<string | null>(null);
-  const run = (action: () => Promise<unknown>) => {
-    setError(null);
-    action().catch((e: unknown) => setError(describeError(e)));
-  };
+  const run = useRun();
   return (
     <View>
       <View style={styles.member}>
@@ -158,7 +153,6 @@ function MemberRow({ row }: { row: PlayerRow }) {
           onPress={() => run(() => leaveGroup(connection, row.id))}
         />
       </View>
-      <InlineError message={error} />
     </View>
   );
 }
