@@ -14,6 +14,9 @@ export interface Heard {
   results: SpeakerResult[];
   /** Speakers the group carries in their own multiroom, which were not measured. */
   skipped: string[];
+  /** How far ahead of the server's own clock the phone's idea of it was, in milliseconds,
+   * which the recording was corrected by. */
+  skewMs: number;
 }
 
 /**
@@ -44,6 +47,7 @@ export async function listen(
   return {
     results: speakerResults(hearChirps(recording, calibration)),
     skipped: calibration.skipped,
+    skewMs: (phoneNow - calibration.now_us) / 1000,
   };
 }
 

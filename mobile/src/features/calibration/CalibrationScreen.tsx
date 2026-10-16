@@ -96,10 +96,22 @@ export function CalibrationScreen() {
               Speakers
             </Text>
             {grouped ? (
-              group.members.map((member) => <Text key={member.id}>{member.name}</Text>)
+              group.members.map((member) => (
+                <Text key={member.id}>
+                  {member.name}
+                  {member.volume === null ? '' : ` · volume ${member.volume}`}
+                </Text>
+              ))
             ) : (
-              <Text>Group at least two speakers in Play on first.</Text>
+              <Text>Group at least two speakers first.</Text>
             )}
+            <Button
+              title={grouped ? 'Speakers and volume' : 'Choose speakers'}
+              variant="secondary"
+              disabled={busy}
+              onPress={() => router.push('/outputs')}
+              testID="calibration-outputs"
+            />
           </Stack>
 
           {!connected && (
@@ -127,6 +139,12 @@ export function CalibrationScreen() {
                   <Text muted={line.ok}>{line.text}</Text>
                 </View>
               ))}
+              {Math.abs(state.heard.skewMs) >= 50 && (
+                <Text muted>
+                  This phone's clock was {Math.round(state.heard.skewMs)} ms off the server's; the
+                  recording was corrected for it.
+                </Text>
+              )}
               {state.heard.skipped.length > 0 && (
                 <Text muted>
                   Not measured, as they follow the group in their own multiroom:{' '}
@@ -164,7 +182,7 @@ export function CalibrationScreen() {
               testID="calibration-apply"
             />
           )}
-          {grouped ? (
+          {grouped && (
             <Button
               title={state.step === 'ready' ? 'Start' : 'Calibrate again'}
               variant={state.step === 'ready' ? 'primary' : 'secondary'}
@@ -172,12 +190,6 @@ export function CalibrationScreen() {
               disabled={busy || !connected || (state.step === 'heard' && state.applying)}
               onPress={() => void start()}
               testID="calibration-start"
-            />
-          ) : (
-            <Button
-              title="Choose speakers"
-              variant="secondary"
-              onPress={() => router.push('/outputs')}
             />
           )}
         </Stack>
