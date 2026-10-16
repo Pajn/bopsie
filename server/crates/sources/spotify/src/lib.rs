@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::broadcast::error::RecvError;
 
 pub use account::{AccountError, AccountStatus, Endpoints, SpotifyAccount};
-pub use device::ConnectDevice;
+pub use device::{ConnectDevice, Setup};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -37,6 +37,8 @@ pub struct Config {
     pub addresses: Vec<IpAddr>,
     /// What speakers are called, unless their settings say: `[spotify]` in the config file.
     pub names: SpotifyConfig,
+    /// The loudness what the app plays is brought to, in LUFS; `None` plays it as it is.
+    pub normalise: Option<f32>,
 }
 
 /// The Spotify Connect devices, one for each speaker that wants one.
@@ -165,19 +167,15 @@ impl SpotifyConnect {
             old.shutdown();
         }
         if let Some((name, volume)) = wanted {
-            let device = ConnectDevice::start(
-                id,
-                &name,
-                volume,
-                device_id(&self.inner.config.server_id, id),
-                self.inner.config.addresses.clone(),
-                self.inner
-                    .config
-                    .data_dir
-                    .join("spotify")
-                    .join(&device_id(&self.inner.config.server_id, id)[..16]),
-                &self.inner.sources,
-            );
+            let config = &self.inner.config;
+            let device_id = device_id(&config.server_id, id);
+            let setup = Setup {
+                cache_dir: config.data_dir.join("spotify").join(&device_id[..16]),
+                device_id,
+                addresses: config.addresses.clone(),
+                normalise: config.normalise,
+            };
+            let device = ConnectDevice::start(id, &name, volume, setup, &self.inner.sources);
             running.insert(id.to_owned(), device);
         }
     }

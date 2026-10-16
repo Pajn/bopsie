@@ -186,13 +186,16 @@ pub struct Tagged {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     /// The track, from `start` within it, begins at timeline frame `at`, with the gain
-    /// normalisation gave it, if any.
+    /// normalisation gave it, if any and known yet.
     TrackStarted {
         id: String,
         at: u64,
         start: Duration,
         normalised: Option<Applied>,
     },
+    /// Normalisation gave the track this gain, known only once its audio came: a streamed
+    /// track's loudness arrives with it.
+    Normalised { id: String, applied: Applied },
     /// The track's last frame ends at timeline frame `at`.
     TrackEnded { id: String, at: u64 },
     /// The track could not be played and was skipped.
@@ -346,15 +349,33 @@ struct Opened {
     id: String,
     decoder: Box<dyn Decoder>,
     start: Duration,
-    normalised: Option<Applied>,
+    loudness: Option<Loudness>,
+    normalise: Option<Normalise>,
 }
 
 struct Playing {
     id: String,
     decoder: Box<dyn Decoder>,
     converter: Converter,
-    /// What its samples are multiplied by.
-    factor: f32,
+    /// What its samples are multiplied by; `None` until the decoder says how loud they are,
+    /// which it does by its first audio.
+    factor: Option<f32>,
+    normalise: Option<Normalise>,
+}
+
+/// The gain `normalise` gives audio as loud as `loudness`.
+fn applied(loudness: Loudness, normalise: Normalise) -> Applied {
+    let (gain_db, mode) = loudness.gain_db(normalise);
+    Applied {
+        gain_db,
+        mode,
+        loudness,
+        target_lufs: normalise.target_lufs,
+    }
+}
+
+fn factor(applied: Option<&Applied>) -> f32 {
+    applied.map_or(1.0, |applied| 10f32.powf(applied.gain_db / 20.0))
 }
 
 struct Engine {
@@ -628,21 +649,12 @@ impl Engine {
                 self.settings.ffmpeg.as_deref(),
             ) {
                 Ok(decoder) => {
-                    let normalised = request.normalise.and_then(|normalise| {
-                        let loudness = request.loudness.or_else(|| decoder.loudness())?;
-                        let (gain_db, mode) = loudness.gain_db(normalise);
-                        Some(Applied {
-                            gain_db,
-                            mode,
-                            loudness,
-                            target_lufs: normalise.target_lufs,
-                        })
-                    });
                     return Some(Opened {
                         id: request.id,
                         decoder,
                         start: request.start,
-                        normalised,
+                        loudness: request.loudness,
+                        normalise: request.normalise,
                     });
                 }
                 Err(error) => self.emit(Event::TrackFailed {
@@ -680,19 +692,25 @@ impl Engine {
                 opened.start = Duration::ZERO;
             }
         }
+        // The gain is settled now when the loudness is known, else at the track's first audio.
+        let loudness = opened.loudness.or_else(|| opened.decoder.loudness());
+        let normalised = opened
+            .normalise
+            .zip(loudness)
+            .map(|(normalise, loudness)| applied(loudness, normalise));
+        let settled = opened.normalise.is_none() || loudness.is_some();
         self.emit(Event::TrackStarted {
             id: opened.id.clone(),
             at: self.head,
             start: opened.start,
-            normalised: opened.normalised,
+            normalised,
         });
         self.current = Some(Playing {
             id: opened.id,
             converter: Converter::new(native, self.settings.format),
             decoder: opened.decoder,
-            factor: opened
-                .normalised
-                .map_or(1.0, |applied| 10f32.powf(applied.gain_db / 20.0)),
+            factor: settled.then(|| factor(normalised.as_ref())),
+            normalise: opened.normalise,
         });
         self.prepared = self.open_next();
     }
@@ -704,9 +722,28 @@ impl Engine {
         let mut decoded = Vec::new();
         let (samples, ended) = match playing.decoder.read(&mut decoded) {
             Ok(Read::Data) => {
-                if playing.factor != 1.0 {
+                let factor = match playing.factor {
+                    Some(factor) => factor,
+                    None => {
+                        let normalised = playing
+                            .normalise
+                            .zip(playing.decoder.loudness())
+                            .map(|(normalise, loudness)| applied(loudness, normalise));
+                        let factor = factor(normalised.as_ref());
+                        playing.factor = Some(factor);
+                        if let Some(applied) = normalised {
+                            let id = playing.id.clone();
+                            self.emit(Event::Normalised { id, applied });
+                        }
+                        factor
+                    }
+                };
+                let Some(playing) = &mut self.current else {
+                    return;
+                };
+                if factor != 1.0 {
                     for sample in &mut decoded {
-                        *sample *= playing.factor;
+                        *sample *= factor;
                     }
                 }
                 (playing.converter.push(&decoded), false)

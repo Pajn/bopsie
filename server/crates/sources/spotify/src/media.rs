@@ -12,6 +12,7 @@ use std::time::Duration;
 use bopsie_audio::PcmFormat;
 use bopsie_audio::decode::{DecodeError, Decoder, Read as Decoded, SymphoniaDecoder};
 use bopsie_audio::engine::Media;
+use bopsie_audio::loudness::{Loudness, REFERENCE_LUFS};
 use librespot_audio::{AudioDecrypt, AudioFile};
 use librespot_core::{SpotifyId, SpotifyUri};
 use librespot_metadata::audio::AudioFileFormat;
@@ -28,6 +29,11 @@ pub const FORMAT: PcmFormat = PcmFormat {
 };
 /// Spotify's own header before the Ogg stream.
 const HEADER: u64 = 0xa7;
+/// Where in the header Spotify keeps the track's loudness: its track gain, track peak, album
+/// gain and album peak, as little-endian `f32`s.
+const LOUDNESS_AT: u64 = 144;
+/// The loudness Spotify's gains bring audio to, in LUFS.
+pub const SPOTIFY_REFERENCE_LUFS: f32 = -14.0;
 /// The formats played, best first.
 const PREFERRED: &[AudioFileFormat] = &[
     AudioFileFormat::OGG_VORBIS_320,
@@ -112,11 +118,34 @@ impl Media for SpotifyMedia {
     }
 }
 
-/// Fetches track `id`: its best Ogg Vorbis file, decrypted, past Spotify's header.
+/// How loud a track is, as the header before its Ogg stream says, as ReplayGain 2 gains. None
+/// when it says nothing.
+pub fn header_loudness(stream: &mut (impl Read + Seek)) -> std::io::Result<Option<Loudness>> {
+    stream.seek(SeekFrom::Start(LOUDNESS_AT))?;
+    let mut bytes = [0u8; 16];
+    stream.read_exact(&mut bytes)?;
+    let value = |i: usize| f32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+    let (track_gain, track_peak, album_gain, album_peak) =
+        (value(0), value(4), value(8), value(12));
+    if !(track_gain.is_finite() && track_peak.is_finite() && track_peak > 0.0) {
+        return Ok(None);
+    }
+    let gain = |spotify: f32| spotify + (REFERENCE_LUFS - SPOTIFY_REFERENCE_LUFS);
+    let album = album_gain.is_finite() && album_peak.is_finite() && album_peak > 0.0;
+    Ok(Some(Loudness {
+        track_gain_db: gain(track_gain),
+        track_peak,
+        album_gain_db: album.then(|| gain(album_gain)),
+        album_peak: album.then_some(album_peak),
+    }))
+}
+
+/// Fetches track `id`: its best Ogg Vorbis file, decrypted, past Spotify's header, and how
+/// loud the header says it is.
 async fn fetch(
     account: &SpotifyAccount,
     id: SpotifyId,
-) -> Result<Box<dyn MediaSource>, DecodeError> {
+) -> Result<(Box<dyn MediaSource>, Option<Loudness>), DecodeError> {
     let unavailable =
         |why: String| DecodeError::Unsupported(format!("Spotify track {id:?}: {why}"));
     let session = account
@@ -157,8 +186,12 @@ async fn fetch(
         .map_err(|e| unavailable(e.to_string()))?
         .len() as u64;
     tracing::debug!(track = track.name, ?format, "playing from Spotify");
-    let decrypted = AudioDecrypt::new(Some(key), audio);
-    Ok(Box::new(Subfile::new(decrypted, HEADER, length)?))
+    let mut decrypted = AudioDecrypt::new(Some(key), audio);
+    let loudness = header_loudness(&mut decrypted).unwrap_or_else(|error| {
+        tracing::debug!(%error, "no loudness in the Spotify header");
+        None
+    });
+    Ok((Box::new(Subfile::new(decrypted, HEADER, length)?), loudness))
 }
 
 #[derive(Default)]
@@ -170,6 +203,8 @@ struct State {
     seek: Option<u64>,
     /// The engine let the track go.
     closed: bool,
+    /// How loud the track is, once its header is read.
+    loudness: Option<Loudness>,
 }
 
 struct Shared {
@@ -183,10 +218,12 @@ pub struct Fetching {
 }
 
 impl Fetching {
-    /// Opens the source `open` gives, on a thread of its own, and decodes it there as far as
-    /// [`AHEAD`] in front of what is read.
+    /// Opens the source `open` gives, with how loud it is, on a thread of its own, and decodes
+    /// it there as far as [`AHEAD`] in front of what is read.
     pub fn start(
-        open: impl FnOnce() -> Result<Box<dyn MediaSource>, DecodeError> + Send + 'static,
+        open: impl FnOnce() -> Result<(Box<dyn MediaSource>, Option<Loudness>), DecodeError>
+        + Send
+        + 'static,
     ) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::default(),
@@ -196,7 +233,10 @@ impl Fetching {
         std::thread::Builder::new()
             .name("spotify-track".to_owned())
             .spawn(move || {
-                let result = open().and_then(|source| decode(&decoding, source));
+                let result = open().and_then(|(source, loudness)| {
+                    decoding.state.lock().unwrap().loudness = loudness;
+                    decode(&decoding, source)
+                });
                 let mut state = decoding.state.lock().unwrap();
                 match result {
                     Ok(()) => state.ended = true,
@@ -284,6 +324,10 @@ impl Decoder for Fetching {
         Ok(Decoded::Data)
     }
 
+    fn loudness(&self) -> Option<Loudness> {
+        self.shared.state.lock().unwrap().loudness
+    }
+
     fn seek(&mut self, frame: u64) -> Result<u64, DecodeError> {
         let mut state = self.shared.state.lock().unwrap();
         state.samples.clear();
@@ -322,8 +366,32 @@ mod tests {
     }
 
     #[test]
+    fn the_headers_loudness_is_read_as_replaygain() {
+        let mut header = vec![0u8; 0xa7];
+        for (i, value) in [-5.5f32, 0.9, -3.0, 0.95].into_iter().enumerate() {
+            let at = LOUDNESS_AT as usize + i * 4;
+            header[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        assert_eq!(
+            header_loudness(&mut Cursor::new(&header)).unwrap(),
+            Some(Loudness {
+                track_gain_db: -9.5,
+                track_peak: 0.9,
+                album_gain_db: Some(-7.0),
+                album_peak: Some(0.95),
+            })
+        );
+        // A header that says nothing.
+        assert_eq!(
+            header_loudness(&mut Cursor::new(vec![0u8; 0xa7])).unwrap(),
+            None
+        );
+    }
+
+    #[test]
     fn a_track_that_cannot_open_says_why() {
         let mut fetching = Fetching::start(|| Err(DecodeError::Unsupported("no key".to_owned())));
+        assert_eq!(fetching.loudness(), None);
         let mut out = Vec::new();
         let error = loop {
             match fetching.read(&mut out) {

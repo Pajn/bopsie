@@ -190,6 +190,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
                 server_id: api.server_id.clone(),
                 addresses: config.spotify.addresses.clone(),
                 names: config.spotify.clone(),
+                normalise: config.audio.normalise(),
             },
             devices,
             api.sources.clone(),

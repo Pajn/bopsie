@@ -9,6 +9,7 @@
 //! when what they describe becomes audible, so the current item changes when the listener hears
 //! the new track, not when the engine starts writing it.
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -74,6 +75,9 @@ struct Live {
     /// Its input, until the engine takes it.
     input: Option<Input>,
 }
+
+/// How many items' normalisation is kept: the current, and those handed over after it.
+const NORMALISED_KEPT: usize = 4;
 
 /// The track id a source's input plays under.
 const LIVE_ID: &str = "live";
@@ -142,8 +146,8 @@ pub struct QueueSession {
     notices: broadcast::Sender<Notice>,
     /// The loudness tracks are brought to, in LUFS; `None` plays them as they are.
     target: Arc<Mutex<Option<f32>>>,
-    /// The gain normalisation gave the item that started last, by its queue item id.
-    normalised: Arc<Mutex<Option<(String, Applied)>>>,
+    /// The gains normalisation gave the items handed to the engine last, by queue item id.
+    normalised: Arc<Mutex<VecDeque<(String, Applied)>>>,
 }
 
 impl Default for QueueSession {
@@ -178,11 +182,24 @@ impl QueueSession {
         *self.target.lock().unwrap() = target;
     }
 
-    /// The gain normalisation gave queue item `id`, if it is the one that started last.
+    /// The gain normalisation gave queue item `id`, if it was one of the last handed to the
+    /// engine.
     pub fn normalised(&self, id: &str) -> Option<Applied> {
-        match &*self.normalised.lock().unwrap() {
-            Some((started, applied)) if started == id => Some(*applied),
-            _ => None,
+        self.normalised
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|(handed, _)| handed == id)
+            .map(|(_, applied)| *applied)
+    }
+
+    fn record_normalised(&self, id: String, applied: Applied) {
+        let mut normalised = self.normalised.lock().unwrap();
+        normalised.retain(|(handed, _)| *handed != id);
+        normalised.push_back((id, applied));
+        while normalised.len() > NORMALISED_KEPT {
+            normalised.pop_front();
         }
     }
 
@@ -515,6 +532,7 @@ async fn follow(
             }
             Event::TrackEnded { .. }
             | Event::TrackFailed { .. }
+            | Event::Normalised { .. }
             | Event::OutputFailed { .. }
             | Event::Crashed { .. } => None,
         };
@@ -537,8 +555,9 @@ async fn follow(
                     normalised,
                     ..
                 } => queue.index_of(&id).map(|index| {
-                    *session.normalised.lock().unwrap() =
-                        normalised.map(|applied| (id.clone(), applied));
+                    if let Some(applied) = normalised {
+                        session.record_normalised(id.clone(), applied);
+                    }
                     queue.started(index);
                     *session.position.lock().unwrap() = Position {
                         offset: start,
@@ -561,6 +580,10 @@ async fn follow(
                     queue.finished();
                     *session.position.lock().unwrap() = Position::default();
                     Some(Notice::Finished)
+                }
+                Event::Normalised { id, applied } => {
+                    session.record_normalised(id, applied);
+                    None
                 }
                 Event::Idle { .. }
                 | Event::TrackEnded { .. }

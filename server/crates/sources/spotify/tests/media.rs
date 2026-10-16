@@ -33,7 +33,9 @@ fn open(path: &Path) -> Fetching {
     let path = path.to_owned();
     Fetching::start(move || {
         let length = std::fs::metadata(&path)?.len();
-        Ok(Box::new(Subfile::new(File::open(&path)?, 0xa7, length)?))
+        let source: Box<dyn symphonia::core::io::MediaSource> =
+            Box::new(Subfile::new(File::open(&path)?, 0xa7, length)?);
+        Ok((source, None))
     })
 }
 

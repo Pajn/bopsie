@@ -25,7 +25,9 @@ use librespot_core::config::DeviceType;
 use librespot_core::{Session, SessionConfig};
 use librespot_discovery::Discovery;
 use librespot_playback::audio_backend::{Sink, SinkResult};
-use librespot_playback::config::PlayerConfig;
+use librespot_playback::config::{NormalisationType, PlayerConfig};
+
+use crate::media::SPOTIFY_REFERENCE_LUFS;
 use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
 use librespot_playback::mixer::{Mixer, MixerConfig};
@@ -57,6 +59,8 @@ pub(crate) struct Inner {
     cache_dir: PathBuf,
     sources: Sources,
     state: Mutex<SourceState>,
+    /// The loudness what the app plays is brought to, in LUFS; `None` plays it as it is.
+    normalise: Option<f32>,
     /// Where decoded audio goes: the group's live input, once it took one.
     writer: Mutex<Option<Arc<LiveWriter>>>,
     spirc: Mutex<Option<Spirc>>,
@@ -81,6 +85,18 @@ fn from_percent(percent: u8) -> u16 {
     (f64::from(percent.min(100)) * f64::from(u16::MAX) / 100.0).round() as u16
 }
 
+/// How a device is announced and plays.
+pub struct Setup {
+    /// What Spotify knows the device by.
+    pub device_id: String,
+    /// The addresses it is announced at.
+    pub addresses: Vec<IpAddr>,
+    /// Where it keeps the credentials it was given.
+    pub cache_dir: PathBuf,
+    /// The loudness what the app plays is brought to, in LUFS; `None` plays it as it is.
+    pub normalise: Option<f32>,
+}
+
 impl ConnectDevice {
     /// Announces a device named `name` for `player`, at the player's `volume`, and registers
     /// it as a source. Needs a Tokio runtime.
@@ -88,18 +104,17 @@ impl ConnectDevice {
         player: &str,
         name: &str,
         volume: u8,
-        device_id: String,
-        addresses: Vec<IpAddr>,
-        cache_dir: PathBuf,
+        setup: Setup,
         sources: &Sources,
     ) -> Arc<Self> {
         let inner = Arc::new(Inner {
             id: format!("spotify_connect--{player}"),
             player: player.to_owned(),
             name: name.to_owned(),
-            device_id,
-            addresses,
-            cache_dir,
+            device_id: setup.device_id,
+            addresses: setup.addresses,
+            cache_dir: setup.cache_dir,
+            normalise: setup.normalise,
             sources: sources.clone(),
             state: Mutex::default(),
             writer: Mutex::default(),
@@ -288,6 +303,18 @@ async fn connect_apart(
     }
 }
 
+/// librespot's player, normalising to `normalise` LUFS as queues do: Spotify's gains are to
+/// its own reference, and librespot picks the album's gain when an album plays in order.
+fn player_config(normalise: Option<f32>) -> PlayerConfig {
+    let mut config = PlayerConfig::default();
+    if let Some(target) = normalise {
+        config.normalisation = true;
+        config.normalisation_type = NormalisationType::Auto;
+        config.normalisation_pregain_db = f64::from(target - SPOTIFY_REFERENCE_LUFS);
+    }
+    config
+}
+
 async fn connect(
     device: &Arc<Inner>,
     session_config: &SessionConfig,
@@ -303,7 +330,7 @@ async fn connect(
     });
     let sink_device = Arc::downgrade(device);
     let player = Player::new(
-        PlayerConfig::default(),
+        player_config(device.normalise),
         session.clone(),
         mixer.get_soft_volume(),
         move || {

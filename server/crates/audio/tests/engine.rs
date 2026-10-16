@@ -871,3 +871,66 @@ fn normalised_tracks_are_scaled_and_others_are_not() {
         ]
     );
 }
+
+/// A second of a constant level, as a stream that learns how loud it is as its audio comes.
+struct Streamed {
+    level: Level,
+    read: bool,
+}
+
+impl Decoder for Streamed {
+    fn format(&self) -> PcmFormat {
+        SESSION
+    }
+
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<Read, DecodeError> {
+        self.read = true;
+        self.level.read(out)
+    }
+
+    fn seek(&mut self, frame: u64) -> Result<u64, DecodeError> {
+        self.level.seek(frame)
+    }
+
+    fn loudness(&self) -> Option<Loudness> {
+        self.read.then_some(self.level.loudness)
+    }
+}
+
+#[test]
+fn a_streams_gain_is_settled_by_its_first_audio() {
+    let dir = tempfile::tempdir().unwrap();
+    let tracks = vec![TrackRequest {
+        id: "streamed".to_owned(),
+        input: Input::decoder(Box::new(Streamed {
+            level: Level {
+                left: 2_000,
+                loudness: Loudness {
+                    track_gain_db: -6.0206,
+                    track_peak: 0.25,
+                    album_gain_db: None,
+                    album_peak: None,
+                },
+            },
+            read: false,
+        })),
+        start: Duration::ZERO,
+        loudness: None,
+        normalise: Some(Normalise {
+            target_lufs: -18.0,
+            album: false,
+        }),
+    }];
+    let (events, data) = play(dir.path(), tracks, &[16]);
+    let first = i16::from_le_bytes([data[0][0], data[0][1]]);
+    // 0.25 halved.
+    assert!((i32::from(first) - 4_096).abs() <= 1, "{first}");
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TrackStarted { id, normalised: None, .. } if id == "streamed"
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::Normalised { id, applied } if id == "streamed" && applied.mode == Mode::Track
+    )));
+}
