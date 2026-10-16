@@ -58,7 +58,7 @@ describe('chirpSamples', () => {
 
 /** A recording of `speakers` chirping in turn for three rounds, a second apart, each arriving
  * its delay late, quieter, with noise and an echo. */
-function scenario(delaysMs: Record<string, number | null>) {
+function scenario(delaysMs: Record<string, number | null>, slotUs = 1_000_000) {
   const ids = Object.keys(delaysMs);
   const firstSampleServerUs = 10_000_000;
   const start = firstSampleServerUs + 1_000_000;
@@ -67,13 +67,13 @@ function scenario(delaysMs: Record<string, number | null>) {
       player_id: id,
       name: id,
       endpoint_id: id,
-      at_us: start + (round * ids.length + index) * 1_000_000,
+      at_us: start + (round * ids.length + index) * slotUs,
     })),
   );
   const calibration: Calibration = {
     chirp: CHIRP,
     chirps,
-    ends_at_us: start + 3 * ids.length * 1_000_000,
+    ends_at_us: start + 3 * ids.length * slotUs,
     skipped: [],
   };
   const length = Math.round(((calibration.ends_at_us - firstSampleServerUs) / 1e6 + 0.5) * RATE);
@@ -119,6 +119,16 @@ describe('hearChirps', () => {
       ['kitchen', null, 3],
       ['wiim', null, 3],
     ]);
+  });
+
+  it('hears a speaker that plays late, up to where the next chirp is looked for', () => {
+    const { recording, calibration } = scenario({ philips: 480, wiim: 900 }, 1_500_000);
+    const results = speakerResults(hearChirps(recording, calibration));
+    expect(results.map((r) => [r.endpointId, r.problem])).toEqual([
+      ['philips', null],
+      ['wiim', null],
+    ]);
+    expect(Math.abs((results[1]?.delayMs as number) - 900)).toBeLessThan(0.1);
   });
 
   it('says which speaker it did not hear', () => {

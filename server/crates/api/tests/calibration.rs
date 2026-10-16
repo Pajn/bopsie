@@ -62,10 +62,10 @@ async fn a_group_is_calibrated_from_what_a_phone_heard() {
         .map(|c| c["at_us"].as_i64().unwrap())
         .collect();
     assert!(
-        times.windows(2).all(|w| w[1] - w[0] == 1_000_000),
+        times.windows(2).all(|w| w[1] - w[0] == 1_500_000),
         "{times:?}"
     );
-    assert_eq!(calibration["ends_at_us"], times[0] + 6_000_000);
+    assert_eq!(calibration["ends_at_us"], times[0] + 9_000_000);
     assert_eq!(chirps[0]["name"], "Kitchen");
 
     let again = client
@@ -73,9 +73,9 @@ async fn a_group_is_calibrated_from_what_a_phone_heard() {
         .await;
     assert_eq!(again["error_code"], 9, "one at a time: {again}");
 
-    // Each speaker is given the whole calibration: six seconds of audio.
+    // Each speaker is given the whole calibration: nine seconds of audio.
     eventually(|| {
-        kitchen.frames() >= before.0 + 6 * 44_100 && phone.frames() >= before.1 + 6 * 44_100
+        kitchen.frames() >= before.0 + 9 * 44_100 && phone.frames() >= before.1 + 9 * 44_100
     })
     .await;
 

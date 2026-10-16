@@ -53,8 +53,9 @@ pub struct Scheduled {
 }
 
 /// How far apart the chirps are: long enough for a room's echo to die away, and for a speaker
-/// to be this far off and still be told from the next.
-pub const SLOT_MS: u32 = 1_000;
+/// to be a second off, as a Cast speaker with its output's latency can be against an AirPlay
+/// one already told to wait, and still be told from the next.
+pub const SLOT_MS: u32 = 1_500;
 /// How many times each speaker chirps; the phone takes the median.
 pub const ROUNDS: usize = 3;
 
@@ -165,17 +166,17 @@ mod tests {
 
     #[test]
     fn each_speaker_chirps_in_its_own_slots() {
-        assert_eq!(offset(0, 1, 3), 1_000_000);
-        assert_eq!(offset(1, 0, 3), 3_000_000);
-        assert_eq!(length(2), 6_000_000);
+        assert_eq!(offset(0, 1, 3), 1_500_000);
+        assert_eq!(offset(1, 0, 3), 4_500_000);
+        assert_eq!(length(2), 9_000_000);
         let track = track(1, 2, 1_000, 2);
-        assert_eq!(track.len(), 6_000 * 2);
+        assert_eq!(track.len(), 9_000 * 2);
         let loud = |frame: usize| track[frame * 2..frame * 2 + 2].iter().any(|s| *s != 0.0);
-        // Its chirps start at 1 s, 3 s and 5 s; at 1 kHz, a chirp is 150 frames.
-        assert!(!loud(500) && loud(1_050) && loud(3_050) && loud(5_050) && !loud(2_500));
+        // Its chirps start at 1.5 s, 4.5 s and 7.5 s; at 1 kHz, a chirp is 150 frames.
+        assert!(!loud(500) && loud(1_550) && loud(4_550) && loud(7_550) && !loud(3_000));
         assert_eq!(
-            track[1_050 * 2],
-            track[1_050 * 2 + 1],
+            track[1_550 * 2],
+            track[1_550 * 2 + 1],
             "every channel alike"
         );
     }

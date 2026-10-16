@@ -4,8 +4,9 @@ import { correlationEnvelope } from './fft';
 
 /** How early before it was due a chirp is looked for. */
 const SEARCH_BEFORE_MS = 300;
-/** How late after it was due. Less than a slot, so that the next speaker's chirp is not found. */
-const SEARCH_AFTER_MS = 500;
+/** The latest after it was due a chirp is looked for: up to where the next chirp's search
+ * begins, so that the next speaker's chirp is not taken for it, and no further than this. */
+const SEARCH_AFTER_MS = 1_500;
 /** How much a peak must stand out from the correlation around it to count as heard. */
 const MIN_CLARITY = 8;
 /** An earlier peak this close to the strongest is the sound itself, and the strongest an echo. */
@@ -50,12 +51,20 @@ export function hearChirps(recording: MicRecording, calibration: Calibration): H
   const pattern = chirpSamples(calibration.chirp, rate);
   const before = Math.round((SEARCH_BEFORE_MS / 1000) * rate);
   const after = Math.round((SEARCH_AFTER_MS / 1000) * rate);
+  const frameOf = (us: number) => Math.round(((us - first) / 1_000_000) * rate);
+  const dues = calibration.chirps.map((chirp) => frameOf(chirp.at_us)).sort((a, b) => a - b);
+  const ends = frameOf(calibration.ends_at_us);
   return calibration.chirps.map((chirp) => {
-    const due = Math.round(((chirp.at_us - first) / 1_000_000) * rate);
+    const due = frameOf(chirp.at_us);
+    const next = dues.find((d) => d > due);
     const start = due - before;
-    const end = due + after + pattern.length;
+    const end = Math.min(
+      next === undefined ? ends : next - before,
+      due + after + pattern.length,
+      samples.length,
+    );
     const missing = { endpointId: chirp.endpoint_id, name: chirp.name, delayMs: null, clarity: 0 };
-    if (start < 0 || end > samples.length) return missing;
+    if (start < 0 || end - start < pattern.length + before) return missing;
     const window = new Float64Array(end - start);
     for (let i = 0; i < window.length; i++) window[i] = (samples[start + i] as number) / 32_768;
     const found = findPeak(correlationEnvelope(window, pattern), rate);
