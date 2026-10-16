@@ -256,5 +256,20 @@ pub const MIGRATIONS: Migrations = Migrations {
         UPDATE albums SET metadata_checked = NULL
         WHERE id IN (SELECT album_id FROM release_suggestions WHERE decision IS NULL);
     ",
+        "
+        -- How loud each source's file is, as ReplayGain 2 gains (dB to -18 LUFS) and sample
+        -- peaks: from its tags ('tags') or measured ('measured'). loudness_stamp is the stamp
+        -- of the file they hold for; a file whose stamp differs is due to be measured.
+        ALTER TABLE provider_mappings ADD COLUMN track_gain REAL;
+        ALTER TABLE provider_mappings ADD COLUMN track_peak REAL;
+        ALTER TABLE provider_mappings ADD COLUMN album_gain REAL;
+        ALTER TABLE provider_mappings ADD COLUMN album_peak REAL;
+        ALTER TABLE provider_mappings ADD COLUMN loudness TEXT;
+        ALTER TABLE provider_mappings ADD COLUMN loudness_stamp TEXT;
+
+        -- Files are read again once, for their loudness tags.
+        UPDATE provider_mappings SET stamp = NULL
+        WHERE media_type = 'track' AND provider_domain = 'filesystem_local';
+    ",
     ],
 };

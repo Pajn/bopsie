@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use crate::ids::{IdKind, normalized, search_key};
 use crate::provider::{Entry, ScannedPlaylist, ScannedTrack};
 use crate::query::encode_format;
+use bopsie_audio::loudness::Loudness;
 
 /// The provider an image or mapping belongs to.
 #[derive(Debug, Clone)]
@@ -639,12 +640,57 @@ pub fn upsert_track(
             provider_album(track)
         ],
     )?;
+    set_loudness(tx, source, provider_id, stamp, track.loudness.as_ref())?;
     set_ids(tx, source, MediaType::Track, id, &track.ids)?;
     if !outranked {
         credit(tx, "track_artists", "track_id", id, &artist_ids)?;
         index(tx, MediaType::Track, id, title)?;
     }
     Ok(id)
+}
+
+/// Records how loud the provider's track is, as its tags say. A track whose tags hold both its
+/// own gain and its album's needs nothing more; one without keeps what was measured of the same
+/// file, and is otherwise left due to be measured.
+fn set_loudness(
+    tx: &Connection,
+    source: &Source,
+    provider_id: &str,
+    stamp: &str,
+    loudness: Option<&Loudness>,
+) -> Result<()> {
+    match loudness {
+        Some(loudness) => {
+            let complete = loudness.album_gain_db.is_some();
+            tx.execute(
+                "UPDATE provider_mappings SET track_gain = ?3, track_peak = ?4, album_gain = ?5,
+                     album_peak = ?6, loudness = 'tags', loudness_stamp = ?7
+                 WHERE provider_instance = ?1 AND media_type = 'track'
+                     AND provider_item_id = ?2",
+                params![
+                    source.instance,
+                    provider_id,
+                    loudness.track_gain_db,
+                    loudness.track_peak,
+                    loudness.album_gain_db,
+                    loudness.album_peak,
+                    complete.then_some(stamp)
+                ],
+            )?;
+        }
+        None => {
+            tx.execute(
+                "UPDATE provider_mappings SET track_gain = NULL, track_peak = NULL,
+                     album_gain = NULL, album_peak = NULL, loudness = NULL,
+                     loudness_stamp = NULL
+                 WHERE provider_instance = ?1 AND media_type = 'track'
+                     AND provider_item_id = ?2
+                     AND NOT (loudness IS 'measured' AND loudness_stamp IS ?3)",
+                params![source.instance, provider_id, stamp],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Removes the provider's items, and the library items no other provider still holds.

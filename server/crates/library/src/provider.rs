@@ -2,6 +2,7 @@
 //! scanner calls them on blocking threads.
 
 use bopsie_audio::engine::Input;
+use bopsie_audio::loudness::Loudness;
 
 use crate::ids::IdKind;
 use bopsie_core::media::AudioFormat;
@@ -39,7 +40,7 @@ pub enum ScannedImage {
     Embedded { data: Vec<u8>, extension: String },
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ScannedTrack {
     pub title: String,
     pub artists: Vec<String>,
@@ -66,6 +67,8 @@ pub struct ScannedTrack {
     /// one for each: what artists' images are found by.
     pub artist_spotify_ids: Vec<String>,
     pub album_artist_spotify_ids: Vec<String>,
+    /// How loud the track and its album are, as its tags say.
+    pub loudness: Option<Loudness>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

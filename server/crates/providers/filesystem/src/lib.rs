@@ -11,13 +11,16 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+use bopsie_audio::loudness::{self, Loudness};
 use bopsie_core::media::AudioFormat;
 use bopsie_library::ids::IdKind;
 use bopsie_library::provider::{
     Entry, EntryKind, Listing, MusicProvider, ProviderError, ScannedImage, ScannedPlaylist,
     ScannedTrack,
 };
-use lofty::file::FileType;
+use lofty::config::ParseOptions;
+use lofty::file::{FileType, TaggedFile};
+use lofty::ogg::OpusFile;
 use lofty::picture::{MimeType, PictureType};
 use lofty::prelude::*;
 use lofty::tag::{ItemKey, Tag};
@@ -135,6 +138,38 @@ fn all_strings(tags: &[Tag], key: ItemKey) -> Vec<String> {
         .map(|tag| strings(tag, key))
         .find(|values| !values.is_empty())
         .unwrap_or_default()
+}
+
+/// How loud the file is, as its ReplayGain tags say, else an Opus file's R128 tags. None without
+/// a track gain.
+fn loudness(file: &TaggedFile, path: &Path) -> Option<Loudness> {
+    let first = |key| all_strings(file.tags(), key).into_iter().next();
+    let peak = |key| first(key).and_then(|peak| loudness::parse_peak(&peak));
+    if let Some(track_gain_db) =
+        first(ItemKey::ReplayGainTrackGain).and_then(|gain| loudness::parse_gain(&gain))
+    {
+        return Some(Loudness {
+            track_gain_db,
+            track_peak: peak(ItemKey::ReplayGainTrackPeak).unwrap_or(0.0),
+            album_gain_db: first(ItemKey::ReplayGainAlbumGain)
+                .and_then(|gain| loudness::parse_gain(&gain)),
+            album_peak: peak(ItemKey::ReplayGainAlbumPeak),
+        });
+    }
+    if file.file_type() != FileType::Opus {
+        return None;
+    }
+    // lofty keeps R128's comments only in the Opus file's own Vorbis comments.
+    let opus = OpusFile::read_from(&mut fs::File::open(path).ok()?, ParseOptions::new()).ok()?;
+    let comments = opus.vorbis_comments();
+    Some(Loudness {
+        track_gain_db: loudness::parse_r128(comments.get("R128_TRACK_GAIN")?)?,
+        track_peak: 0.0,
+        album_gain_db: comments
+            .get("R128_ALBUM_GAIN")
+            .and_then(loudness::parse_r128),
+        album_peak: None,
+    })
 }
 
 fn ids(tags: &[Tag], keys: &[(ItemKey, IdKind)]) -> Vec<(IdKind, String)> {
@@ -308,6 +343,7 @@ impl MusicProvider for FilesystemProvider {
             album_artist_ids: all_strings(file.tags(), ItemKey::MusicBrainzReleaseArtistId),
             artist_spotify_ids: Vec::new(),
             album_artist_spotify_ids: Vec::new(),
+            loudness: loudness(&file, &path),
         })
     }
 
@@ -425,6 +461,44 @@ mod tests {
                 .image("Test Artist/First Album/cover.jpg")
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn reads_replaygain_tags() {
+        let (dir, provider) = library();
+        let id = "Test Artist/First Album/01 - Opening.wav";
+        assert_eq!(provider.read_track(id).unwrap().loudness, None);
+        let mut tag = Tag::new(lofty::tag::TagType::Id3v2);
+        tag.set_title("Opening".to_owned());
+        tag.insert_text(ItemKey::ReplayGainTrackGain, "-7.25 dB".to_owned());
+        tag.insert_text(ItemKey::ReplayGainTrackPeak, "0.988525".to_owned());
+        tag.insert_text(ItemKey::ReplayGainAlbumGain, "+1.50 dB".to_owned());
+        tag.insert_text(ItemKey::ReplayGainAlbumPeak, "1.000000".to_owned());
+        tag.save_to_path(dir.path().join(id), lofty::config::WriteOptions::default())
+            .unwrap();
+        assert_eq!(
+            provider.read_track(id).unwrap().loudness,
+            Some(Loudness {
+                track_gain_db: -7.25,
+                track_peak: 0.988525,
+                album_gain_db: Some(1.5),
+                album_peak: Some(1.0),
+            })
+        );
+        // A track gain alone, with no peak.
+        let mut tag = Tag::new(lofty::tag::TagType::Id3v2);
+        tag.insert_text(ItemKey::ReplayGainTrackGain, "-3 dB".to_owned());
+        tag.save_to_path(dir.path().join(id), lofty::config::WriteOptions::default())
+            .unwrap();
+        assert_eq!(
+            provider.read_track(id).unwrap().loudness,
+            Some(Loudness {
+                track_gain_db: -3.0,
+                track_peak: 0.0,
+                album_gain_db: None,
+                album_peak: None,
+            })
         );
     }
 

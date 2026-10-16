@@ -6,6 +6,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+bopsie-audio.workspace = true
 bopsie-core.workspace = true
 bopsie-library.workspace = true
 hex.workspace = true
@@ -15,7 +16,6 @@ tracing.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]
-bopsie-audio.workspace = true
 futures.workspace = true
 bopsie-fixtures.workspace = true
 serde_json.workspace = true
