@@ -1,4 +1,4 @@
-import { imageKey, imageUrl } from './images';
+import { imageKey, imageUrl, reachableImageUrl } from './images';
 
 const image = (extra: object = {}) => ({
   type: 'thumb',
@@ -70,5 +70,41 @@ describe('imageKey', () => {
 
   it('is null without images', () => {
     expect(imageKey({ image: null })).toBeNull();
+  });
+});
+
+describe('imageUrl for a whole URL', () => {
+  it("moves the server's own proxy onto the client's address, as a player's artwork comes", () => {
+    const item = {
+      image: image({
+        path: 'http://192.168.0.3:8095/imageproxy/abc?size=512',
+        remotely_accessible: true,
+      }),
+    };
+    expect(imageUrl('https://music.example.com', item, 512)).toBe(
+      'https://music.example.com/imageproxy/abc?size=512',
+    );
+  });
+});
+
+describe('reachableImageUrl', () => {
+  it("moves the server's own proxy onto the address the client reached it at", () => {
+    expect(
+      reachableImageUrl(
+        'https://music.example.com/',
+        'http://192.168.0.3:8095/imageproxy/abc?size=512&fmt=jpeg',
+      ),
+    ).toBe('https://music.example.com/imageproxy/abc?size=512&fmt=jpeg');
+  });
+
+  it('takes a path alone as on the server', () => {
+    expect(reachableImageUrl('https://music.example.com', '/imageproxy/abc?size=80')).toBe(
+      'https://music.example.com/imageproxy/abc?size=80',
+    );
+  });
+
+  it("keeps another site's artwork as it is", () => {
+    const url = 'https://i.scdn.co/image/ab67616d0000b273';
+    expect(reachableImageUrl('https://music.example.com', url)).toBe(url);
   });
 });

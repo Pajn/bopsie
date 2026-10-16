@@ -1,3 +1,4 @@
+import { reachableImageUrl } from '@bopsie/client/api/images';
 import { Link } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
@@ -31,7 +32,8 @@ function useArtwork(row: PlayerRow): string | null {
   if (!playing) return null;
   const item = queue?.current_item;
   const fromQueue = item ? itemArtwork(account.serverUrl, item, 160) : null;
-  return fromQueue ?? row.player?.current_media?.image_url ?? null;
+  const sent = row.player?.current_media?.image_url;
+  return fromQueue ?? (sent ? reachableImageUrl(account.serverUrl, sent) : null);
 }
 
 /**

@@ -26,7 +26,9 @@ export function imageUrl(serverUrl: string, item: WithImages, size: ImageSize): 
   const base = serverUrl.replace(/\/+$/, '');
   if (image.proxy_id) return `${base}/imageproxy/${image.proxy_id}?size=${size}&fmt=jpeg`;
   // A public image, such as Spotify's artwork for what a source plays, is used as it is.
-  if (image.remotely_accessible && /^https?:\/\//.test(image.path)) return image.path;
+  if (image.remotely_accessible && /^https?:\/\//.test(image.path)) {
+    return reachableImageUrl(base, image.path);
+  }
 
   const stream = new URL(base);
   stream.protocol = 'http:';
@@ -45,4 +47,22 @@ export function imageKey(item: WithImages): string | null {
   const image = primaryImage(item);
   if (!image) return null;
   return image.proxy_id ?? `${image.provider}:${image.path}`;
+}
+
+/**
+ * An artwork URL the server sent whole, as a player's `current_media.image_url` is, made
+ * reachable from here. The server writes its own image proxy's URLs from the address it
+ * knows itself by, which can be one only its network reaches, over plain HTTP; those are
+ * moved onto `serverUrl`, the address this client reached it at. Other URLs, such as a
+ * catalog's artwork, are kept as they are.
+ */
+export function reachableImageUrl(serverUrl: string, url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url, serverUrl);
+  } catch {
+    return url;
+  }
+  if (!parsed.pathname.startsWith('/imageproxy')) return url;
+  return `${serverUrl.replace(/\/+$/, '')}${parsed.pathname}${parsed.search}`;
 }
