@@ -32,6 +32,12 @@ export async function listen(
     throw new Error('This phone needs to be connected as a player, to keep time with the server.');
   }
   const ms = Math.min((calibration.ends_at_us - now) / 1000 + TAIL_MS, MAX_LISTEN_MS);
+  // The server's clock starts again when it restarts; the phone's player follows a moment later.
+  if (ms <= TAIL_MS) {
+    throw new Error(
+      "This phone hasn't caught up with the server's clock yet, as after the server restarted. Try again in a moment.",
+    );
+  }
   onListening(ms);
   const recording = await player.recordCalibration(ms);
   if (recording === null) throw new Error('This phone cannot record.');
