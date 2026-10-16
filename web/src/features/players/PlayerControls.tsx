@@ -6,9 +6,12 @@ import {
   transferQueue,
 } from '@bopsie/client/api/endpoints/players';
 import { useState } from 'react';
+import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { describeError } from '@/lib/errors';
-import { Button, Choice, InlineError, Stack, Text } from '@/ui/primitives';
+import { IconButton, VolumeSlider } from '@/ui/controls';
+import { Button, Choice, InlineError, Stack } from '@/ui/primitives';
 import { type PlayerRow, queueOf } from './model';
 
 /** Everything a player can be told through the API it already has. */
@@ -26,55 +29,46 @@ export function PlayerControls({ row, rows }: { row: PlayerRow; rows: PlayerRow[
   const others = rows.filter((other) => other.id !== row.id && other.available);
   const leaders = others.filter((other) => groupable.has(other.id) && other.follows === null);
 
+  const playing = player?.playback_state === 'playing';
+  const command = (name: 'previous' | 'play_pause' | 'next' | 'stop') =>
+    run(() => queueCommand(connection, queue, name));
+
   return (
     <Stack gap="sm">
-      <Stack horizontal gap="xs">
-        <Button
-          title="⏮"
-          variant="secondary"
-          onPress={() => run(() => queueCommand(connection, queue, 'previous'))}
-        />
-        <Button
-          title={player?.playback_state === 'playing' ? '⏸' : '▶'}
-          onPress={() => run(() => queueCommand(connection, queue, 'play_pause'))}
-        />
-        <Button
-          title="⏭"
-          variant="secondary"
-          onPress={() => run(() => queueCommand(connection, queue, 'next'))}
-        />
-        <Button
-          title="⏹"
-          variant="secondary"
-          onPress={() => run(() => queueCommand(connection, queue, 'stop'))}
-        />
-        <Button
-          title="−"
-          variant="secondary"
-          disabled={volume === null}
-          onPress={() => run(() => setVolume(connection, row.id, Math.max(0, (volume ?? 0) - 5)))}
-        />
-        <Text variant="mono">{volume === null ? 'vol –' : `vol ${volume}`}</Text>
-        <Button
-          title="+"
-          variant="secondary"
-          disabled={volume === null}
-          onPress={() => run(() => setVolume(connection, row.id, Math.min(100, (volume ?? 0) + 5)))}
-        />
-        <Button
-          title={player?.volume_muted ? 'Unmute' : 'Mute'}
-          variant="secondary"
-          disabled={!player}
-          onPress={() =>
-            run(() =>
-              connection.command('players/cmd/volume_mute', {
-                player_id: row.id,
-                muted: !player?.volume_muted,
-              }),
-            )
-          }
-        />
-      </Stack>
+      <View style={styles.transport}>
+        <Stack horizontal gap="xs" style={styles.buttons}>
+          <IconButton
+            icon="skip-back"
+            label="Previous"
+            variant="ghost"
+            onPress={() => command('previous')}
+          />
+          <IconButton
+            icon={playing ? 'pause' : 'play'}
+            label={playing ? 'Pause' : 'Play'}
+            variant="primary"
+            onPress={() => command('play_pause')}
+          />
+          <IconButton
+            icon="skip-forward"
+            label="Next"
+            variant="ghost"
+            onPress={() => command('next')}
+          />
+          <IconButton icon="square" label="Stop" variant="ghost" onPress={() => command('stop')} />
+        </Stack>
+        <View style={styles.volume}>
+          <VolumeSlider
+            value={volume}
+            muted={player?.volume_muted ?? null}
+            label={row.name}
+            onChange={(level) => run(() => setVolume(connection, row.id, level))}
+            onMute={(muted) =>
+              run(() => connection.command('players/cmd/volume_mute', { player_id: row.id, muted }))
+            }
+          />
+        </View>
+      </View>
       <Stack horizontal gap="xs">
         {row.follows || row.followers.length > 0 ? (
           <Button
@@ -98,3 +92,14 @@ export function PlayerControls({ row, rows }: { row: PlayerRow; rows: PlayerRow[
     </Stack>
   );
 }
+
+const styles = StyleSheet.create((theme) => ({
+  // The buttons and the volume side by side, the volume below them on a phone.
+  transport: {
+    flexDirection: { xs: 'column', md: 'row' },
+    alignItems: { xs: 'stretch', md: 'center' },
+    gap: theme.spacing.md,
+  },
+  buttons: { alignItems: 'center' },
+  volume: { flex: 1, maxWidth: { xs: undefined, md: 320 } },
+}));

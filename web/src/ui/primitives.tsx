@@ -334,9 +334,14 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.radius.lg,
   },
   facts: { gap: theme.spacing.xs },
-  fact: { flexDirection: 'row', gap: theme.spacing.md },
-  factLabel: { width: 160, paddingTop: 2 },
-  factValue: { flex: 1 },
+  // Side by side where there is room, the label above its value on a phone.
+  fact: {
+    flexDirection: { xs: 'column', md: 'row' },
+    gap: { xs: 0, md: theme.spacing.md },
+    paddingVertical: { xs: 2, md: 0 },
+  },
+  factLabel: { width: { xs: 'auto', md: 180 }, paddingTop: { xs: 0, md: 2 } },
+  factValue: { flex: { xs: 0, md: 1 }, minWidth: 0 },
 }));
 
 type ToneColors = Record<'good' | 'warning' | 'danger' | 'textMuted' | 'accent', string>;
