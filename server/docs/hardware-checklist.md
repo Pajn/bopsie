@@ -14,7 +14,8 @@ time, and how they recover.
 - A phone with Bopsie, signed in to the server.
 - Two LinkPlay speakers, such as a WiiM and an Audio Pro, for the LinkPlay checks. Note the
   input each is on and its volume first, to put back afterwards.
-- A Cast speaker, for the Cast checks; a WiiM is a LinkPlay and a Cast speaker in one.
+- A Cast speaker, for the Cast checks; a WiiM is a LinkPlay and a Cast speaker in one. Turn a
+  WiiM's standby off (Never) in the WiiM Home app first.
 - The Spotify app, signed in to a Premium account, for the Spotify Connect checks.
 - The server's log at `info`, with `RUST_LOG=info,bopsie_players_airplay=debug` for the AirPlay
   checks, to read the lines quoted below.
@@ -184,8 +185,9 @@ Each line says what to do, what to hear, and what the log shows when it went rig
     receiver`, then `Sendspin client connected` with the speaker's name, within a few seconds;
     it is audible soon after. Its volume in Bopsie moves the speaker's own.
 49. **Cast in a group.** Group a WiiM with a Sendspin player, such as Bopsie on a phone. The WiiM
-    plays through the Cast receiver, in step with the phone. Alone again, it plays over
-    LinkPlay.
+    plays through the Cast receiver, in step with the phone, a few seconds after the group starts:
+    it is woken over LinkPlay first. It plays a whole album without falling silent, and comes
+    back after a pause. Alone again, it plays over LinkPlay.
 50. **Released.** Five minutes after the speaker stops, the log says `stopping the Cast
     receiver`, and the speaker shows its own idle screen or input again.
 51. **Another app.** Cast to the speaker from another app while Bopsie plays to it: the other app

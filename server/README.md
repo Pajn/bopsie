@@ -71,14 +71,22 @@ ask for a client certificate, as Audio Pro's do, are shown LinkPlay's; see
 [`crates/players/linkplay/NOTICE`](crates/players/linkplay/NOTICE).
 
 Cast devices, such as Chromecasts, Nest speakers and WiiM's, are found by mDNS and played
-through the [Sendspin receiver](https://github.com/Sendspin/cast), a Cast app the server
-launches on a device when it is played to. The receiver connects back to the Sendspin listener
+through Bopsie's build of the [Sendspin receiver](https://github.com/Sendspin/cast)
+([`Pajn/cast`, branch `bopsie`](https://github.com/Pajn/cast/tree/bopsie)), a Cast app the
+server launches on a device when it is played to. The receiver connects back to the Sendspin listener
 on port 8927, so that port must be reachable from the devices, and plays in step with other
 Sendspin players. A Cast app stops once no sender is connected to it, so the server keeps a
 channel open to each device, and stops the receiver itself once it has been idle for five
 minutes. Launching takes a few seconds, so a device that also plays over another protocol, as a
 WiiM does over LinkPlay, plays over that one unless the receiver serves more of a group. Another
 app cast to a device takes it; the server does not take it back until it is played to again.
+
+A WiiM sounds a Cast app only while it sees media play, and only once it has played over
+LinkPlay: Bopsie's receiver plays the music through Web Audio and, beside it, a silent track in
+a Cast media session, and before playing a WiiM through the receiver the server plays it a
+moment of silence over LinkPlay, which wakes its amplifier. Its standby, in the WiiM Home app,
+must be off (Never): it counts only its own player, so it sleeps in the middle of a Cast
+receiver's music.
 
 A group plays over one protocol when that reaches all of it: AirPlay, Sendspin, or a LinkPlay
 leader's own multiroom. A group of AirPlay speakers and Sendspin players, including Cast devices

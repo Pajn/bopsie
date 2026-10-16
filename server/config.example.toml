@@ -50,8 +50,9 @@ enabled = true
 # listener, so that port must be reachable from the devices. A device whose own protocol also
 # plays, such as a WiiM's LinkPlay, keeps to that unless the receiver serves more of a group.
 enabled = true
-# The receiver's Cast app id, when not the published one.
-# app_id = "FAB7FE2B"
+# The receiver's Cast app id, when not Bopsie's. FAB7FE2B is the Sendspin project's own, which
+# has no media session; a WiiM goes silent with it.
+# app_id = "F59DDD2C"
 
 [spotify]
 # Each speaker shows in the Spotify app as a Spotify Connect device; picking one plays Spotify to

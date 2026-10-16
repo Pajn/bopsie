@@ -13,5 +13,6 @@ mod tls;
 pub use endpoint::{CastEndpoint, Settings};
 pub use provider::CastProvider;
 
-/// The Sendspin receiver's published Cast app.
-pub const RECEIVER_APP_ID: &str = "FAB7FE2B";
+/// Bopsie's Cast app: the Sendspin receiver, with a media session that a WiiM needs to keep
+/// sounding it; see the README.
+pub const RECEIVER_APP_ID: &str = "F59DDD2C";
