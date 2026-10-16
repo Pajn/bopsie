@@ -241,5 +241,20 @@ pub const MIGRATIONS: Migrations = Migrations {
         SET provider_album = rtrim(rtrim(provider_item_id, replace(provider_item_id, '/', '')), '/')
         WHERE media_type = 'track' AND provider_domain = 'filesystem_local';
     ",
+        "
+        -- What a suggested release is, to compare with the album: its artist and title, year,
+        -- country, formats (a JSON array, one per kind of medium) and how many tracks and discs.
+        ALTER TABLE release_suggestions ADD COLUMN artist TEXT;
+        ALTER TABLE release_suggestions ADD COLUMN release_title TEXT;
+        ALTER TABLE release_suggestions ADD COLUMN year INTEGER;
+        ALTER TABLE release_suggestions ADD COLUMN country TEXT;
+        ALTER TABLE release_suggestions ADD COLUMN formats TEXT;
+        ALTER TABLE release_suggestions ADD COLUMN track_count INTEGER;
+        ALTER TABLE release_suggestions ADD COLUMN disc_count INTEGER;
+
+        -- Albums with an undecided suggestion are asked about again, to have them.
+        UPDATE albums SET metadata_checked = NULL
+        WHERE id IN (SELECT album_id FROM release_suggestions WHERE decision IS NULL);
+    ",
     ],
 };

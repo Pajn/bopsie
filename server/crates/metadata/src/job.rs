@@ -572,10 +572,7 @@ impl Enricher {
             }
             Some((release, scored)) if scored.distance < SUGGEST_BELOW => {
                 self.library
-                    .album_checked(
-                        id,
-                        Some((release.id.clone(), release.describe(), scored.distance)),
-                    )
+                    .album_checked(id, Some(release.suggested(scored.distance)))
                     .await
                     .map_err(library_error)?;
                 Ok(Outcome::Suggested)
@@ -679,10 +676,7 @@ impl Enricher {
         }
         if scored.distance < SUGGEST_BELOW {
             self.library
-                .album_checked(
-                    album.id,
-                    Some((release.id.clone(), release.describe(), scored.distance)),
-                )
+                .album_checked(album.id, Some(release.suggested(scored.distance)))
                 .await
                 .map_err(|e| MbError::Refused(e.to_string()))?;
             return Ok(Some(Outcome::Suggested));

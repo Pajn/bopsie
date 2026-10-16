@@ -340,6 +340,21 @@ impl Command for LibrarySeparate {
     }
 }
 
+/// What a suggested release is, to compare with the album beside it.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ReleaseDetails {
+    /// Its credited artists, as the release prints them.
+    pub artist: String,
+    pub title: String,
+    pub year: Option<i32>,
+    /// Where it was released, as an ISO 3166 code, or MusicBrainz's `XW` for worldwide.
+    pub country: Option<String>,
+    /// Its media's formats, such as `CD` or `Digital Media`, each kind once.
+    pub formats: Vec<String>,
+    pub track_count: u32,
+    pub disc_count: u32,
+}
+
 /// A MusicBrainz release an album looks like, for a person to accept or reject.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ReleaseSuggestion {
@@ -348,6 +363,9 @@ pub struct ReleaseSuggestion {
     pub release_id: String,
     /// The release as a person reads it: "Artist – Title (year, country, format)".
     pub title: String,
+    /// The release's details; `null` for one suggested before they were kept, until the album
+    /// is looked up again.
+    pub release: Option<ReleaseDetails>,
     /// Its page on MusicBrainz.
     pub url: String,
     /// How far it is from the album: 0 is the same, 1 nothing alike.
@@ -380,6 +398,15 @@ impl Command for ReleaseSuggestions {
                 url: format!("https://musicbrainz.org/release/{}", suggestion.release_id),
                 release_id: suggestion.release_id,
                 title: suggestion.title,
+                release: suggestion.details.map(|details| ReleaseDetails {
+                    artist: details.artist,
+                    title: details.title,
+                    year: details.year,
+                    country: details.country,
+                    formats: details.formats,
+                    track_count: details.track_count,
+                    disc_count: details.disc_count,
+                }),
                 distance: suggestion.distance,
                 decision: suggestion.decision,
             });

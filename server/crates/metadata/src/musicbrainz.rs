@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bopsie_core::db::Database;
 use bopsie_core::pace::Pacer;
+use bopsie_library::enrich::{ReleaseDetails, SuggestedRelease};
 use rusqlite::OptionalExtension;
 use serde::Deserialize;
 use serde_json::Value;
@@ -405,20 +406,38 @@ impl Release {
             .collect()
     }
 
-    /// As a person reads it: "Artist – Title (2011, GB, CD)".
-    pub fn describe(&self) -> String {
-        let formats: Vec<&str> = self
-            .media
-            .iter()
-            .filter_map(|medium| medium.format.as_deref())
-            .collect();
-        let mut formats_shown: Vec<&str> = Vec::new();
-        for format in formats {
-            if !formats_shown.contains(&format) {
-                formats_shown.push(format);
+    /// Its media's formats, each kind once, in the order its media come.
+    pub fn formats(&self) -> Vec<String> {
+        let mut formats: Vec<String> = Vec::new();
+        for format in self.media.iter().filter_map(|m| m.format.as_deref()) {
+            if !formats.iter().any(|f| f == format) {
+                formats.push(format.to_owned());
             }
         }
-        let format = formats_shown.join(" + ");
+        formats
+    }
+
+    /// The release as a suggestion for an album it is `distance` from.
+    pub fn suggested(&self, distance: f64) -> SuggestedRelease {
+        SuggestedRelease {
+            release_id: self.id.clone(),
+            description: self.describe(),
+            details: ReleaseDetails {
+                artist: credited(&self.artist_credit),
+                title: self.title.clone(),
+                year: year(self.date.as_deref()),
+                country: self.country.clone(),
+                formats: self.formats(),
+                track_count: self.media.iter().map(|m| m.tracks.len() as u32).sum(),
+                disc_count: self.media.len() as u32,
+            },
+            distance,
+        }
+    }
+
+    /// As a person reads it: "Artist – Title (2011, GB, CD)".
+    pub fn describe(&self) -> String {
+        let format = self.formats().join(" + ");
         let year = year(self.date.as_deref()).map(|y| y.to_string());
         let details: Vec<&str> = [
             year.as_deref(),

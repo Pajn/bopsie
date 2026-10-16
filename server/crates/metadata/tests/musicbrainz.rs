@@ -479,6 +479,17 @@ async fn albums_are_identified_suggested_and_accepted() {
         suggestions[0].title,
         "Other Artist – Second Album (2021, SE, Digital Media)"
     );
+    let details = suggestions[0].details.as_ref().unwrap();
+    assert_eq!(
+        (details.artist.as_str(), details.title.as_str()),
+        ("Other Artist", "Second Album")
+    );
+    assert_eq!(
+        (details.year, details.country.as_deref()),
+        (Some(2021), Some("SE"))
+    );
+    assert_eq!(details.formats, ["Digital Media"]);
+    assert_eq!((details.disc_count, details.track_count), (1, 4));
     let second = album(&library, "Second Album").await;
     assert!(served_ids(&second).is_empty());
 

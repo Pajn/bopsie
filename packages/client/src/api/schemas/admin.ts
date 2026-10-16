@@ -198,11 +198,25 @@ export const librarySuggestion = z.looseObject({
 });
 export type LibrarySuggestion = z.infer<typeof librarySuggestion>;
 
+/** What a suggested release is, to compare with the album beside it. */
+export const releaseDetails = z.looseObject({
+  artist: z.string(),
+  title: z.string(),
+  year: z.nullable(z.number()),
+  country: z.nullable(z.string()),
+  formats: z.array(z.string()),
+  track_count: z.number(),
+  disc_count: z.number(),
+});
+export type ReleaseDetails = z.infer<typeof releaseDetails>;
+
 /** A MusicBrainz release an album looks like but was not certain enough to take. */
 export const releaseSuggestion = z.looseObject({
   album,
   release_id: z.string(),
   title: z.string(),
+  /** Null for a suggestion made before details were kept, until the album is looked up again. */
+  release: z.nullable(releaseDetails),
   url: z.string(),
   distance: z.number(),
   decision: z.nullable(z.enum(['accept', 'reject'])),

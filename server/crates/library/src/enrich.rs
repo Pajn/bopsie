@@ -184,24 +184,65 @@ pub fn identify(
     checked(tx, id, now)
 }
 
+/// What a release is, to compare with an album.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseDetails {
+    /// Its credited artists, as it prints them.
+    pub artist: String,
+    pub title: String,
+    pub year: Option<i32>,
+    pub country: Option<String>,
+    /// Its media's formats, such as "CD" or "Digital Media", each kind once.
+    pub formats: Vec<String>,
+    pub track_count: u32,
+    pub disc_count: u32,
+}
+
+/// A release an album looks like but was not certain enough to take.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SuggestedRelease {
+    pub release_id: String,
+    /// As a person reads it: "Artist – Title (2011, GB, CD)".
+    pub description: String,
+    pub details: ReleaseDetails,
+    pub distance: f64,
+}
+
 /// A release album `id` looks like, for a person to accept or reject; unless they rejected it.
 pub fn suggest_release(
     conn: &Connection,
     id: i64,
-    release_id: &str,
-    title: &str,
-    distance: f64,
+    release: &SuggestedRelease,
     now: i64,
 ) -> Result<()> {
+    let details = &release.details;
+    let formats = serde_json::to_string(&details.formats).unwrap_or_else(|_| "[]".to_owned());
     conn.execute(
-        "INSERT INTO release_suggestions (album_id, release_id, title, distance, created)
-         VALUES (?1, ?2, ?3, ?4, ?5)
+        "INSERT INTO release_suggestions (album_id, release_id, title, distance, created,
+             artist, release_title, year, country, formats, track_count, disc_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
          ON CONFLICT (album_id) DO UPDATE SET
              release_id = excluded.release_id, title = excluded.title,
-             distance = excluded.distance, decision = NULL
+             distance = excluded.distance, decision = NULL, artist = excluded.artist,
+             release_title = excluded.release_title, year = excluded.year,
+             country = excluded.country, formats = excluded.formats,
+             track_count = excluded.track_count, disc_count = excluded.disc_count
          WHERE release_suggestions.decision IS NULL
              OR release_suggestions.release_id != excluded.release_id",
-        params![id, release_id, title, distance, now],
+        params![
+            id,
+            release.release_id,
+            release.description,
+            release.distance,
+            now,
+            details.artist,
+            details.title,
+            details.year,
+            details.country,
+            formats,
+            details.track_count,
+            details.disc_count
+        ],
     )?;
     Ok(())
 }
@@ -223,6 +264,8 @@ pub struct ReleaseSuggestion {
     pub album_id: i64,
     pub release_id: String,
     pub title: String,
+    /// None for a suggestion made before they were kept, until it is made again.
+    pub details: Option<ReleaseDetails>,
     pub distance: f64,
     pub decision: Option<String>,
 }
@@ -230,15 +273,34 @@ pub struct ReleaseSuggestion {
 /// Releases suggested for albums, the undecided ones only unless `all`.
 pub fn release_suggestions(conn: &Connection, all: bool) -> Result<Vec<ReleaseSuggestion>> {
     let mut statement = conn.prepare(
-        "SELECT album_id, release_id, title, distance, decision FROM release_suggestions
+        "SELECT album_id, release_id, title, distance, decision, artist, release_title, year,
+             country, formats, track_count, disc_count
+         FROM release_suggestions
          WHERE ?1 OR decision IS NULL ORDER BY created, album_id",
     )?;
     statement
         .query_map([all], |row| {
+            let artist: Option<String> = row.get(5)?;
+            let details = match artist {
+                Some(artist) => Some(ReleaseDetails {
+                    artist,
+                    title: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                    year: row.get(7)?,
+                    country: row.get(8)?,
+                    formats: row
+                        .get::<_, Option<String>>(9)?
+                        .and_then(|formats| serde_json::from_str(&formats).ok())
+                        .unwrap_or_default(),
+                    track_count: row.get::<_, Option<u32>>(10)?.unwrap_or(0),
+                    disc_count: row.get::<_, Option<u32>>(11)?.unwrap_or(0),
+                }),
+                None => None,
+            };
             Ok(ReleaseSuggestion {
                 album_id: row.get(0)?,
                 release_id: row.get(1)?,
                 title: row.get(2)?,
+                details,
                 distance: row.get(3)?,
                 decision: row.get(4)?,
             })

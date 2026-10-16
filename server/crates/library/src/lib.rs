@@ -797,13 +797,13 @@ impl Library {
     pub async fn album_checked(
         &self,
         id: i64,
-        suggestion: Option<(String, String, f64)>,
+        suggestion: Option<enrich::SuggestedRelease>,
     ) -> Result<()> {
         self.db
             .call(move |conn| {
                 let tx = conn.transaction()?;
-                if let Some((release, title, distance)) = suggestion {
-                    enrich::suggest_release(&tx, id, &release, &title, distance, now())?;
+                if let Some(release) = suggestion {
+                    enrich::suggest_release(&tx, id, &release, now())?;
                 }
                 enrich::checked(&tx, id, now())?;
                 tx.commit()?;
