@@ -26,8 +26,7 @@ export function Icon({
       <Feather
         name={name}
         size={size}
-        color={color ?? theme.colors.text}
-        style={{ lineHeight: size }}
+        style={{ lineHeight: size, color: color ?? theme.colors.text }}
       />
     </View>
   );

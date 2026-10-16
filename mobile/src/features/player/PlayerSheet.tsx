@@ -1,6 +1,6 @@
 import { useSegments } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { BackHandler, useWindowDimensions, View } from 'react-native';
+import { BackHandler, useWindowDimensions, View, type ViewInstance } from 'react-native';
 import Animated, {
   interpolate,
   interpolateColor,
@@ -38,7 +38,7 @@ export function PlayerSheet() {
   const { height } = useWindowDimensions();
   const queue = useQueue().data;
   const current = queue ? nowPlaying(queue) : null;
-  const frame = useRef<View>(null);
+  const frame = useRef<ViewInstance>(null);
   const covers = useCoverPlaces(frame);
   const tint = useCoverTint(current?.artwork ?? null);
   const { theme } = useUnistyles();

@@ -28,7 +28,7 @@ module.exports = {
     // E2E_AVD_NAME picks another virtual device.
     emulator: {
       type: 'android.emulator',
-      device: { avdName: process.env.E2E_AVD_NAME ?? 'Pixel_8_API_36' },
+      device: { avdName: process.env.E2E_AVD_NAME ?? 'Pixel_8_API_37' },
     },
     // A phone over adb. E2E_ADB_NAME narrows the choice when several are attached.
     attached: { type: 'android.attached', device: { adbName: process.env.E2E_ADB_NAME ?? '.*' } },

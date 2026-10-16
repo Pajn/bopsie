@@ -31,5 +31,7 @@ minimumReleaseAgeExclude:
   - react-native-true-image
 
 patchedDependencies:
-  '@expo/metro-config@57.0.13': mobile/patches/@expo__metro-config@57.0.13.patch
-  expo-router@57.0.21: mobile/patches/expo-router@57.0.21.patch
+  '@expo/metro-config@58.0.14': mobile/patches/@expo__metro-config@58.0.14.patch
+  expo-router@58.0.22: mobile/patches/expo-router@58.0.22.patch
+  react-native-true-image@2.2.0: mobile/patches/react-native-true-image@2.2.0.patch
+  '@expo/cli@58.1.10': mobile/patches/@expo__cli@58.1.10.patch

@@ -1,0 +1,18 @@
+diff --git a/build/src/start/doctor/dependencies/getVersionedPackages.js b/build/src/start/doctor/dependencies/getVersionedPackages.js
+--- a/build/src/start/doctor/dependencies/getVersionedPackages.js
++++ b/build/src/start/doctor/dependencies/getVersionedPackages.js
+@@ -82,7 +82,13 @@
+         ...bundledNativeModules,
+         // Prefer the remote versions over the bundled versions, this enables us to push
+         // emergency fixes that users can access without having to update the `expo` package.
+-        ...versionsForSdk
++        ...versionsForSdk,
++        // SDK 58's jest-expo uses Jest 30 internals and watch plugins. The remote
++        // SDK metadata still recommends Jest 29; keep validation on Jest 30.
++        ...sdkVersion === '58.0.0' ? {
++            jest: '^30.0.0',
++            '@types/jest': '^30.0.0'
++        } : {}
+     };
+ }
+ async function getRemoteVersionsForSdkAsync({ sdkVersion, skipCache } = {}) {

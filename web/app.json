@@ -10,7 +10,7 @@
       "output": "single",
       "favicon": "./assets/icon.png"
     },
-    "plugins": ["expo-router"],
+    "plugins": ["expo-router", "expo-status-bar"],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

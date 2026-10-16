@@ -45,13 +45,11 @@
         {
           "android": {
             "usesCleartextTraffic": true
-          },
-          "ios": {
-            "enableSceneSupport": true
           }
         }
       ],
-      "./plugins/withDevLauncherWaiting.js"
+      "./plugins/withDevLauncherWaiting.js",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true,

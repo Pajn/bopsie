@@ -18,7 +18,7 @@ export type TabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['ta
  * sit inside the bar. What is left here is a gap the same size, which keeps a screen's content
  * clear of it: the navigator insets screens by what this measures.
  */
-export function TabBar({ state, descriptors, navigation }: TabBarProps) {
+export function TabBar({ state, descriptors, emitter, navigateToTab }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const dockHeight = useDockHeight();
   const measure = useReportedHeight(setTabBarHeight);
@@ -45,13 +45,12 @@ export function TabBar({ state, descriptors, navigation }: TabBarProps) {
               accessibilityLabel={options.tabBarAccessibilityLabel ?? label}
               testID={options.tabBarButtonTestID}
               onPress={() => {
-                const event = navigation.emit({
+                const event = emitter.emit({
                   type: 'tabPress',
                   target: route.key,
                   canPreventDefault: true,
                 });
-                if (!focused && !event.defaultPrevented)
-                  navigation.navigate(route.name, route.params);
+                if (!focused && !event.defaultPrevented) navigateToTab(route.key);
               }}
               style={styles.tab}
             >

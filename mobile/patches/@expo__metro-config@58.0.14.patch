@@ -1,0 +1,131 @@
+diff --git a/build/transform-plugins/helpers.js b/build/transform-plugins/helpers.js
+--- a/build/transform-plugins/helpers.js
++++ b/build/transform-plugins/helpers.js
+@@ -137,7 +137,7 @@
+     ]));
+ const varDeclaratorCallHelper = (t, id, fn, arg)=>t.variableDeclaration('var', [
+         t.variableDeclarator(t.identifier(id), t.callExpression(t.identifier(fn), [
+-            t.identifier(arg)
++            arg
+         ]))
+     ]);
+ const esModuleExportTemplate = ({ statement })=>{
+diff --git a/build/transform-plugins/importExportLiveBindings.js b/build/transform-plugins/importExportLiveBindings.js
+--- a/build/transform-plugins/importExportLiveBindings.js
++++ b/build/transform-plugins/importExportLiveBindings.js
+@@ -23,6 +23,9 @@
+         if (sideEffect || !state.opts.performConstantFolding) {
+             moduleSpecifiers.sideEffect = true;
+         }
++        if (sideEffect) {
++            moduleSpecifiers.explicitSideEffect = true;
++        }
+         let id = moduleSpecifiers["REQUIRE"];
+         if (!id) {
+             id = path.scope.generateUid(source.value);
+@@ -110,6 +113,10 @@
+                             importId = addDefaultImport(path, state, source, localId);
+                             break;
+                     }
++                    // Metro's importDefault returns the default export directly.
++                    if (member === 'default' && state.opts.importDefault) {
++                        member = undefined;
++                    }
+                     state.inlineBodyRefs.set(localId, {
+                         parentId: importId,
+                         member
+@@ -187,6 +194,9 @@
+                     let importId;
+                     let specifierLocal;
+                     let exportExpression;
++                    const defaultExport = (id) => state.opts.importDefault
++                        ? t.identifier(id)
++                        : t.memberExpression(t.identifier(id), t.identifier('default'));
+                     switch(specifier.type){
+                         case 'ExportNamespaceSpecifier':
+                             // The `namespaceWrapHelper` ensures a namespace object, but namespaces are accessed directly
+@@ -200,14 +210,19 @@
+                             }
+                             specifierLocal = specifier.local.name;
+                             // An imported default specifier is the same as an ImportDefaultSpecifier
+-                            importId = specifierLocal === 'default' ? addDefaultImport(path, state, source) : addImport(path, state, source);
+-                            exportExpression = t.memberExpression(t.identifier(importId), t.identifier(specifierLocal));
++                            if (specifierLocal === 'default') {
++                                importId = addDefaultImport(path, state, source);
++                                exportExpression = defaultExport(importId);
++                            } else {
++                                importId = addImport(path, state, source);
++                                exportExpression = t.memberExpression(t.identifier(importId), t.identifier(specifierLocal));
++                            }
+                             break;
+                         case 'ExportDefaultSpecifier':
+                             // The `defaultWrapHelper` works by wrapping CommonJS modules in a fake module wrapper
+                             specifierLocal = 'default';
+                             importId = addDefaultImport(path, state, source);
+-                            exportExpression = t.memberExpression(t.identifier(importId), t.identifier(specifierLocal));
++                            exportExpression = defaultExport(importId);
+                             break;
+                     }
+                     const exportName = t.isIdentifier(specifier.exported) ? specifier.exported.name : specifier.exported.value;
+@@ -324,13 +339,24 @@
+                     });
+                     const preambleStatements = [];
+                     const esmStatements = [];
++                    // Metro can inline importDefault calls, but not custom interop wrappers.
++                    const importDefaultName = state.opts.importDefault;
++                    const importDefault = importDefaultName
++                        ? (localId, source) => (0, _helpers.varDeclaratorCallHelper)(t, localId, importDefaultName, t.cloneNode(source))
++                        : null;
++                    // Bare imports must keep their evaluation position.
++                    const isEvaluatedByImportDefault = (moduleSpecifiers) => {
++                        if (!importDefault || moduleSpecifiers.explicitSideEffect) return false;
++                        const defaultLocal = moduleSpecifiers["DEFAULT"];
++                        return defaultLocal != null && state.referencedLocals.has(defaultLocal);
++                    };
+                     let _defaultWrapName;
+                     const wrapDefault = (localId, sourceId)=>{
+                         if (!_defaultWrapName) {
+                             _defaultWrapName = '_interopDefault';
+                             preambleStatements.push((0, _helpers.defaultWrapHelper)(template, _defaultWrapName));
+                         }
+-                        return (0, _helpers.varDeclaratorCallHelper)(t, localId, _defaultWrapName, sourceId);
++                        return (0, _helpers.varDeclaratorCallHelper)(t, localId, _defaultWrapName, t.identifier(sourceId));
+                     };
+                     let _namespaceWrapName;
+                     const wrapNamespace = (localId, sourceId)=>{
+@@ -338,7 +364,7 @@
+                             _namespaceWrapName = '_interopNamespace';
+                             preambleStatements.push((0, _helpers.namespaceWrapHelper)(template, _namespaceWrapName));
+                         }
+-                        return (0, _helpers.varDeclaratorCallHelper)(t, localId, _namespaceWrapName, sourceId);
++                        return (0, _helpers.varDeclaratorCallHelper)(t, localId, _namespaceWrapName, t.identifier(sourceId));
+                     };
+                     // Add `__esModule` marker if we have any exports
+                     if (state.exportDeclarations.length || state.exportAll.size) {
+@@ -360,7 +386,7 @@
+                         const local = addModuleSpecifiers(state, source)[importDeclaration.kind];
+                         if (!local || !state.referencedLocals.has(local)) {
+                             continue;
+-                        } else if (importDeclaration.local) {
++                        } else if (importDeclaration.local && !(importDefault && importDeclaration.kind === "DEFAULT")) {
+                             state.referencedLocals.add(importDeclaration.local);
+                         }
+                     }
+@@ -372,7 +398,7 @@
+                         if (!local || !state.referencedLocals.has(local)) {
+                             // Don't add imports that aren't referenced, unless they're required for a side-effect
+                             // We check for REQUIRE, to make sure we only ever add a single side-effect require
+-                            if (importDeclaration.kind === "REQUIRE" && moduleSpecifiers.sideEffect) {
++                            if (importDeclaration.kind === "REQUIRE" && moduleSpecifiers.sideEffect && !isEvaluatedByImportDefault(moduleSpecifiers)) {
+                                 esmStatements.push((0, _helpers.withLocation)((0, _helpers.sideEffectRequireCall)(t, source), importDeclaration.loc));
+                             }
+                             continue;
+@@ -383,7 +409,7 @@
+                                 importStatement = (0, _helpers.requireCall)(t, local, source);
+                                 break;
+                             case "DEFAULT":
+-                                importStatement = wrapDefault(local, importDeclaration.local);
++                                importStatement = importDefault ? importDefault(local, source) : wrapDefault(local, importDeclaration.local);
+                                 break;
+                             case "NAMESPACE":
+                                 importStatement = wrapNamespace(local, importDeclaration.local);

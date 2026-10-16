@@ -14,8 +14,8 @@
 
       # Keep in sync with the Expo SDK's React Native template on upgrade.
       # See docs/plans for the table of pinned Android toolchain versions.
-      platformVersion = "36";
-      buildToolsVersion = "36.0.0";
+      platformVersion = "37";
+      buildToolsVersion = "37.0.0";
       ndkVersion = "27.1.12297006";
       cmakeVersion = "3.22.1";
 

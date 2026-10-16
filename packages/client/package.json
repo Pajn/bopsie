@@ -22,9 +22,10 @@
     "@biomejs/biome": "^2.5.13",
     "@tanstack/react-query": "^5.102.8",
     "@types/jest": "^30.0.0",
-    "babel-preset-expo": "~57.0.15",
+    "babel-preset-expo": "~58.0.17",
+    "expo": "58.0.13",
     "jest": "^30.5.1",
-    "jest-expo": "^57.0.5",
+    "jest-expo": "^58.0.11",
     "typescript": "~6.0.3"
   }
 }

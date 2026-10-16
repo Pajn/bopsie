@@ -53,7 +53,7 @@ albums, newest first. A Spotify artist's singles and EPs, and compilations, are 
 - Node 24 and pnpm 12. The Nix dev shell provides both.
 - Android: the JDK and Android SDK from the Nix dev shell (`nix develop`, or `direnv allow`).
   `nix develop .#emulator` adds an emulator and a system image.
-- iOS: Xcode with an iOS simulator.
+- iOS: Xcode 27 or newer with an iOS simulator.
 - A Music Assistant server, 2.7.1 or later. Integration and end-to-end tests start their own.
 
 ## Development
@@ -68,6 +68,8 @@ pnpm android           # build and run the dev client on a device or emulator
 pnpm ios               # build and run the dev client on a simulator
 pnpm start             # Metro, once a dev client is installed
 ```
+
+After an Expo SDK upgrade, run `pnpm prebuild --clean` and rebuild the development client.
 
 Run `pnpm prebuild` when something native changes — a dependency, a config plugin, `app.json`,
 the player module's manifest — and not otherwise.
@@ -167,7 +169,7 @@ Android-only for now, so Android is the only configuration.
 
 ```sh
 nix develop .#emulator
-avdmanager create avd -n Pixel_8_API_36 -d pixel_8 -k "system-images;android-36;google_apis;arm64-v8a"
+avdmanager create avd -n Pixel_8_API_37 -d pixel_8 -k "system-images;android-37;google_apis;arm64-v8a"
 pnpm server:start
 pnpm e2e:build:android && pnpm e2e:android
 ```

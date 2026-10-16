@@ -1,0 +1,15 @@
+diff --git a/build/ExpoRoot.js b/build/ExpoRoot.js
+--- a/build/ExpoRoot.js
++++ b/build/ExpoRoot.js
+@@ -104,7 +104,10 @@
+         right: 0,
+         bottom: 0
+     }
+-} : undefined;
++} : _reactnative().Platform.OS === 'android'
++    // Seed the stable Android root before the first native insets event.
++    ? require('react-native-safe-area-context').initialWindowMetrics ?? undefined
++    : undefined;
+ function ExpoRoot({ wrapper: ParentWrapper = _react().Fragment, ...props }) {
+     (0, _screensFeatureFlags.initScreensFeatureFlags)();
+     // On the server, the parent wrapper renders the HTML document and `<div id="root">`. It stays

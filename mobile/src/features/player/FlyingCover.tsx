@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { View } from 'react-native';
+import type { ViewInstance } from 'react-native';
 import Animated, { interpolate, useAnimatedStyle } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
 import { Artwork } from '@/features/library/Artwork';
@@ -26,7 +26,7 @@ type Slot = 'mini' | 'full';
 
 interface CoverPlaces {
   /** The sheet's frame, which every place is measured against. */
-  frame: RefObject<View | null>;
+  frame: RefObject<ViewInstance | null>;
   report: (slot: Slot, square: Square) => void;
 }
 
@@ -36,7 +36,7 @@ const CoverContext = createContext<CoverPlaces | null>(null);
  * Holds where the artwork sits in the mini player and in the full player, as the two report
  * it, so `FlyingCover` can carry it between them. `frame` is the view they measure against.
  */
-export function useCoverPlaces(frame: RefObject<View | null>) {
+export function useCoverPlaces(frame: RefObject<ViewInstance | null>) {
   const [places, setPlaces] = useState<Partial<Record<Slot, Square>>>({});
   const report = useCallback((slot: Slot, square: Square) => {
     setPlaces((current) => {
@@ -67,7 +67,7 @@ export function CoverPlacesProvider({
  */
 export function useCoverSlot(slot: Slot) {
   const places = useContext(CoverContext);
-  const ref = useRef<View>(null);
+  const ref = useRef<ViewInstance>(null);
   const measure = useCallback(() => {
     const frame = places?.frame.current;
     if (!places || !frame || !ref.current) return;

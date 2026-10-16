@@ -2,7 +2,7 @@ import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import Slider from '@react-native-community/slider';
 import { useRouter } from 'expo-router';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, View, type ViewInstance } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useActiveGroup } from '@/features/outputs/ActiveGroupProvider';
@@ -52,8 +52,8 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [bar, setBar] = useState<Frame | null>(null);
   const [pill, setPill] = useState<Frame | null>(null);
-  const screen = useRef<View>(null);
-  const pillSpace = useRef<View>(null);
+  const screen = useRef<ViewInstance>(null);
+  const pillSpace = useRef<ViewInstance>(null);
 
   // Where the pill sits in the player, which anything above it moves, so after every render.
   useLayoutEffect(() => {
