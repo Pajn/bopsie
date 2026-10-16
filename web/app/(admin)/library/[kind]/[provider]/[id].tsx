@@ -8,10 +8,11 @@ import {
   getTrack,
   playlistTracks,
 } from '@bopsie/client/api/endpoints/library';
-import type { Track } from '@bopsie/client/api/schemas/media';
+import type { Album, Track } from '@bopsie/client/api/schemas/media';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
@@ -25,9 +26,12 @@ import { Sources } from '@/features/library/Sources';
 import { TrackList } from '@/features/library/TrackList';
 import { describeError } from '@/lib/errors';
 import { Disclosure } from '@/ui/controls';
-import { Card, InlineError, Page, Text } from '@/ui/primitives';
+import { Button, Card, InlineError, Page, Text } from '@/ui/primitives';
 
 const KINDS = ['album', 'artist', 'playlist', 'track'] as const;
+
+/** An artist's tracks shown before Show all. */
+const ARTIST_TRACKS = 10;
 type Kind = (typeof KINDS)[number];
 
 /**
@@ -71,8 +75,13 @@ export default function ItemScreen() {
   const data = item.data;
   // Only the library's own items are edited; a catalog's, such as Spotify's, are as it says.
   const editable = data && provider === 'library' && KINDS.includes(kind as Kind);
-  const albums = contents.data?.albums ?? [];
+  // An artist's albums newest first; an album's or a playlist's tracks in their order.
+  const albums = [...(contents.data?.albums ?? [])].sort(
+    (a, b) => ((b as Album).year ?? 0) - ((a as Album).year ?? 0),
+  );
   const tracks = contents.data?.tracks ?? [];
+  const [allTracks, setAllTracks] = useState(false);
+  const shownTracks = kind === 'artist' && !allTracks ? tracks.slice(0, ARTIST_TRACKS) : tracks;
 
   return (
     <Page
@@ -87,17 +96,28 @@ export default function ItemScreen() {
           {albums.length > 0 ? (
             <View style={styles.section}>
               <Text variant="heading">Albums</Text>
-              <ItemGrid items={albums} />
+              <ItemGrid
+                items={albums}
+                narrow
+                caption={(album) => String((album as Album).year ?? '')}
+              />
             </View>
           ) : null}
           {tracks.length > 0 ? (
             <Card {...(kind === 'artist' && { title: 'Tracks' })}>
               <TrackList
-                tracks={tracks}
+                tracks={shownTracks}
                 from={kind === 'album' || kind === 'playlist' ? data?.uri : undefined}
                 numbered={kind === 'album'}
-                artists={kind !== 'album'}
+                detail={kind === 'artist' ? 'album' : kind === 'album' ? null : 'artists'}
               />
+              {shownTracks.length < tracks.length ? (
+                <Button
+                  title={`Show all ${tracks.length} tracks`}
+                  variant="secondary"
+                  onPress={() => setAllTracks(true)}
+                />
+              ) : null}
             </Card>
           ) : null}
         </View>

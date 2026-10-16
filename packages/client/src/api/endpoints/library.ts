@@ -41,6 +41,15 @@ export function libraryItems<K extends LibraryKind>(
   );
 }
 
+/** How many items of a kind the library holds, counted as `libraryItems` lists them. */
+export function libraryCount(connection: MaConnection, kind: LibraryKind): Promise<number> {
+  return connection.command(
+    `music/${kind}/count`,
+    kind === 'artists' ? { album_artists_only: true } : {},
+    { schema: z.number() },
+  );
+}
+
 interface ItemRef {
   itemId: string;
   provider: string;

@@ -12,7 +12,15 @@ import { PlayButtons } from './PlayButtons';
 const PLACEHOLDER = { artist: 'user', playlist: 'list', track: 'music', album: 'disc' } as const;
 
 /** An item as a tile: its artwork, its name and who made it, opening its page. */
-function Tile({ item }: { item: Item }) {
+function Tile({
+  item,
+  caption,
+  narrow,
+}: {
+  item: Item;
+  caption: (item: Item) => string;
+  narrow: boolean;
+}) {
   const { account } = useConnection();
   const { theme } = useUnistyles();
   const [hovered, setHovered] = useState(false);
@@ -20,7 +28,7 @@ function Tile({ item }: { item: Item }) {
   const round = item.media_type === 'artist';
   return (
     <View
-      style={styles.cell}
+      style={styles.cell(narrow)}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
@@ -44,7 +52,7 @@ function Tile({ item }: { item: Item }) {
                 {item.name}
               </Text>
               <Text variant="caption" muted numberOfLines={1}>
-                {subtitle(item) || ' '}
+                {caption(item) || ' '}
               </Text>
             </View>
           </View>
@@ -60,12 +68,24 @@ function Tile({ item }: { item: Item }) {
   );
 }
 
-/** Items as a grid of tiles, more of them across the wider the screen. */
-export function ItemGrid({ items }: { items: Item[] }) {
+/**
+ * Items as a grid of tiles, more of them across the wider the screen. `caption` is the line
+ * under each name, who made it and when unless said otherwise; `narrow`, the grid sits in a
+ * column beside another and fits fewer across.
+ */
+export function ItemGrid({
+  items,
+  caption = subtitle,
+  narrow = false,
+}: {
+  items: Item[];
+  caption?: (item: Item) => string;
+  narrow?: boolean;
+}) {
   return (
     <View style={styles.grid}>
       {items.map((item) => (
-        <Tile key={item.uri} item={item} />
+        <Tile key={item.uri} item={item} caption={caption} narrow={narrow} />
       ))}
     </View>
   );
@@ -77,10 +97,10 @@ const styles = StyleSheet.create((theme) => ({
     flexWrap: 'wrap',
     marginHorizontal: -theme.spacing.xs,
   },
-  cell: {
-    width: { xs: '50%', md: '25%', lg: '20%' },
+  cell: (narrow: boolean) => ({
+    width: narrow ? { xs: '50%', md: '33.33%', lg: '25%' } : { xs: '50%', md: '25%', lg: '20%' },
     padding: theme.spacing.xs,
-  },
+  }),
   tile: (hovered: boolean) => ({
     gap: theme.spacing.sm,
     padding: theme.spacing.sm,
