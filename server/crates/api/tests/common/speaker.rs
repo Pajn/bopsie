@@ -8,7 +8,8 @@ use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::Timeline;
 use bopsie_players::{
-    Capabilities, Controls, DeviceInfo, Endpoint, EndpointState, Facts, NowPlaying, Players,
+    Capabilities, Controls, DeviceInfo, Endpoint, EndpointState, Facts, NativeGroup, NowPlaying,
+    Players,
 };
 
 pub const CD: OutputFormat = OutputFormat {
@@ -40,6 +41,14 @@ pub struct Speaker {
     pub trouble: Arc<Trouble>,
     pub available: AtomicBool,
     pub players: Players,
+    /// It groups by its own multiroom, as a LinkPlay speaker does.
+    pub native: AtomicBool,
+    /// It has to be launched first, as a Cast receiver does.
+    pub launched: AtomicBool,
+    /// How often it was woken, and when it last was, and last was prepared.
+    pub woken: AtomicU64,
+    pub woken_at: Mutex<Option<std::time::Instant>>,
+    pub prepared_at: Mutex<Option<std::time::Instant>>,
 }
 
 /// What the next write to a speaker's output does wrong.
@@ -71,6 +80,11 @@ impl Speaker {
             trouble: Arc::default(),
             available: AtomicBool::new(true),
             players: players.clone(),
+            native: AtomicBool::new(false),
+            launched: AtomicBool::new(false),
+            woken: AtomicU64::new(0),
+            woken_at: Mutex::default(),
+            prepared_at: Mutex::default(),
         });
         players.register(speaker.clone());
         speaker
@@ -161,8 +175,11 @@ impl Endpoint for Speaker {
                 volume: true,
                 mute: true,
                 pairing: Default::default(),
-                native_group: None,
-                launched: false,
+                native_group: self.native.load(Ordering::SeqCst).then_some(NativeGroup {
+                    family: "linkplay",
+                    version: 4,
+                }),
+                launched: self.launched.load(Ordering::SeqCst),
                 withdrawn: Vec::new(),
             },
             quirks: Default::default(),
@@ -196,5 +213,15 @@ impl Endpoint for Speaker {
     fn set_group(&self, _: bool, _: &str) {}
     fn set_controls(&self, controls: &Controls) {
         *self.controls.lock().unwrap() = Some(*controls);
+    }
+    fn wake(&self) {
+        // Long enough that what comes after it is seen to.
+        std::thread::sleep(Duration::from_millis(20));
+        self.woken.fetch_add(1, Ordering::SeqCst);
+        *self.woken_at.lock().unwrap() = Some(std::time::Instant::now());
+    }
+    fn prepare(&self) -> Option<bopsie_audio::timeline::Micros> {
+        *self.prepared_at.lock().unwrap() = Some(std::time::Instant::now());
+        None
     }
 }

@@ -114,6 +114,10 @@ pub trait Endpoint: Send + Sync {
     fn prepare(&self) -> Option<Micros> {
         None
     }
+    /// Gets the device's own output going, for another of its endpoints to play through: a
+    /// WiiM sounds a Cast receiver only when it went to Cast from playing over LinkPlay. Ends
+    /// whatever another of its endpoints plays. May block for seconds.
+    fn wake(&self) {}
     /// Follows `leader`, an endpoint of the same native group family, in that multiroom. May
     /// block for seconds.
     fn join_native(&self, leader: &str) -> Result<(), String> {

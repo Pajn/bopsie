@@ -377,3 +377,47 @@ async fn a_group_whose_leader_goes_pauses() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn a_speaker_played_through_a_launched_receiver_is_woken_through_its_own_multiroom_first() {
+    let (server, token) = start_set_up_with(10).await;
+    // A WiiM: a LinkPlay speaker, and a Cast device whose receiver is launched.
+    let linkplay = Speaker::register(&server.players, "wiim", "linkplay", &[CD], Some("bb"));
+    linkplay.native.store(true, Ordering::SeqCst);
+    let cast = Speaker::register(&server.players, "wiim-cast", "sendspin", &[CD], Some("bb"));
+    cast.launched.store(true, Ordering::SeqCst);
+    server.players.changed("wiim");
+    server.players.changed("wiim-cast");
+    let philips = Speaker::register(&server.players, "philips", "airplay", &[CD], None);
+    let mut client = signed_in(&server, &token).await;
+    until(&mut client, "players/all", json!({}), |all| {
+        all.as_array().unwrap().len() == 2
+    })
+    .await;
+    client
+        .result(
+            "players/cmd/group",
+            json!({"player_id": "wiim", "target_player": "philips"}),
+        )
+        .await;
+    play_album(&mut client, "philips").await;
+    eventually(|| cast.frames() > 0 && philips.frames() > 0).await;
+
+    assert_eq!(linkplay.woken.load(Ordering::SeqCst), 1, "woken once");
+    let woken = linkplay.woken_at.lock().unwrap().expect("woken");
+    let prepared = cast.prepared_at.lock().unwrap().expect("prepared");
+    assert!(prepared >= woken, "the receiver is prepared after the wake");
+    assert_eq!(philips.woken.load(Ordering::SeqCst), 0);
+    assert_eq!(linkplay.frames(), 0, "it plays through its receiver");
+
+    // Leaving LinkPlay's input for the receiver is not taken for being switched away.
+    server
+        .players
+        .remote("wiim", bopsie_players::Remote::Released);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let queue = client
+        .result("player_queues/get", json!({"queue_id": "philips"}))
+        .await;
+    assert_eq!(queue["state"], "playing");
+    assert_eq!(player(&mut client, "wiim").await["synced_to"], "philips");
+}

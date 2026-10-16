@@ -118,8 +118,9 @@ struct Inner {
     settling: Mutex<BTreeMap<String, Instant>>,
     /// Groups playing a calibration, by leader: nothing else plays to them meanwhile.
     calibrating: Mutex<BTreeSet<String>>,
-    /// Endpoints the server just moved a device off, as from LinkPlay to its Cast receiver, and
-    /// when: the device leaving the old one's input is the server's doing, not someone's at it.
+    /// Endpoints the server just moved a device off, as from LinkPlay to its Cast receiver, or
+    /// woke it through, and when: the device leaving the old one's input is the server's doing,
+    /// not someone's at it.
     left: Mutex<BTreeMap<String, Instant>>,
     rng: Mutex<StdRng>,
     /// Sources that play to groups, once [`Playback::follow_sources`] is called.
@@ -1395,9 +1396,41 @@ impl Playback {
             .streamed()
             .filter_map(|carrier| {
                 let device = self.inner.devices.get(&carrier.device)?;
-                Some(device.member(&carrier.endpoint)?.endpoint.clone())
+                let member = device.member(&carrier.endpoint)?;
+                // A receiver that has to be launched, on a device with its own multiroom, as a
+                // Cast receiver on a WiiM: the device is woken through that first, which the
+                // WiiM needs to sound the receiver, and which ends a receiver running on it,
+                // so that it is launched afresh.
+                let wake = member
+                    .state
+                    .capabilities
+                    .launched
+                    .then(|| {
+                        device.members.iter().find(|m| {
+                            m.id != member.id
+                                && m.state.available
+                                && m.state.capabilities.native_group.is_some()
+                        })
+                    })
+                    .flatten()
+                    .map(|native| native.endpoint.clone());
+                if let Some(native) = &wake {
+                    self.inner
+                        .left
+                        .lock()
+                        .unwrap()
+                        .insert(native.id().to_owned(), Instant::now());
+                }
+                Some((wake, member.endpoint.clone()))
             })
-            .map(|endpoint| tokio::task::spawn_blocking(move || endpoint.prepare()))
+            .map(|(wake, endpoint)| {
+                tokio::task::spawn_blocking(move || {
+                    if let Some(native) = wake {
+                        native.wake();
+                    }
+                    endpoint.prepare()
+                })
+            })
             .collect();
         let mut latest = None;
         for prepared in preparing {

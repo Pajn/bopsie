@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
 use bopsie_audio::timeline::{Micros, Timeline};
+use bopsie_core::clock;
 use bopsie_players::quirks::Quirks;
 use bopsie_players::{
     Capabilities, DeviceInfo, Endpoint, EndpointState, Facts, NativeGroup, NowPlaying, Pairing,
@@ -517,9 +518,58 @@ impl LinkplayEndpoint {
     }
 }
 
+/// How long a wake may take before it is given up.
+const WAKE_LIMIT: Duration = Duration::from_secs(8);
+/// How far ahead of what the device has played a wake keeps its silence.
+const WAKE_AHEAD: u64 = 2 * 44_100;
+
 impl Endpoint for LinkplayEndpoint {
     fn id(&self) -> &str {
         &self.shared.id
+    }
+
+    /// Plays silence until the device says it plays, then lets it play out what it has. Not
+    /// stopped: a stop would also stop a Cast receiver launched on it meanwhile.
+    fn wake(&self) {
+        let format = OutputFormat {
+            sample_rate: 44_100,
+            channels: 2,
+            bits: 16,
+        };
+        let begun = clock::now();
+        let mut sink = LinkplaySink::new(
+            self.shared.clone(),
+            format,
+            Timeline::new(format.sample_rate, begun),
+        );
+        let block = u64::from(format.sample_rate) / 10;
+        let silence = vec![0; block as usize * format.bytes_per_frame()];
+        let deadline = Instant::now() + WAKE_LIMIT;
+        let mut at = 0;
+        let mut checked = Instant::now();
+        let mut playing = false;
+        while Instant::now() < deadline {
+            let due =
+                (clock::now() - begun).max(0) as u64 * u64::from(format.sample_rate) / 1_000_000;
+            if at < due + WAKE_AHEAD {
+                if sink.write(at, &silence).is_err() {
+                    break;
+                }
+                at += block;
+                continue;
+            }
+            if checked.elapsed() >= Duration::from_millis(250) {
+                checked = Instant::now();
+                let status = self.shared.block_on(self.shared.player_status());
+                if status.is_ok_and(|s| s.transport == Some(Transport::Playing)) {
+                    playing = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = sink.drain();
+        tracing::debug!(device = self.shared.id, playing, "woken over LinkPlay");
     }
 
     fn diagnostics(&self) -> serde_json::Value {
