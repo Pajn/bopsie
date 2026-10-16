@@ -221,22 +221,30 @@ impl Endpoint for CastEndpoint {
         endpoint
     }
 
-    /// Plays through the receiver's client. Without one, as when it joins a group that already
-    /// plays, the receiver is launched, and the sink fails until the group takes it back.
+    /// Plays through the receiver's client. Without one, as when it rejoins a group that
+    /// already plays, the receiver is launched, unless another app took the device, and the
+    /// sink plays through it once it connects.
     fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {
-        match self.shared.live() {
-            Some(client) => client.output(format, timeline),
-            None => {
-                let status = self.shared.status.lock().unwrap();
-                let launch = !status.wanted && !status.taken;
-                drop(status);
-                if launch {
-                    self.release_later();
-                    self.shared.send(Command::Launch);
-                }
-                Box::new(Absent(format))
-            }
+        if let Some(client) = self.shared.live() {
+            return client.output(format, timeline);
         }
+        let mut status = self.shared.status.lock().unwrap();
+        if status.taken {
+            return Box::new(Absent(format));
+        }
+        // Wanted from now, so that the sink waits for it rather than giving up.
+        let launch = !std::mem::replace(&mut status.wanted, true);
+        drop(status);
+        if launch {
+            self.release_later();
+            self.shared.send(Command::Launch);
+        }
+        Box::new(Pending {
+            shared: self.shared.clone(),
+            format,
+            timeline,
+            client: None,
+        })
     }
 
     fn set_volume(&self, volume: u8) {
@@ -316,6 +324,69 @@ impl Endpoint for CastEndpoint {
             "receiver": status.report,
             "client": self.shared.client.borrow().as_ref().map(|client| client.diagnostics()),
         })
+    }
+}
+
+/// A sink for a receiver being launched: its first write waits for the receiver to connect,
+/// and it plays through the receiver's client from then on. Audio due while it waited is late,
+/// and the client drops it.
+struct Pending {
+    shared: Arc<Shared>,
+    format: OutputFormat,
+    timeline: Timeline,
+    client: Option<Box<dyn Sink>>,
+}
+
+impl Pending {
+    fn client(&mut self) -> io::Result<&mut Box<dyn Sink>> {
+        if self.client.is_none() {
+            let deadline = Instant::now() + self.shared.settings.launch_timeout;
+            let client = loop {
+                if let Some(client) = self.shared.live() {
+                    break client;
+                }
+                let status = self.shared.status.lock().unwrap();
+                let given_up = status.taken || !status.wanted;
+                drop(status);
+                if given_up || Instant::now() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        "the Cast receiver did not connect",
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            self.client = Some(client.output(self.format, self.timeline));
+        }
+        Ok(self.client.as_mut().expect("just set"))
+    }
+}
+
+impl Sink for Pending {
+    fn format(&self) -> OutputFormat {
+        self.format
+    }
+
+    fn write(&mut self, at: u64, data: &[u8]) -> io::Result<()> {
+        self.client()?.write(at, data)
+    }
+
+    fn clear(&mut self) -> io::Result<()> {
+        self.client.as_mut().map_or(Ok(()), |client| client.clear())
+    }
+
+    fn stop(&mut self) -> io::Result<()> {
+        self.client.as_mut().map_or(Ok(()), |client| client.stop())
+    }
+
+    fn drain(&mut self) -> io::Result<()> {
+        self.client.as_mut().map_or(Ok(()), |client| client.drain())
+    }
+
+    fn finish(&mut self) -> io::Result<()> {
+        self.client
+            .as_mut()
+            .map_or(Ok(()), |client| client.finish())
     }
 }
 

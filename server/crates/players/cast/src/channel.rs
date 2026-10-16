@@ -228,6 +228,13 @@ impl Channel<'_> {
         destination: &str,
         payload: Value,
     ) -> Result<(), Ended> {
+        tracing::trace!(
+            device = self.shared.id,
+            destination,
+            namespace,
+            %payload,
+            "to the Cast device"
+        );
         let message = CastMessage::new(self.sender, destination, namespace, payload.to_string());
         message::write(writer, &message)
             .await

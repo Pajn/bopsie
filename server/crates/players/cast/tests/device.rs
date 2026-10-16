@@ -439,12 +439,15 @@ async fn a_receiver_that_stopped_by_itself_is_launched_again_for_its_group() {
     device.push.send(stopped).unwrap();
     eventually(|| endpoint.diagnostics()["wanted"] == false).await;
 
-    // Its group takes it back, as it does a member whose output failed.
-    let _ = endpoint.output(CD, Timeline::new(44_100, clock::now()));
+    // Its group takes it back, as it does a member whose output failed: the output waits for
+    // the receiver to connect, and plays through it, rather than fail meanwhile.
+    let mut sink = endpoint.output(CD, Timeline::new(44_100, clock::now()));
+    let writing = tokio::task::spawn_blocking(move || sink.write(0, &[0; 4 * 441]));
     device
         .expect("urn:x-cast:com.google.cast.receiver", "LAUNCH")
         .await;
     device.expect("urn:x-cast:sendspin", "config").await;
+    assert!(writing.await.unwrap().is_ok());
     eventually(|| endpoint.state().capabilities.formats.len() == 1).await;
     provider.shutdown();
 }
