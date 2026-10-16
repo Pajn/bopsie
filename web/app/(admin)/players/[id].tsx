@@ -6,9 +6,10 @@ import { useDevices, useGroups, usePlayers } from '@/data/admin';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
 import { airplayRoute, healthTone, playerRows } from '@/features/players/model';
-import { PlayerControls } from '@/features/players/PlayerControls';
+import { PlayerCard } from '@/features/players/PlayerCard';
 import { PlayerSettings } from '@/features/players/PlayerSettings';
 import { describeError } from '@/lib/errors';
+import { Disclosure } from '@/ui/controls';
 import { Badge, Card, Facts, InlineError, Page, Stack, Text } from '@/ui/primitives';
 
 type Json = Parameters<typeof JsonTree>[0]['value'];
@@ -141,16 +142,11 @@ function Endpoint({ endpoint }: { endpoint: AdminEndpoint }) {
           </Text>
         ))}
       </Stack>
-      <Stack gap="sm">
-        <Text variant="label" muted>
-          {endpoint.provider.toUpperCase()} STATE
-        </Text>
-        {endpoint.diagnostics === null ? (
-          <Text muted>The protocol reports nothing more.</Text>
-        ) : (
+      {endpoint.diagnostics === null ? null : (
+        <Disclosure inline title={`${endpoint.provider} state`}>
           <JsonTree value={json(endpoint.diagnostics)} colors={colors} />
-        )}
-      </Stack>
+        </Disclosure>
+      )}
     </Card>
   );
 }
@@ -202,23 +198,19 @@ export default function PlayerScreen() {
     <Page title={device?.name ?? id} back={{ href: '/players', label: 'Players' }}>
       <InlineError message={error ? describeError(error) : null} />
       {devices.isSuccess && !device ? <Text muted>The server knows no player {id}.</Text> : null}
-      {row?.available ? (
-        <Card title="Controls">
-          <PlayerControls row={row} rows={rows} />
-        </Card>
-      ) : null}
-      {group ? <Plan group={group} names={names} /> : null}
+      {row ? <PlayerCard row={row} rows={rows} linked={false} /> : null}
       {device ? <PlayerSettings device={device} /> : null}
+      {group ? <Plan group={group} names={names} /> : null}
       {device?.members.map((endpoint) => (
         <Endpoint key={endpoint.id} endpoint={endpoint} />
       ))}
       {device ? (
-        <Card title="Raw">
+        <Disclosure title="Raw" hint="What the server reports">
           <JsonTree
             value={json({ device, player: row?.player ?? null, group: group ?? null })}
             colors={colors}
           />
-        </Card>
+        </Disclosure>
       ) : null}
     </Page>
   );

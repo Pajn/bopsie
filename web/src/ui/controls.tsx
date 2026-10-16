@@ -132,36 +132,41 @@ export function VolumeSlider({
 
 /**
  * A section that opens on request, closed by default: for what only some want to see, such
- * as the raw data behind a page.
+ * as the raw data behind a page. On its own it is a card; `inline`, it is a section of one.
  */
 export function Disclosure({
   title,
   hint,
   children,
   initiallyOpen = false,
+  inline = false,
 }: {
   title: string;
   hint?: string;
   children: ReactNode;
   initiallyOpen?: boolean;
+  inline?: boolean;
 }) {
   const { theme } = useUnistyles();
   const [open, setOpen] = useState(initiallyOpen);
   return (
-    <View style={styles.disclosure}>
+    <View style={!inline && styles.disclosure}>
       <Pressable
         onPress={() => setOpen(!open)}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        style={({ hovered }: WebPress) => [styles.summary, hovered && styles.summaryHover]}
+        style={({ hovered }: WebPress) => [
+          inline ? styles.inlineSummary : styles.summary,
+          hovered && styles.summaryHover,
+        ]}
       >
         <Icon
           name={open ? 'chevron-down' : 'chevron-right'}
           size={16}
           color={theme.colors.textMuted}
         />
-        <Text variant="heading" style={styles.grow}>
-          {title}
+        <Text variant={inline ? 'label' : 'heading'} muted={inline} style={styles.grow}>
+          {inline ? title.toUpperCase() : title}
         </Text>
         {hint ? (
           <Text variant="caption" muted>
@@ -169,7 +174,7 @@ export function Disclosure({
           </Text>
         ) : null}
       </Pressable>
-      {open ? <View style={styles.details}>{children}</View> : null}
+      {open ? <View style={inline ? styles.inlineDetails : styles.details}>{children}</View> : null}
     </View>
   );
 }
@@ -211,7 +216,17 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.md,
   },
+  inlineSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginHorizontal: -theme.spacing.xs,
+    paddingHorizontal: theme.spacing.xs,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.md,
+  },
   summaryHover: { backgroundColor: theme.colors.surfaceVariant },
   grow: { flex: 1 },
   details: { padding: theme.spacing.lg, paddingTop: 0 },
+  inlineDetails: { paddingTop: theme.spacing.sm },
 }));
