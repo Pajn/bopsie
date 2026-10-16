@@ -102,9 +102,11 @@ export function TextField({ label, style, ...props }: TextInputProps & { label: 
   const { theme } = useUnistyles();
   return (
     <View style={styles.field}>
-      <Text variant="label" muted>
-        {label}
-      </Text>
+      {label ? (
+        <Text variant="label" muted>
+          {label}
+        </Text>
+      ) : null}
       <TextInput
         placeholderTextColor={theme.colors.textMuted}
         style={[styles.input, style]}

@@ -7,11 +7,12 @@ import {
 import type { AdminDevice, AdminEndpoint } from '@bopsie/client/api/schemas/admin';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQueryClient } from '@tanstack/react-query';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { describeError } from '@/lib/errors';
+import { IconButton } from '@/ui/controls';
 import { Badge, Button, Card, Choice, InlineError, Stack, Text, TextField } from '@/ui/primitives';
 import { describeSource } from './model';
 
@@ -37,13 +38,23 @@ function useSave() {
   return { save, error, busy };
 }
 
-/** Where a setting's value comes from, and a way back from a saved one. */
+/**
+ * Where a setting's value comes from, when not the default: saved here, the config file or a
+ * rule, with a way back from a saved one. A default says nothing, as most settings are.
+ */
 function Layer({ layer, onReset }: { layer: string; onReset?: () => void }) {
+  if (layer === 'default') return null;
   return (
     <Stack horizontal gap="xs">
       <Badge label={layer} tone={layer === 'saved' ? 'accent' : 'muted'} />
       {layer === 'saved' && onReset ? (
-        <Button title="Reset" variant="secondary" onPress={onReset} />
+        <IconButton
+          icon="rotate-ccw"
+          label="Reset to what it would be unsaved"
+          variant="ghost"
+          size="sm"
+          onPress={onReset}
+        />
       ) : null}
     </Stack>
   );
@@ -73,7 +84,10 @@ function Row({
   );
 }
 
-/** A text field saved with a button, so typing does not save every letter. */
+/**
+ * A text field saved on Enter, on leaving it, or with the button that shows once it is changed,
+ * so typing does not save every letter. It follows the value when that changes elsewhere.
+ */
 function SavedField({
   value,
   placeholder,
@@ -88,6 +102,15 @@ function SavedField({
   onSave: (value: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  // Pressing Save leaves the field first; what was just saved is not saved again.
+  const sent = useRef<string | null>(null);
+  const changed = draft !== value;
+  const commit = () => {
+    if (!changed || sent.current === draft) return;
+    sent.current = draft;
+    onSave(draft);
+  };
   return (
     <Stack horizontal gap="xs">
       <TextField
@@ -97,10 +120,11 @@ function SavedField({
         secureTextEntry={secure ?? false}
         keyboardType={numeric ? 'number-pad' : 'default'}
         onChangeText={setDraft}
-        onSubmitEditing={() => onSave(draft)}
+        onSubmitEditing={commit}
+        onBlur={commit}
         style={styles.input}
       />
-      <Button title="Save" disabled={draft === value} onPress={() => onSave(draft)} />
+      {changed ? <Button title="Save" onPress={commit} /> : null}
     </Stack>
   );
 }

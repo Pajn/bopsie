@@ -107,7 +107,8 @@ export function PlayerCard({
       {members?.length ? (
         <View style={styles.members}>
           <Text variant="label" muted>
-            PLAYING ALONG{row.strategy ? ` · ${row.strategy}` : ''}
+            {row.player?.playback_state === 'playing' ? 'PLAYING ALONG' : 'IN THE GROUP'}
+            {row.strategy ? ` · ${row.strategy}` : ''}
           </Text>
           {members.map((member) => (
             <MemberRow key={member.id} row={member} />
