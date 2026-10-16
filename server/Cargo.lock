@@ -669,6 +669,7 @@ dependencies = [
  "bopsie-library",
  "bopsie-players",
  "bopsie-sources",
+ "ebur128",
  "futures",
  "hex",
  "librespot-audio",
