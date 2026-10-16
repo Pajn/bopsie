@@ -6,7 +6,7 @@ import {
   reconsiderRelease,
   releaseSuggestions,
 } from '@bopsie/client/api/endpoints/admin';
-import type { LibrarySuggestion } from '@bopsie/client/api/schemas/admin';
+import type { LibrarySuggestion, ReleaseSuggestion } from '@bopsie/client/api/schemas/admin';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -17,6 +17,7 @@ import { describeError } from '@/lib/errors';
 import { Disclosure, IconButton } from '@/ui/controls';
 import { Button, Card, InlineError, Stack, Text } from '@/ui/primitives';
 import { ItemRow } from './ItemRow';
+import { releaseFacts } from './releases';
 
 /** Where each side comes from, as its sources name it. */
 function sourcesOf(item: LibrarySuggestion['a']): string {
@@ -146,7 +147,7 @@ export function Suggestions() {
                 <Text variant="caption" muted>
                   Looks like
                 </Text>
-                <Text numberOfLines={2}>{suggestion.title}</Text>
+                <ReleaseSummary suggestion={suggestion} />
               </View>
               <View style={styles.matchActions}>
                 <IconButton
@@ -175,6 +176,31 @@ export function Suggestions() {
       ) : null}
       <Decided />
     </Stack>
+  );
+}
+
+/**
+ * The release a match suggests, beside the album: its title where it reads differently, and its
+ * artist, year, country, formats and tracks, what differs from the album marked. A suggestion
+ * made before the server kept these says its title alone.
+ */
+function ReleaseSummary({ suggestion }: { suggestion: ReleaseSuggestion }) {
+  if (!suggestion.release) return <Text numberOfLines={2}>{suggestion.title}</Text>;
+  const { title, details } = releaseFacts(suggestion.album, suggestion.release);
+  return (
+    <View>
+      <Text numberOfLines={1} style={title.differs && styles.differs}>
+        {title.text}
+      </Text>
+      <Text variant="caption" muted numberOfLines={2}>
+        {details.map((fact, i) => (
+          <Text key={fact.kind} style={fact.differs && styles.differs}>
+            {i > 0 ? ' · ' : ''}
+            {fact.text}
+          </Text>
+        ))}
+      </Text>
+    </View>
   );
 }
 
@@ -268,6 +294,8 @@ function Decided() {
 
 const styles = StyleSheet.create((theme) => ({
   side: { gap: theme.spacing.xs },
+  // What the release says otherwise than the album, which is what decides a match.
+  differs: { color: theme.colors.warning, fontWeight: '600' },
   section: { gap: 2 },
   list: { padding: 0, gap: 0 },
   divided: { borderBottomWidth: 1, borderColor: theme.colors.border },
