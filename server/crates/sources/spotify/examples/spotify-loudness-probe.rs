@@ -20,6 +20,7 @@ use librespot_core::SpotifyId;
 
 #[tokio::main]
 async fn main() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let mut args = std::env::args().skip(1);
     let data_dir = PathBuf::from(args.next().expect("a data directory"));
     let db = Database::open_in_memory(&[]).expect("a database");
