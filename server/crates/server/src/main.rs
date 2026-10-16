@@ -157,7 +157,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         events.clone(),
         PlaybackConfig {
             ffmpeg,
-            base_url: config.server.base_url.clone(),
+            base_url: config.server.reachable_url(),
             policy: Policy {
                 protocols: config.planner.protocols.clone(),
             },

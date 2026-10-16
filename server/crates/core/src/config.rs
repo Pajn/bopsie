@@ -2,7 +2,7 @@
 //! with defaults; an unknown key is an error, so a typo does not silently do nothing.
 
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -51,7 +51,8 @@ pub struct ServerConfig {
     /// The name clients show for this server.
     pub name: String,
     /// The URL clients reach the server at, reported in server info. Unset, the server reports
-    /// none rather than guess one from the bind address.
+    /// none rather than guess one from the bind address; the artwork URLs it gives players then
+    /// use its own address on the network.
     pub base_url: Option<String>,
 }
 
@@ -276,6 +277,33 @@ impl Default for ServerConfig {
     }
 }
 
+impl ServerConfig {
+    /// The URL devices on the network fetch from the server at, such as artwork: `base_url`,
+    /// else this machine's address on its default route at the bound port. None when it has no
+    /// network to be reached on.
+    pub fn reachable_url(&self) -> Option<String> {
+        if let Some(base) = &self.base_url {
+            return Some(base.trim_end_matches('/').to_owned());
+        }
+        let ip = match self.bind.ip() {
+            ip if !ip.is_unspecified() => ip,
+            // Connecting a UDP socket sends nothing; it only picks the route, and so the
+            // address the server's traffic goes out from. The address is a documentation one.
+            IpAddr::V4(_) => {
+                let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+                socket.connect("192.0.2.1:80").ok()?;
+                socket.local_addr().ok()?.ip()
+            }
+            IpAddr::V6(_) => {
+                let socket = UdpSocket::bind("[::]:0").ok()?;
+                socket.connect("[2001:db8::1]:80").ok()?;
+                socket.local_addr().ok()?.ip()
+            }
+        };
+        Some(format!("http://{}", SocketAddr::new(ip, self.bind.port())))
+    }
+}
+
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
@@ -352,6 +380,29 @@ mod tests {
         assert_eq!(config.server.name, "Bopsie");
         assert_eq!(config.storage, StorageConfig::default());
         assert!(config.library.folders.is_empty());
+    }
+
+    #[test]
+    fn the_reachable_url_is_the_base_url_else_the_bound_address() {
+        let mut server = ServerConfig {
+            bind: SocketAddr::from(([127, 0, 0, 1], 9000)),
+            base_url: Some("http://music.local:9000/".to_owned()),
+            ..ServerConfig::default()
+        };
+        assert_eq!(
+            server.reachable_url().as_deref(),
+            Some("http://music.local:9000")
+        );
+        server.base_url = None;
+        assert_eq!(
+            server.reachable_url().as_deref(),
+            Some("http://127.0.0.1:9000")
+        );
+        // Bound to every address, it is one the network reaches, never the unspecified one.
+        server.bind = SocketAddr::from(([0, 0, 0, 0], 9000));
+        if let Some(url) = server.reachable_url() {
+            assert!(!url.contains("0.0.0.0") && url.ends_with(":9000"), "{url}");
+        }
     }
 
     #[test]
