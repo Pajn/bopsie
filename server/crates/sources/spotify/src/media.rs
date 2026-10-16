@@ -32,8 +32,10 @@ const HEADER: u64 = 0xa7;
 /// Where in the header Spotify keeps the track's loudness: its track gain, track peak, album
 /// gain and album peak, as little-endian `f32`s.
 const LOUDNESS_AT: u64 = 144;
-/// The loudness Spotify's gains bring audio to, in LUFS.
-pub const SPOTIFY_REFERENCE_LUFS: f32 = -14.0;
+/// The loudness Spotify's gains bring audio to, in LUFS by EBU R128: not the -14 LUFS Spotify
+/// plays at, but about -17, as the `spotify-loudness-probe` example measured of a library's
+/// tracks, each within half a dB.
+pub const SPOTIFY_REFERENCE_LUFS: f32 = -17.0;
 /// The formats played, best first.
 const PREFERRED: &[AudioFileFormat] = &[
     AudioFileFormat::OGG_VORBIS_320,
@@ -375,9 +377,9 @@ mod tests {
         assert_eq!(
             header_loudness(&mut Cursor::new(&header)).unwrap(),
             Some(Loudness {
-                track_gain_db: -9.5,
+                track_gain_db: -6.5,
                 track_peak: 0.9,
-                album_gain_db: Some(-7.0),
+                album_gain_db: Some(-4.0),
                 album_peak: Some(0.95),
             })
         );
