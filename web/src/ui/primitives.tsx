@@ -109,6 +109,8 @@ export function TextField({ label, style, ...props }: TextInputProps & { label: 
       ) : null}
       <TextInput
         placeholderTextColor={theme.colors.textMuted}
+        // The label is drawn above; this names the field for a screen reader too.
+        {...(label && { accessibilityLabel: label })}
         style={[styles.input, style]}
         {...props}
       />
@@ -246,11 +248,14 @@ export function Badge({ label, tone = 'muted' }: { label: string; tone?: Tone })
  */
 export function Choice({
   title,
+  label,
   options,
   onChoose,
   disabled,
 }: {
   title: string;
+  /** What it chooses, for a screen reader, where the title alone does not say: `Plays on`. */
+  label?: string;
   options: Array<{ value: string; label: string }>;
   onChoose: (value: string) => void;
   disabled?: boolean;
@@ -271,7 +276,7 @@ export function Choice({
       </Text>
       <Icon name="chevron-down" size={14} color={theme.colors.textMuted} />
       <select
-        aria-label={title}
+        aria-label={label ?? title}
         value=""
         disabled={inactive}
         onChange={(event) => {
@@ -289,8 +294,9 @@ export function Choice({
           font: 'inherit',
         }}
       >
+        {/* What the list is for, not an option: the title can name one, as the current player. */}
         <option value="" disabled>
-          {title}
+          {label ?? title}
         </option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>

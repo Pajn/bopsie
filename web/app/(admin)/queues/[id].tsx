@@ -169,14 +169,14 @@ function ItemRow({
     <>
       <IconButton
         icon="play"
-        label="Play now"
+        label={`Play ${title} now`}
         variant="ghost"
         size="sm"
         onPress={() => run(() => playQueueItem(connection, id, item.queue_item_id))}
       />
       <IconButton
         icon="arrow-up"
-        label="Move up"
+        label={`Move ${title} up`}
         variant="ghost"
         size="sm"
         disabled={index <= held + 1}
@@ -184,7 +184,7 @@ function ItemRow({
       />
       <IconButton
         icon="arrow-down"
-        label="Move down"
+        label={`Move ${title} down`}
         variant="ghost"
         size="sm"
         disabled={index <= held}
@@ -192,7 +192,7 @@ function ItemRow({
       />
       <IconButton
         icon="x"
-        label="Remove"
+        label={`Remove ${title}`}
         variant="ghost"
         size="sm"
         disabled={index <= held}
@@ -230,7 +230,7 @@ function ItemRow({
         <View style={styles.narrowOnly}>
           <IconButton
             icon="more-horizontal"
-            label={open ? 'Fewer actions' : 'More actions'}
+            label={open ? `Fewer actions for ${title}` : `More actions for ${title}`}
             variant="ghost"
             size="sm"
             active={open}

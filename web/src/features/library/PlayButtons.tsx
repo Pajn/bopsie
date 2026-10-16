@@ -15,6 +15,7 @@ export function TargetPicker() {
       <Text muted>Plays on</Text>
       <Choice
         title={player?.name ?? 'No player'}
+        label={player ? `Plays on ${player.name}` : 'Plays on'}
         options={leaders.map((p) => ({ value: p.player_id, label: p.name }))}
         onChoose={setPlayerId}
       />

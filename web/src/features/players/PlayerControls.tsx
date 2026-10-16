@@ -74,11 +74,13 @@ export function PlayerControls({ row, rows }: { row: PlayerRow; rows: PlayerRow[
         ) : null}
         <Choice
           title="Join"
+          label={`Group ${row.name} with`}
           options={leaders.map((other) => ({ value: other.id, label: other.name }))}
           onChoose={(leader) => run(() => joinGroup(connection, row.id, leader))}
         />
         <Choice
           title="Move queue to"
+          label={`Move ${row.name}'s queue to`}
           options={others.map((other) => ({ value: other.id, label: other.name }))}
           onChoose={(target) => run(() => transferQueue(connection, queue, target))}
         />
