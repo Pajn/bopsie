@@ -6,6 +6,7 @@ pub mod decode;
 pub mod engine;
 pub mod format;
 pub mod live;
+pub mod loudness;
 pub mod pack;
 pub mod ring;
 pub mod sink;

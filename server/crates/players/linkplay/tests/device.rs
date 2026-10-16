@@ -132,6 +132,8 @@ fn session(
             id: "a".into(),
             input: path.into(),
             start: Duration::ZERO,
+            loudness: None,
+            normalise: None,
         }]
         .into(),
     );

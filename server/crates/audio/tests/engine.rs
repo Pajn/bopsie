@@ -4,7 +4,9 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bopsie_audio::engine::{self, Command, Event, Settings, TrackRequest, TrackSource};
+use bopsie_audio::decode::{DecodeError, Decoder, Read};
+use bopsie_audio::engine::{self, Command, Event, Input, Settings, TrackRequest, TrackSource};
+use bopsie_audio::loudness::{Loudness, Mode, Normalise};
 use bopsie_audio::sink::{Sink, WavSink};
 use bopsie_audio::{OutputFormat, PcmFormat};
 use bopsie_fixtures::{noise, write_wav};
@@ -22,6 +24,8 @@ fn request(id: &str, path: &Path) -> TrackRequest {
         id: id.to_owned(),
         input: path.to_owned().into(),
         start: Duration::ZERO,
+        loudness: None,
+        normalise: None,
     }
 }
 
@@ -164,6 +168,7 @@ fn other_rates_are_converted_to_the_session_rate_exactly() {
         id: "a".to_owned(),
         at: converted,
         start: Duration::ZERO,
+        normalised: None,
     }));
     assert_eq!(data[0].len() as u64, (converted + 1_000) * 4);
     assert_eq!(data[1].len() as u64, (converted + 1_000) * 6, "24-bit");
@@ -467,7 +472,8 @@ mod realtime {
             Event::TrackStarted {
                 id: "a".to_owned(),
                 at: due,
-                start: Duration::ZERO
+                start: Duration::ZERO,
+                normalised: None,
             }
         );
         while !matches!(
@@ -666,6 +672,8 @@ mod live {
                 id: "live".to_owned(),
                 input: Input::decoder(Box::new(input)),
                 start: Duration::ZERO,
+                loudness: None,
+                normalise: None,
             }]
             .into(),
         );
@@ -752,4 +760,114 @@ mod live {
         drop(writer);
         handle.shutdown();
     }
+}
+
+/// A second of a constant level, as a decoder that says how loud it is.
+struct Level {
+    left: usize,
+    loudness: Loudness,
+}
+
+impl Decoder for Level {
+    fn format(&self) -> PcmFormat {
+        SESSION
+    }
+
+    fn read(&mut self, out: &mut Vec<f32>) -> Result<Read, DecodeError> {
+        if self.left == 0 {
+            return Ok(Read::End);
+        }
+        let n = self.left.min(4_096);
+        out.extend(std::iter::repeat_n(0.25, n));
+        self.left -= n;
+        Ok(Read::Data)
+    }
+
+    fn seek(&mut self, _frame: u64) -> Result<u64, DecodeError> {
+        Ok(0)
+    }
+
+    fn loudness(&self) -> Option<Loudness> {
+        Some(self.loudness)
+    }
+}
+
+#[test]
+fn normalised_tracks_are_scaled_and_others_are_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let level = vec![8_000i16; 1_000 * 2];
+    write_wav(&dir.path().join("a.wav"), 44_100, 2, &level).unwrap();
+    let path = dir.path().join("a.wav");
+    // −6.02 dB halves the samples.
+    let halved = Loudness {
+        track_gain_db: -6.0206,
+        track_peak: 0.25,
+        album_gain_db: Some(0.0),
+        album_peak: Some(0.25),
+    };
+    let to = |target_lufs, album| Some(Normalise { target_lufs, album });
+    let with = |id: &str, loudness, normalise| TrackRequest {
+        loudness,
+        normalise,
+        ..request(id, &path)
+    };
+    let tracks = vec![
+        with("track", Some(halved), to(-18.0, false)),
+        with("album", Some(halved), to(-18.0, true)),
+        // Unknown loudness, or normalisation off: as it is.
+        with("unknown", None, to(-18.0, false)),
+        with("off", Some(halved), None),
+        // A source that knows once opened says so itself; 6 dB above the reference, it is held
+        // down to its peak: 0.25 rises to full scale and no further.
+        TrackRequest {
+            id: "streamed".to_owned(),
+            input: Input::decoder(Box::new(Level {
+                left: 2_000,
+                loudness: Loudness {
+                    track_gain_db: 20.0,
+                    track_peak: 0.25,
+                    album_gain_db: None,
+                    album_peak: None,
+                },
+            })),
+            start: Duration::ZERO,
+            loudness: None,
+            normalise: to(-18.0, false),
+        },
+    ];
+    let (events, data) = play(dir.path(), tracks, &[16]);
+
+    let samples: Vec<i16> = data[0]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| i16::from_le_bytes(b))
+        .collect();
+    let first = |track: usize| samples[track * 2_000];
+    assert!((first(0) - 4_000).abs() <= 1, "{}", first(0));
+    assert_eq!(first(1), 8_000, "the album gain is 0 dB");
+    assert_eq!(first(2), 8_000);
+    assert_eq!(first(3), 8_000);
+    assert!(first(4) >= 32_766, "{}", first(4));
+
+    let applied: Vec<(String, Option<(f32, Mode)>)> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::TrackStarted { id, normalised, .. } => Some((
+                id.clone(),
+                normalised.map(|a| ((a.gain_db * 100.0).round() / 100.0, a.mode)),
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        applied,
+        [
+            ("track".to_owned(), Some((-6.02, Mode::Track))),
+            ("album".to_owned(), Some((0.0, Mode::Album))),
+            ("unknown".to_owned(), None),
+            ("off".to_owned(), None),
+            ("streamed".to_owned(), Some((12.04, Mode::Track))),
+        ]
+    );
 }

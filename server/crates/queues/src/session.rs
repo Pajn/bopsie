@@ -93,6 +93,8 @@ impl TrackSource for Source {
                     id: LIVE_ID.to_owned(),
                     input,
                     start: Duration::ZERO,
+                    loudness: None,
+                    normalise: None,
                 });
             }
         }
@@ -105,6 +107,8 @@ impl TrackSource for Source {
             id: item.queue_item_id.clone(),
             input: item.input.clone(),
             start,
+            loudness: None,
+            normalise: None,
         })
     }
 }

@@ -190,6 +190,8 @@ fn play(
         id: "a".to_owned(),
         input: path.into(),
         start: Duration::ZERO,
+        loudness: None,
+        normalise: None,
     }));
     let handle = engine::spawn(settings, Box::new(source), sinks);
     handle.send(Command::Restart {

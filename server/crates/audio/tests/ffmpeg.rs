@@ -101,6 +101,8 @@ fn mp4_tracks_play_gaplessly_through_ffmpeg() {
         id: name.to_owned(),
         input: dir.path().join(format!("{name}.m4a")).into(),
         start: Duration::ZERO,
+        loudness: None,
+        normalise: None,
     });
     let settings = Settings {
         format: SESSION,

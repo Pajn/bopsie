@@ -25,6 +25,7 @@ use crate::decode::{
     self, DecodeError, Decoder, DecoderKind, FfmpegDecoder, Read, SymphoniaDecoder,
 };
 use crate::format::{OutputFormat, PcmFormat};
+use crate::loudness::{Loudness, Mode, Normalise};
 use crate::pack::pack;
 use crate::ring::Ring;
 use crate::sink::Sink;
@@ -37,12 +38,27 @@ pub const QUEUE_AHEAD: Micros = 10_000_000;
 pub const LIVE_AHEAD: Micros = 300_000;
 
 /// A track to play, and where in it to start.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrackRequest {
     /// Identifies the track in events, such as a queue item id.
     pub id: String,
     pub input: Input,
     pub start: Duration,
+    /// How loud the track is, when known before it is opened. A decoder that knows says so
+    /// itself otherwise.
+    pub loudness: Option<Loudness>,
+    /// How to normalise it; `None` plays it as it is.
+    pub normalise: Option<Normalise>,
+}
+
+/// The gain a track plays with, from normalisation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Applied {
+    pub gain_db: f32,
+    pub mode: Mode,
+    /// The loudness it was taken from.
+    pub loudness: Loudness,
+    pub target_lufs: f32,
 }
 
 /// Where a track's audio comes from.
@@ -139,19 +155,21 @@ pub enum Command {
 
 /// An event, with the epoch of the `Restart` or `Stop` it follows, so that a listener can
 /// tell events about what it asked for from ones already on their way before it asked.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Tagged {
     pub epoch: u64,
     pub event: Event,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event {
-    /// The track, from `start` within it, begins at timeline frame `at`.
+    /// The track, from `start` within it, begins at timeline frame `at`, with the gain
+    /// normalisation gave it, if any.
     TrackStarted {
         id: String,
         at: u64,
         start: Duration,
+        normalised: Option<Applied>,
     },
     /// The track's last frame ends at timeline frame `at`.
     TrackEnded { id: String, at: u64 },
@@ -306,12 +324,15 @@ struct Opened {
     id: String,
     decoder: Box<dyn Decoder>,
     start: Duration,
+    normalised: Option<Applied>,
 }
 
 struct Playing {
     id: String,
     decoder: Box<dyn Decoder>,
     converter: Converter,
+    /// What its samples are multiplied by.
+    factor: f32,
 }
 
 struct Engine {
@@ -585,10 +606,21 @@ impl Engine {
                 self.settings.ffmpeg.as_deref(),
             ) {
                 Ok(decoder) => {
+                    let normalised = request.normalise.and_then(|normalise| {
+                        let loudness = request.loudness.or_else(|| decoder.loudness())?;
+                        let (gain_db, mode) = loudness.gain_db(normalise);
+                        Some(Applied {
+                            gain_db,
+                            mode,
+                            loudness,
+                            target_lufs: normalise.target_lufs,
+                        })
+                    });
                     return Some(Opened {
                         id: request.id,
                         decoder,
                         start: request.start,
+                        normalised,
                     });
                 }
                 Err(error) => self.emit(Event::TrackFailed {
@@ -630,11 +662,15 @@ impl Engine {
             id: opened.id.clone(),
             at: self.head,
             start: opened.start,
+            normalised: opened.normalised,
         });
         self.current = Some(Playing {
             id: opened.id,
             converter: Converter::new(native, self.settings.format),
             decoder: opened.decoder,
+            factor: opened
+                .normalised
+                .map_or(1.0, |applied| 10f32.powf(applied.gain_db / 20.0)),
         });
         self.prepared = self.open_next();
     }
@@ -645,7 +681,14 @@ impl Engine {
         };
         let mut decoded = Vec::new();
         let (samples, ended) = match playing.decoder.read(&mut decoded) {
-            Ok(Read::Data) => (playing.converter.push(&decoded), false),
+            Ok(Read::Data) => {
+                if playing.factor != 1.0 {
+                    for sample in &mut decoded {
+                        *sample *= playing.factor;
+                    }
+                }
+                (playing.converter.push(&decoded), false)
+            }
             Ok(Read::Pending) => {
                 self.starved = true;
                 return;

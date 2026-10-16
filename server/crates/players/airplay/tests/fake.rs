@@ -177,6 +177,8 @@ fn session_with(fake: &Fake, samples: &[i16], prepare: bool) -> (engine::EngineH
             id: "a".into(),
             input: path.into(),
             start: Duration::ZERO,
+            loudness: None,
+            normalise: None,
         }]
         .into(),
     );

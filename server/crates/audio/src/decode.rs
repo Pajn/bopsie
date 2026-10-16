@@ -19,6 +19,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::Time;
 
 use crate::format::PcmFormat;
+use crate::loudness::Loudness;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
@@ -60,6 +61,11 @@ pub trait Decoder: Send {
     /// Moves to `frame` frames from the start, exactly. Returns the frame it moved to, which
     /// is earlier only when the stream is shorter.
     fn seek(&mut self, frame: u64) -> Result<u64, DecodeError>;
+    /// How loud the audio is, for a source that knows once it is open, such as a streaming
+    /// service's file.
+    fn loudness(&self) -> Option<Loudness> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
