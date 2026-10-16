@@ -1224,6 +1224,8 @@ impl Playback {
             .iter()
             .filter(|(_, entry)| entry.synced_to.is_none())
             .filter(|(_, entry)| entry.session.snapshot().state == PlaybackState::Playing)
+            // Its time stands still until it is heard, as its last update says.
+            .filter(|(_, entry)| !entry.session.buffering())
             .map(|(id, entry)| {
                 (
                     id.clone(),
@@ -2100,6 +2102,9 @@ impl Playback {
         );
         // While a source plays to the group, the queue rests.
         value["active"] = json!(entry.session.live_source().is_none());
+        // Bopsie's own: meant to be playing, but nothing heard yet, so its elapsed time stands
+        // still. Music Assistant's states have no such state.
+        value["buffering"] = json!(entry.session.buffering());
         Some(value)
     }
 
@@ -2213,6 +2218,7 @@ impl Playback {
                 queue_id: &leader,
                 current: queue.current(),
                 elapsed,
+                buffering: live.is_none() && leading.session.buffering(),
                 source: live
                     .as_ref()
                     .map(|(source, state)| SourcePlayback { id: source, state }),
@@ -2258,6 +2264,7 @@ impl Playback {
                 queue_id: &device.id,
                 current: None,
                 elapsed: Duration::ZERO,
+                buffering: false,
                 source: None,
                 sources: Vec::new(),
             },

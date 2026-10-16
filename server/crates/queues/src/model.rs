@@ -142,6 +142,8 @@ pub struct PlayerPlayback<'a> {
     pub queue_id: &'a str,
     pub current: Option<&'a QueueItem>,
     pub elapsed: Duration,
+    /// Its group is meant to be playing, but nothing is heard yet: see [`queue`].
+    pub buffering: bool,
     /// The source the player's group plays in place of its queue, if it plays one.
     pub source: Option<SourcePlayback<'a>>,
     /// The sources announced for the player.
@@ -298,6 +300,7 @@ pub fn player(
         "playback_state": state,
         "elapsed_time": elapsed,
         "elapsed_time_last_updated": unix_now(),
+        "buffering": playback.buffering,
         "powered": true,
         "volume_level": endpoint.volume,
         "volume_muted": endpoint.muted,

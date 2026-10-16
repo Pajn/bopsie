@@ -15,6 +15,10 @@ describe('queuePosition', () => {
     expect(queuePosition(queue({ state: 'playing' }), 1_012_500)).toBe(42.5);
   });
 
+  it('stays put while it buffers, though it is meant to be playing', () => {
+    expect(queuePosition(queue({ state: 'playing', buffering: true }), 1_012_500)).toBe(30);
+  });
+
   it('stays put while paused', () => {
     expect(queuePosition(queue({ state: 'paused' }), 1_012_500)).toBe(30);
   });

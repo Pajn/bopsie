@@ -341,7 +341,15 @@ impl QueueSession {
             let _ = self.notices.send(Notice::TakenBack(source));
         }
         match effect {
-            Effect::PlayFrom(_) => queue.state = PlaybackState::Playing,
+            Effect::PlayFrom(_) => {
+                queue.state = PlaybackState::Playing;
+                // Where it will start, still until it is heard: what played before, or where
+                // a paused one was, is not where it is now.
+                *self.position.lock().unwrap() = Position {
+                    offset: queue.resume_position,
+                    since: None,
+                };
+            }
             Effect::Stop => queue.stopped(),
             Effect::Pause | Effect::None | Effect::NextChanged => {}
         }
@@ -406,6 +414,13 @@ impl QueueSession {
             since: None,
         };
         let _ = self.notices.send(Notice::Seeked);
+    }
+
+    /// Whether the queue is meant to be playing, but nothing of it is heard yet: its speakers
+    /// are getting ready, or the start is still a lead ahead.
+    pub fn buffering(&self) -> bool {
+        self.queue.lock().unwrap().state == PlaybackState::Playing
+            && self.position.lock().unwrap().since.is_none()
     }
 
     /// How far into the current item playback is at `now`.

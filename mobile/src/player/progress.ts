@@ -21,13 +21,21 @@ export function positionAt({ elapsed, measuredAt, playing, duration }: Measured,
   return duration ? Math.min(position, duration) : position;
 }
 
+/**
+ * Whether the queue's position moves on: playing, and heard already. While its speakers get
+ * ready, the server says it is playing but buffering, and the position stands still.
+ */
+export function advancing(queue: Pick<PlayerQueue, 'state' | 'buffering'>): boolean {
+  return queue.state === 'playing' && !queue.buffering;
+}
+
 /** Seconds into the queue's current item at `nowMs`; see `positionAt`. */
 export function queuePosition(queue: PlayerQueue, nowMs: number): number {
   return positionAt(
     {
       elapsed: queue.elapsed_time,
       measuredAt: queue.elapsed_time_last_updated,
-      playing: queue.state === 'playing',
+      playing: advancing(queue),
       duration: queue.current_item?.duration,
     },
     nowMs,

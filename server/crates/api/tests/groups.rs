@@ -421,3 +421,56 @@ async fn a_speaker_played_through_a_launched_receiver_is_woken_through_its_own_m
     assert_eq!(queue["state"], "playing");
     assert_eq!(player(&mut client, "wiim").await["synced_to"], "philips");
 }
+
+async fn get_queue(client: &mut Client) -> Value {
+    client
+        .result("player_queues/get", json!({"queue_id": "kitchen"}))
+        .await
+}
+
+#[tokio::test]
+async fn a_queue_is_buffering_until_it_is_heard_and_its_time_stands_still_meanwhile() {
+    let (server, token) = start_set_up_with(10).await;
+    let speaker = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    *speaker.prepare_takes.lock().unwrap() = Duration::from_millis(1_500);
+    let mut client = signed_in(&server, &token).await;
+    until(&mut client, "players/all", json!({}), |all| {
+        all.as_array().unwrap().len() == 1
+    })
+    .await;
+
+    play_album(&mut client, "kitchen").await;
+    let starting = get_queue(&mut client).await;
+    assert_eq!(starting["state"], "playing");
+    assert_eq!(starting["buffering"], true);
+    assert_eq!(starting["elapsed_time"], 0.0);
+    assert_eq!(player(&mut client, "kitchen").await["buffering"], true);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(
+        get_queue(&mut client).await["elapsed_time"],
+        0.0,
+        "still until heard"
+    );
+
+    let playing = until(
+        &mut client,
+        "player_queues/get",
+        json!({"queue_id": "kitchen"}),
+        |q| q["buffering"] == false,
+    )
+    .await;
+    assert_eq!(playing["state"], "playing");
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    let later = get_queue(&mut client).await["elapsed_time"]
+        .as_f64()
+        .unwrap();
+    assert!(later >= 1.0, "it runs once heard: {later}");
+
+    // Next: the new track starts at its start, not where the last one was.
+    client
+        .result("player_queues/next", json!({"queue_id": "kitchen"}))
+        .await;
+    let next = get_queue(&mut client).await;
+    assert_eq!(next["buffering"], true);
+    assert_eq!(next["elapsed_time"], 0.0);
+}

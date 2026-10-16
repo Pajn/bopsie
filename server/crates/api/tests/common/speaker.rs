@@ -49,6 +49,8 @@ pub struct Speaker {
     pub woken: AtomicU64,
     pub woken_at: Mutex<Option<std::time::Instant>>,
     pub prepared_at: Mutex<Option<std::time::Instant>>,
+    /// How long it takes to get ready to play.
+    pub prepare_takes: Mutex<Duration>,
 }
 
 /// What the next write to a speaker's output does wrong.
@@ -85,6 +87,7 @@ impl Speaker {
             woken: AtomicU64::new(0),
             woken_at: Mutex::default(),
             prepared_at: Mutex::default(),
+            prepare_takes: Mutex::default(),
         });
         players.register(speaker.clone());
         speaker
@@ -222,6 +225,7 @@ impl Endpoint for Speaker {
     }
     fn prepare(&self) -> Option<bopsie_audio::timeline::Micros> {
         *self.prepared_at.lock().unwrap() = Some(std::time::Instant::now());
+        std::thread::sleep(*self.prepare_takes.lock().unwrap());
         None
     }
 }

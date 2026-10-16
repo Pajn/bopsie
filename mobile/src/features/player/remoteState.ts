@@ -1,6 +1,7 @@
 import { imageUrl } from '@bopsie/client/api/images';
 import type { ActiveGroup } from '@/features/outputs/outputs';
 import type { RemoteNowPlaying } from '@/player/Player';
+import { advancing } from '@/player/progress';
 import { describeItem, type HeardQueue } from './nowPlaying';
 
 /**
@@ -29,7 +30,8 @@ export function remoteNowPlaying(
     durationMs: item.duration ? Math.round(item.duration * 1000) : null,
     positionMs: Math.round(queue.elapsed_time * 1000),
     positionAt: Math.round(queue.elapsed_time_last_updated * 1000),
-    playing: queue.state === 'playing',
+    // Still while it buffers, so that the lock screen's position does not run ahead of it.
+    playing: advancing(queue),
     volume: active.volume === null ? null : Math.round(active.volume),
   };
 }

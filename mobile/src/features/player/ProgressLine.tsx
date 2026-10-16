@@ -8,7 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { StyleSheet } from 'react-native-unistyles';
-import { positionAt } from '@/player/progress';
+import { advancing, positionAt } from '@/player/progress';
 import type { HeardQueue } from './nowPlaying';
 
 /**
@@ -19,7 +19,7 @@ import type { HeardQueue } from './nowPlaying';
 export function ProgressLine({ queue }: { queue: HeardQueue }) {
   const progress = useSharedValue(0);
   const duration = queue.current_item?.duration ?? 0;
-  const playing = queue.state === 'playing';
+  const playing = advancing(queue);
   const { elapsed_time: elapsed, elapsed_time_last_updated: measuredAt } = queue;
 
   useEffect(() => {

@@ -126,7 +126,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
           />
           <View style={styles.times}>
             <Text variant="caption" muted testID="player-position">
-              {idle ? '' : formatDuration(position)}
+              {idle ? '' : queue?.buffering ? 'Starting…' : formatDuration(position)}
             </Text>
             <Text variant="caption" muted>
               {duration ? formatDuration(duration) : ''}

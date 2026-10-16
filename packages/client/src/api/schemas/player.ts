@@ -115,6 +115,11 @@ export const playerQueue = z.looseObject({
   /** Unix seconds. */
   elapsed_time_last_updated: numberOr(0),
   state: playbackState,
+  /**
+   * Bopsie's own: meant to be playing, but nothing heard yet, so `elapsed_time` stands still.
+   * Music Assistant's states have no such state.
+   */
+  buffering: booleanOr(false),
   current_item: z.nullish(queueItem),
   next_item: z.nullish(queueItem),
 });
