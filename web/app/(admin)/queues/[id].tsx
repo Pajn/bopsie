@@ -5,18 +5,23 @@ import {
   removeQueueItem,
   seek,
 } from '@bopsie/client/api/endpoints/players';
+import type { PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { usePlayers } from '@/data/admin';
 import { useQueue, useQueueItems } from '@/data/queues';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
+import { describeItem, itemArtwork } from '@/features/queues/items';
 import { describeError } from '@/lib/errors';
 import { duration, elapsedNow } from '@/lib/time';
-import { Badge, Button, Card, Facts, InlineError, Page, Stack, Text } from '@/ui/primitives';
+import { Artwork } from '@/ui/Artwork';
+import { Disclosure, IconButton, SeekBar } from '@/ui/controls';
+import { Icon } from '@/ui/Icon';
+import { Button, Card, InlineError, Page, Text } from '@/ui/primitives';
 
 const REPEAT = ['off', 'all', 'one'] as const;
 
@@ -30,6 +35,212 @@ function useNow(): number {
   return now;
 }
 
+type Run = (action: () => Promise<unknown>) => void;
+
+function state(queue: PlayerQueue): string {
+  if (queue.state === 'playing') return queue.buffering ? 'Starting' : 'Playing';
+  return queue.state === 'paused' ? 'Paused' : 'Stopped';
+}
+
+/** What plays, where in it, and the controls for the queue as a whole. */
+function NowPlaying({ id, queue, run }: { id: string; queue: PlayerQueue; run: Run }) {
+  const { account, connection } = useConnection();
+  const now = useNow();
+  const item = queue.current_item;
+  const elapsed = elapsedNow(queue, now);
+  const length = item?.duration ?? 0;
+  const described = item ? describeItem(item) : null;
+  const repeat = queue.repeat_mode as (typeof REPEAT)[number];
+  return (
+    <Card>
+      <View style={styles.now}>
+        <Artwork uri={item ? itemArtwork(account.serverUrl, item, 256) : null} size={96} />
+        <View style={styles.nowText}>
+          <Text variant="caption" muted>
+            {state(queue)}
+          </Text>
+          <Text variant="heading" numberOfLines={2}>
+            {described?.title ?? 'Nothing loaded'}
+          </Text>
+          {described?.subtitle ? (
+            <Text muted numberOfLines={1}>
+              {described.subtitle}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+      {item ? (
+        <SeekBar
+          elapsed={elapsed}
+          length={length}
+          onSeek={(seconds) => run(() => seek(connection, id, seconds))}
+        />
+      ) : null}
+      <View style={styles.transport}>
+        <IconButton
+          icon="shuffle"
+          label={queue.shuffle_enabled ? 'Shuffle off' : 'Shuffle on'}
+          variant="ghost"
+          active={queue.shuffle_enabled}
+          onPress={() =>
+            run(() =>
+              connection.command('player_queues/shuffle', {
+                queue_id: id,
+                shuffle_enabled: !queue.shuffle_enabled,
+              }),
+            )
+          }
+        />
+        <IconButton
+          icon="skip-back"
+          label="Previous"
+          variant="ghost"
+          onPress={() => run(() => queueCommand(connection, id, 'previous'))}
+        />
+        <IconButton
+          icon="rotate-ccw"
+          label="Back 15 seconds"
+          variant="ghost"
+          disabled={!item}
+          onPress={() => run(() => seek(connection, id, Math.max(0, elapsed - 15)))}
+        />
+        <IconButton
+          icon={queue.state === 'playing' ? 'pause' : 'play'}
+          label={queue.state === 'playing' ? 'Pause' : 'Play'}
+          variant="primary"
+          size="lg"
+          onPress={() => run(() => queueCommand(connection, id, 'play_pause'))}
+        />
+        <IconButton
+          icon="rotate-cw"
+          label="Forward 15 seconds"
+          variant="ghost"
+          disabled={!item}
+          onPress={() => run(() => seek(connection, id, elapsed + 15))}
+        />
+        <IconButton
+          icon="skip-forward"
+          label="Next"
+          variant="ghost"
+          onPress={() => run(() => queueCommand(connection, id, 'next'))}
+        />
+        <IconButton
+          icon="repeat"
+          label={`Repeat ${repeat}`}
+          variant="ghost"
+          active={repeat !== 'off'}
+          {...(repeat === 'one' && { mark: '1' })}
+          onPress={() => {
+            const next = REPEAT[(REPEAT.indexOf(repeat) + 1) % REPEAT.length];
+            run(() =>
+              connection.command('player_queues/repeat', { queue_id: id, repeat_mode: next }),
+            );
+          }}
+        />
+      </View>
+    </Card>
+  );
+}
+
+/** An item of the queue, with what can be done to it beside it, or below it on a phone. */
+function ItemRow({
+  id,
+  item,
+  index,
+  current,
+  held,
+  run,
+}: {
+  id: string;
+  item: QueueItem;
+  index: number;
+  current: number;
+  held: number;
+  run: Run;
+}) {
+  const { account, connection } = useConnection();
+  const { theme } = useUnistyles();
+  const [open, setOpen] = useState(false);
+  const { title, subtitle } = describeItem(item);
+  const isCurrent = index === current;
+  const actions = (
+    <>
+      <IconButton
+        icon="play"
+        label="Play now"
+        variant="ghost"
+        size="sm"
+        onPress={() => run(() => playQueueItem(connection, id, item.queue_item_id))}
+      />
+      <IconButton
+        icon="arrow-up"
+        label="Move up"
+        variant="ghost"
+        size="sm"
+        disabled={index <= held + 1}
+        onPress={() => run(() => moveQueueItem(connection, id, item.queue_item_id, -1))}
+      />
+      <IconButton
+        icon="arrow-down"
+        label="Move down"
+        variant="ghost"
+        size="sm"
+        disabled={index <= held}
+        onPress={() => run(() => moveQueueItem(connection, id, item.queue_item_id, 1))}
+      />
+      <IconButton
+        icon="x"
+        label="Remove"
+        variant="ghost"
+        size="sm"
+        disabled={index <= held}
+        onPress={() => run(() => removeQueueItem(connection, id, item.queue_item_id))}
+      />
+    </>
+  );
+  return (
+    <View style={styles.item(isCurrent, index < current)}>
+      <View style={styles.itemRow}>
+        <View style={styles.index}>
+          {isCurrent ? (
+            <Icon name="volume-2" size={14} color={theme.colors.accent} />
+          ) : (
+            <Text variant="caption" muted>
+              {index + 1}
+            </Text>
+          )}
+        </View>
+        <Artwork uri={itemArtwork(account.serverUrl, item, 80)} size={40} />
+        <View style={styles.itemText}>
+          <Text numberOfLines={1} style={isCurrent && styles.currentTitle}>
+            {title}
+          </Text>
+          {subtitle ? (
+            <Text variant="caption" muted numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+        <Text variant="caption" muted style={styles.duration}>
+          {item.duration ? duration(item.duration) : ''}
+        </Text>
+        <View style={styles.wideActions}>{actions}</View>
+        <View style={styles.narrowOnly}>
+          <IconButton
+            icon="more-horizontal"
+            label={open ? 'Fewer actions' : 'More actions'}
+            variant="ghost"
+            size="sm"
+            active={open}
+            onPress={() => setOpen(!open)}
+          />
+        </View>
+      </View>
+      {open ? <View style={styles.narrowActions}>{actions}</View> : null}
+    </View>
+  );
+}
+
 export default function QueueScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { connection } = useConnection();
@@ -37,161 +248,96 @@ export default function QueueScreen() {
   const players = usePlayers();
   const queue = useQueue(id);
   const items = useQueueItems(id);
-  const now = useNow();
   const [error, setError] = useState<string | null>(null);
-  const run = (action: () => Promise<unknown>) => {
+  const run: Run = (action) => {
     setError(null);
     action().catch((e: unknown) => setError(describeError(e)));
   };
   const name = players.data?.find((p) => p.player_id === id)?.name ?? id;
   const q = queue.data;
-  const elapsed = q ? elapsedNow(q, now) : 0;
-  const length = q?.current_item?.duration ?? 0;
   // The server refuses moves and removals up to what the player already holds.
   const held = Math.max(q?.current_index ?? -1, q?.index_in_buffer ?? -1);
   const loadError = queue.error ?? items.error;
+  const count = items.data?.length ?? 0;
 
   return (
-    <Page title={name} back={{ href: '/queues', label: 'Queues' }}>
-      <InlineError message={loadError ? describeError(loadError) : null} />
-      {q ? (
-        <Card title={q.current_item?.name ?? 'Nothing loaded'}>
-          <Facts
-            rows={[
-              [
-                'State',
-                <Badge
-                  key="state"
-                  label={q.state}
-                  tone={q.state === 'playing' ? 'good' : 'muted'}
-                />,
-              ],
-              ['Position', `${duration(elapsed)} / ${duration(length)}`],
-              ['Items', String(q.items)],
-              ['Shuffle', q.shuffle_enabled ? 'on' : 'off'],
-              ['Repeat', q.repeat_mode],
-            ]}
+    <Page
+      title={name}
+      back={{ href: '/queues', label: 'Queues' }}
+      actions={
+        count > 0 ? (
+          <Button
+            title="Clear queue"
+            variant="secondary"
+            onPress={() => run(() => queueCommand(connection, id, 'clear'))}
           />
-          <Stack horizontal gap="xs">
-            <Button
-              title="⏮"
-              variant="secondary"
-              onPress={() => run(() => queueCommand(connection, id, 'previous'))}
+        ) : undefined
+      }
+    >
+      <InlineError message={loadError ? describeError(loadError) : null} />
+      {q ? <NowPlaying id={id} queue={q} run={run} /> : null}
+      <InlineError message={error} />
+      <Card title={count > 0 ? `${count} ${count === 1 ? 'item' : 'items'}` : 'Items'}>
+        {items.data?.length === 0 ? (
+          <Text muted>The queue is empty. Play something from the library to fill it.</Text>
+        ) : null}
+        <View>
+          {items.data?.map((item, index) => (
+            <ItemRow
+              key={item.queue_item_id}
+              id={id}
+              item={item}
+              index={index}
+              current={q?.current_index ?? -1}
+              held={held}
+              run={run}
             />
-            <Button
-              title="−15 s"
-              variant="secondary"
-              onPress={() => run(() => seek(connection, id, elapsed - 15))}
-            />
-            <Button
-              title={q.state === 'playing' ? '⏸' : '▶'}
-              onPress={() => run(() => queueCommand(connection, id, 'play_pause'))}
-            />
-            <Button
-              title="+15 s"
-              variant="secondary"
-              onPress={() => run(() => seek(connection, id, elapsed + 15))}
-            />
-            <Button
-              title="⏭"
-              variant="secondary"
-              onPress={() => run(() => queueCommand(connection, id, 'next'))}
-            />
-            <Button
-              title="⏹"
-              variant="secondary"
-              onPress={() => run(() => queueCommand(connection, id, 'stop'))}
-            />
-            <Button
-              title={q.shuffle_enabled ? 'Shuffle off' : 'Shuffle on'}
-              variant="secondary"
-              onPress={() =>
-                run(() =>
-                  connection.command('player_queues/shuffle', {
-                    queue_id: id,
-                    shuffle_enabled: !q.shuffle_enabled,
-                  }),
-                )
-              }
-            />
-            <Button
-              title={`Repeat ${q.repeat_mode}`}
-              variant="secondary"
-              onPress={() => {
-                const next =
-                  REPEAT[(REPEAT.indexOf(q.repeat_mode as (typeof REPEAT)[number]) + 1) % 3];
-                run(() =>
-                  connection.command('player_queues/repeat', { queue_id: id, repeat_mode: next }),
-                );
-              }}
-            />
-            <Button
-              title="Clear"
-              variant="secondary"
-              onPress={() => run(() => queueCommand(connection, id, 'clear'))}
-            />
-          </Stack>
-          <InlineError message={error} />
-        </Card>
-      ) : null}
-      <Card title="Items">
-        {items.data?.length === 0 ? <Text muted>The queue is empty.</Text> : null}
-        {items.data?.map((item, index) => (
-          <View key={item.queue_item_id} style={styles.row(index === q?.current_index)}>
-            <Text variant="mono" muted style={styles.index}>
-              {index + 1}
-            </Text>
-            <View style={styles.name}>
-              <Text numberOfLines={1}>{item.name}</Text>
-            </View>
-            <Text variant="mono" muted>
-              {duration(item.duration ?? 0)}
-            </Text>
-            <Button
-              title="Play"
-              variant="secondary"
-              onPress={() => run(() => playQueueItem(connection, id, item.queue_item_id))}
-            />
-            <Button
-              title="↑"
-              variant="secondary"
-              disabled={index <= held + 1}
-              onPress={() => run(() => moveQueueItem(connection, id, item.queue_item_id, -1))}
-            />
-            <Button
-              title="↓"
-              variant="secondary"
-              disabled={index <= held}
-              onPress={() => run(() => moveQueueItem(connection, id, item.queue_item_id, 1))}
-            />
-            <Button
-              title="✕"
-              variant="secondary"
-              disabled={index <= held}
-              onPress={() => run(() => removeQueueItem(connection, id, item.queue_item_id))}
-            />
-          </View>
-        ))}
+          ))}
+        </View>
       </Card>
       {q ? (
-        <Card title="Raw">
+        <Disclosure title="Raw" hint="What the server reports">
           <JsonTree value={JSON.parse(JSON.stringify(q))} colors={colors} />
-        </Card>
+        </Disclosure>
       ) : null}
     </Page>
   );
 }
 
 const styles = StyleSheet.create((theme) => ({
-  row: (current: boolean) => ({
+  now: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.lg },
+  nowText: { flex: 1, minWidth: 0, gap: 2 },
+  transport: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
+    justifyContent: { xs: 'space-between', md: 'center' },
+    gap: { xs: 0, md: theme.spacing.md },
+  },
+  item: (current: boolean, played: boolean) => ({
     paddingVertical: theme.spacing.xs,
     paddingHorizontal: theme.spacing.xs,
-    borderRadius: theme.radius.sm,
+    marginHorizontal: -theme.spacing.xs,
+    borderRadius: theme.radius.md,
     backgroundColor: current ? theme.colors.surfaceVariant : 'transparent',
+    opacity: played ? 0.55 : 1,
   }),
-  index: { width: 32, textAlign: 'right' },
-  name: { flex: 1, minWidth: 0 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  index: { width: 24, alignItems: 'center' },
+  itemText: { flex: 1, minWidth: 0 },
+  currentTitle: { color: theme.colors.accent, fontWeight: '600' },
+  duration: {
+    display: { xs: 'none', md: 'flex' },
+    width: 44,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
+  wideActions: { display: { xs: 'none', md: 'flex' }, flexDirection: 'row', gap: 2 },
+  narrowOnly: { display: { xs: 'flex', md: 'none' } },
+  narrowActions: {
+    display: { xs: 'flex', md: 'none' },
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: theme.spacing.xs,
+    paddingTop: theme.spacing.xs,
+  },
 }));

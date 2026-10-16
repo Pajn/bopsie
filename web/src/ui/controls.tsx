@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { duration } from '@/lib/time';
 import { Icon, type IconName } from './Icon';
 import { Text, type WebPress } from './primitives';
 
@@ -16,6 +17,7 @@ export function IconButton({
   size = 'md',
   disabled,
   active,
+  mark,
 }: {
   icon: IconName;
   label: string;
@@ -25,6 +27,8 @@ export function IconButton({
   disabled?: boolean;
   /** Switched on, as shuffle can be: drawn in the accent. */
   active?: boolean;
+  /** A character at the icon's corner, as the 1 of repeating one track. */
+  mark?: string;
 }) {
   const { theme } = useUnistyles();
   const color =
@@ -53,6 +57,7 @@ export function IconButton({
       ]}
     >
       <Icon name={icon} size={ICON[size]} color={color} />
+      {mark ? <Text style={[styles.mark, { color }]}>{mark}</Text> : null}
     </Pressable>
   );
 }
@@ -131,6 +136,55 @@ export function VolumeSlider({
 }
 
 /**
+ * Where in a track a player is, as a slider between the time played and the length. The time
+ * shown follows the thumb while dragged; `onSeek` hears it once let go. Without a length, as
+ * for a stream, it shows the time alone.
+ */
+export function SeekBar({
+  elapsed,
+  length,
+  onSeek,
+}: {
+  elapsed: number;
+  length: number;
+  onSeek: (seconds: number) => void;
+}) {
+  const { theme } = useUnistyles();
+  const [dragging, setDragging] = useState<number | null>(null);
+  const shown = Math.min(dragging ?? elapsed, length || Number.POSITIVE_INFINITY);
+  const seek = (value: string) => {
+    onSeek(Number(value));
+    setDragging(null);
+  };
+  return (
+    <View style={styles.seek}>
+      <Text variant="caption" muted style={styles.time}>
+        {duration(shown)}
+      </Text>
+      <View style={styles.track}>
+        {length > 0 ? (
+          <input
+            type="range"
+            min={0}
+            max={Math.round(length)}
+            step={1}
+            value={Math.round(shown)}
+            aria-label="Position"
+            onChange={(event) => setDragging(Number(event.currentTarget.value))}
+            onPointerUp={(event) => seek(event.currentTarget.value)}
+            onKeyUp={(event) => seek(event.currentTarget.value)}
+            style={{ width: '100%', accentColor: theme.colors.accent, cursor: 'pointer' }}
+          />
+        ) : null}
+      </View>
+      <Text variant="caption" muted style={[styles.time, styles.timeEnd]}>
+        {length > 0 ? duration(length) : ''}
+      </Text>
+    </View>
+  );
+}
+
+/**
  * A section that opens on request, closed by default: for what only some want to see, such
  * as the raw data behind a page. On its own it is a card; `inline`, it is a section of one.
  */
@@ -198,10 +252,14 @@ const styles = StyleSheet.create((theme) => ({
     opacity: variant === 'primary' ? 0.9 : 1,
   }),
   pressed: { opacity: 0.7 },
+  mark: { position: 'absolute', top: 2, right: 4, fontSize: 9, fontWeight: '700' },
   disabled: { opacity: 0.4 },
   volume: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, minWidth: 0 },
   track: { flex: 1, minWidth: 80 },
   level: { width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  seek: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, minWidth: 0 },
+  time: { width: 44, fontVariant: ['tabular-nums'] },
+  timeEnd: { textAlign: 'right' },
   disclosure: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.border,

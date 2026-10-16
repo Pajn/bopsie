@@ -7,11 +7,19 @@ export function duration(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${rest}` : `${m}:${rest}`;
 }
 
-/** Where a queue is now: its elapsed time moved on by the wall clock while it plays. */
+/**
+ * Where a queue is now: its elapsed time moved on by the wall clock while it plays. While its
+ * speakers get ready it is buffering, and the time stands still until it is heard.
+ */
 export function elapsedNow(
-  queue: { elapsed_time: number; elapsed_time_last_updated: number; state: string },
+  queue: {
+    elapsed_time: number;
+    elapsed_time_last_updated: number;
+    state: string;
+    buffering?: boolean;
+  },
   nowMs: number = Date.now(),
 ): number {
-  if (queue.state !== 'playing') return queue.elapsed_time;
+  if (queue.state !== 'playing' || queue.buffering) return queue.elapsed_time;
   return queue.elapsed_time + Math.max(0, nowMs / 1000 - queue.elapsed_time_last_updated);
 }

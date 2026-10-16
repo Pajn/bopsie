@@ -1,9 +1,9 @@
-import { imageUrl } from '@bopsie/client/api/images';
 import { Link } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { useQueue } from '@/data/queues';
+import { itemArtwork } from '@/features/queues/items';
 import { Artwork } from '@/ui/Artwork';
 import { Badge, Card, Stack, Text } from '@/ui/primitives';
 import { healthTone, type PlayerRow } from './model';
@@ -30,13 +30,7 @@ function useArtwork(row: PlayerRow): string | null {
   const queue = useQueue(row.player?.active_source ?? row.id).data;
   if (!playing) return null;
   const item = queue?.current_item;
-  const fromQueue = item
-    ? imageUrl(
-        account.serverUrl,
-        item.image ? { image: item.image } : (item.media_item ?? { image: null }),
-        160,
-      )
-    : null;
+  const fromQueue = item ? itemArtwork(account.serverUrl, item, 160) : null;
   return fromQueue ?? row.player?.current_media?.image_url ?? null;
 }
 
