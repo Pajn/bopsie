@@ -3,3 +3,7 @@ node_modules/
 dist/
 expo-env.d.ts
 *.tsbuildinfo
+
+# Playwright
+test-results/
+playwright-report/

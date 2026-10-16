@@ -27,3 +27,20 @@ pnpm test
 
 The app signs in to the server that serves it, so open it through the server rather than a
 separate dev server.
+
+### Smoke tests
+
+`e2e/` drives the UI in Chromium, at a desktop's width and a phone's: signing in, playing an
+album, adding one to a queue and moving a track, grouping two speakers, and opening an artist.
+They run against the throwaway test server the app's integration tests use, whose image carries
+this checkout's web UI, with two Sendspin speakers the tests connect from Node. They need
+docker or podman.
+
+```sh
+pnpm exec playwright install chromium     # once
+../mobile/scripts/test-server.sh start
+eval "$(../mobile/scripts/test-server.sh env)" && pnpm test:e2e
+../mobile/scripts/test-server.sh stop
+```
+
+Without `TEST_SERVER_URL` they are skipped.

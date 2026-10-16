@@ -61,6 +61,47 @@ jobs:
       - if: always()
         run: pnpm server:stop
 
+  web-e2e:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      # The server as it is in this commit, with this commit's web UI built in.
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          load: true
+          tags: bopsie-server:ci
+          cache-from: type=gha
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: mobile/scripts/test-server.sh start
+        working-directory: .
+        env:
+          BOPSIE_IMAGE: bopsie-server:ci
+      - run: eval "$(../mobile/scripts/test-server.sh env)" && pnpm test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-report
+          path: web/playwright-report
+      - if: always()
+        run: mobile/scripts/test-server.sh stop
+        working-directory: .
+
   mobile-native:
     runs-on: ubuntu-latest
     defaults:
