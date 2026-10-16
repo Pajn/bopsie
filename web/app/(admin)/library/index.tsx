@@ -2,8 +2,8 @@ import { type LibraryKind, libraryItems } from '@bopsie/client/api/endpoints/lib
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { TextInput, View } from 'react-native';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { DuplicateFiles } from '@/features/library/DuplicateFiles';
 import { ItemGrid } from '@/features/library/ItemGrid';
@@ -11,8 +11,7 @@ import { ItemRow } from '@/features/library/ItemRow';
 import { PlayButtons, TargetPicker } from '@/features/library/PlayButtons';
 import { Suggestions } from '@/features/library/Suggestions';
 import { describeError } from '@/lib/errors';
-import { Tabs } from '@/ui/controls';
-import { Icon } from '@/ui/Icon';
+import { SearchField, Tabs } from '@/ui/controls';
 import { Button, Card, InlineError, Page, Text } from '@/ui/primitives';
 
 type Tab = LibraryKind | 'suggestions' | 'duplicates';
@@ -30,32 +29,6 @@ const TOOLS: ReadonlyArray<{ value: Tab; label: string }> = [
 ];
 
 const PAGE = 100;
-
-function Search({
-  kind,
-  value,
-  onChange,
-}: {
-  kind: string;
-  value: string;
-  onChange: (text: string) => void;
-}) {
-  const { theme } = useUnistyles();
-  return (
-    <View style={styles.search}>
-      <Icon name="search" size={16} color={theme.colors.textMuted} />
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        placeholder={`Search ${kind}`}
-        placeholderTextColor={theme.colors.textMuted}
-        autoCorrect={false}
-        accessibilityLabel={`Search ${kind}`}
-        style={styles.searchInput}
-      />
-    </View>
-  );
-}
 
 export default function LibraryScreen() {
   const { account, connection } = useConnection();
@@ -84,7 +57,7 @@ export default function LibraryScreen() {
       ) : (
         <>
           <View style={styles.toolbar}>
-            <Search kind={kind} value={search} onChange={setSearch} />
+            <SearchField label={`Search ${kind}`} value={search} onChange={setSearch} />
             <TargetPicker />
           </View>
           <InlineError message={items.error ? describeError(items.error) : null} />
@@ -124,25 +97,6 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: theme.spacing.md,
-  },
-  search: {
-    flex: 1,
-    minWidth: 220,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
-  },
-  searchInput: {
-    ...theme.typography.body,
-    flex: 1,
-    minWidth: 0,
-    paddingVertical: theme.spacing.sm,
-    color: theme.colors.text,
   },
   list: { gap: 0, paddingVertical: theme.spacing.sm },
   more: { alignItems: 'center' },

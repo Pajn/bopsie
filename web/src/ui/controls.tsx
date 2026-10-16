@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { duration } from '@/lib/time';
 import { Icon, type IconName } from './Icon';
@@ -224,6 +224,36 @@ export function Tabs<T extends string>({
   );
 }
 
+/** A field to search or filter with, marked with a magnifier and named by `label`. */
+export function SearchField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (text: string) => void;
+}) {
+  const { theme } = useUnistyles();
+  return (
+    <View style={styles.search}>
+      <Icon name="search" size={16} color={theme.colors.textMuted} />
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={label}
+        placeholderTextColor={theme.colors.textMuted}
+        autoCorrect={false}
+        accessibilityLabel={label}
+        style={styles.searchInput}
+      />
+      {value ? (
+        <IconButton icon="x" label="Clear" variant="ghost" size="sm" onPress={() => onChange('')} />
+      ) : null}
+    </View>
+  );
+}
+
 /**
  * A section that opens on request, closed by default: for what only some want to see, such
  * as the raw data behind a page. On its own it is a card; `inline`, it is a section of one.
@@ -300,6 +330,27 @@ const styles = StyleSheet.create((theme) => ({
   seek: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, minWidth: 0 },
   time: { width: 44, fontVariant: ['tabular-nums'] },
   timeEnd: { textAlign: 'right' },
+  search: {
+    flex: 1,
+    minWidth: 220,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    paddingLeft: theme.spacing.md,
+    paddingRight: theme.spacing.xs,
+    minHeight: 38,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  searchInput: {
+    ...theme.typography.body,
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: theme.spacing.sm,
+    color: theme.colors.text,
+  },
   tabs: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
   tab: (selected: boolean) => ({
     paddingHorizontal: theme.spacing.md,

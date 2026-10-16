@@ -5,11 +5,19 @@ import { View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import LogView from '@/debug/LogView';
-import { append, LEVELS, type LevelName, lineText, visible } from '@/features/logs/model';
+import { append, type LevelName, lineText, visible } from '@/features/logs/model';
 import { describeError } from '@/lib/errors';
-import { Button, InlineError, Stack, Text, TextField } from '@/ui/primitives';
+import { IconButton, SearchField, Tabs } from '@/ui/controls';
+import { InlineError, Page, Text } from '@/ui/primitives';
 
 const POLL_MS = 1_000;
+
+const LEVEL_TABS: ReadonlyArray<{ value: LevelName; label: string }> = [
+  { value: 'ERROR', label: 'Errors' },
+  { value: 'WARN', label: 'Warnings' },
+  { value: 'INFO', label: 'Info' },
+  { value: 'DEBUG', label: 'Debug' },
+];
 
 export default function LogsScreen() {
   const { connection } = useConnection();
@@ -54,45 +62,47 @@ export default function LogsScreen() {
   }));
 
   return (
-    <View style={styles.page}>
-      <Stack gap="md">
-        <Text variant="title">Logs</Text>
-        <Stack horizontal gap="xs">
-          {LEVELS.slice(0, 4).map((name) => (
-            <Button
-              key={name}
-              title={name}
-              variant={name === level ? 'primary' : 'secondary'}
-              onPress={() => setLevel(name)}
-            />
-          ))}
-          <Button
-            title={paused ? 'Resume' : 'Pause'}
-            variant="secondary"
-            onPress={() => setPaused(!paused)}
-          />
-          <Text muted>
-            {shown.length} of {lines.length} lines
-          </Text>
-        </Stack>
-        <TextField label="Filter" value={filter} onChangeText={setFilter} autoCorrect={false} />
-        <Text variant="caption" muted>
-          The server keeps what its log prints: lines below its level (RUST_LOG) never reach here.
-        </Text>
-        <InlineError message={error} />
-        <LogView
-          lines={shown}
-          colors={{
-            text: theme.colors.text,
-            muted: theme.colors.textMuted,
-            error: theme.colors.danger,
-            warn: theme.colors.warning,
-            background: theme.colors.surface,
-          }}
+    <Page
+      title="Logs"
+      subtitle="What the server prints, as it prints it. Lines below its level (RUST_LOG) never reach here."
+      wide
+    >
+      <Tabs tabs={LEVEL_TABS} value={level} onChange={setLevel} />
+      <View style={styles.toolbar}>
+        <SearchField label="Filter lines" value={filter} onChange={setFilter} />
+        <IconButton
+          icon={paused ? 'play' : 'pause'}
+          label={paused ? 'Resume' : 'Pause'}
+          active={paused}
+          onPress={() => setPaused(!paused)}
         />
-      </Stack>
-    </View>
+        <Text variant="caption" muted>
+          {paused ? 'Paused · ' : ''}
+          {shown.length === lines.length
+            ? `${lines.length} lines`
+            : `${shown.length} of ${lines.length} lines`}
+        </Text>
+      </View>
+      <InlineError message={error} />
+      <LogView
+        lines={shown}
+        colors={{
+          text: theme.colors.text,
+          muted: theme.colors.textMuted,
+          error: theme.colors.danger,
+          warn: theme.colors.warning,
+          background: theme.colors.surface,
+        }}
+      />
+    </Page>
   );
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 } });
+const styles = StyleSheet.create((theme) => ({
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: theme.spacing.md,
+  },
+}));

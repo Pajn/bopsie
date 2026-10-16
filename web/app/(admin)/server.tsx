@@ -1,6 +1,8 @@
 import type { AdminServer } from '@bopsie/client/api/schemas/admin';
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
+import { View } from 'react-native';
+import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { useServer } from '@/data/admin';
 import JsonTree from '@/debug/JsonTree';
@@ -8,9 +10,8 @@ import { useTreeColors } from '@/debug/treeColors';
 import { SpotifyCard } from '@/features/spotify/SpotifyCard';
 import { describeError } from '@/lib/errors';
 import { duration } from '@/lib/time';
+import { Disclosure } from '@/ui/controls';
 import { Badge, Button, Card, Facts, InlineError, Page, Stack, Text } from '@/ui/primitives';
-
-const yesNo = (value: boolean) => (value ? 'yes' : 'no');
 
 const at = (unixSeconds: number) => new Date(unixSeconds * 1000).toLocaleString();
 
@@ -34,35 +35,19 @@ export default function ServerScreen() {
   return (
     <Page title={info?.name ?? 'Server'}>
       <InlineError message={server.error ? describeError(server.error) : null} />
-      <Card title="Server">
-        <Facts
-          rows={[
-            ['Version', view?.version ?? info?.server_version ?? '–'],
-            ['Up for', view ? duration(view.uptime_s) : '–'],
-            ['Server id', info?.server_id ?? '–'],
-            ['Schema', String(info?.schema_version ?? '–')],
-            ['AirPlay', view ? yesNo(view.providers.airplay) : '–'],
-            [
-              'PTP daemon',
-              view?.providers.airplay_ptp_daemon
-                ? `pid ${view.providers.airplay_ptp_daemon}`
-                : 'not running',
-            ],
-            ['LinkPlay', view ? yesNo(view.providers.linkplay) : '–'],
-            ['Sendspin', view ? yesNo(view.providers.sendspin) : '–'],
-            ['ffmpeg', view ? yesNo(view.ffmpeg) : '–'],
-          ]}
-        />
-      </Card>
       <Card title="Library">
+        {view ? (
+          <View style={styles.stats}>
+            <Stat label="Artists" value={view.library.artists} />
+            <Stat label="Albums" value={view.library.albums} />
+            <Stat label="Tracks" value={view.library.tracks} />
+            <Stat label="Playlists" value={view.library.playlists} />
+          </View>
+        ) : null}
         {view ? (
           <Facts
             rows={[
               ['Sources', view.library.providers.join(', ') || 'none'],
-              ['Artists', String(view.library.artists)],
-              ['Albums', String(view.library.albums)],
-              ['Tracks', String(view.library.tracks)],
-              ['Playlists', String(view.library.playlists)],
               [
                 'Last sync',
                 sync
@@ -79,7 +64,7 @@ export default function ServerScreen() {
         ) : null}
         <Stack horizontal gap="sm">
           {view?.library.syncing ? <Badge label="syncing" tone="accent" /> : null}
-          <Button title="Sync" onPress={() => startSync(false)} />
+          <Button title="Sync" icon="refresh-cw" onPress={() => startSync(false)} />
           <Button
             title="Sync, dropping missing sources"
             variant="secondary"
@@ -92,17 +77,75 @@ export default function ServerScreen() {
         </Text>
         <InlineError message={error} />
       </Card>
+      <Card title="Server">
+        <Facts
+          rows={[
+            ['Version', view?.version ?? info?.server_version ?? '–'],
+            ['Up for', view ? duration(view.uptime_s) : '–'],
+            ['Server id', info?.server_id ?? '–'],
+            ['Schema', String(info?.schema_version ?? '–')],
+            ['AirPlay', <OnOff key="airplay" on={view?.providers.airplay} />],
+            [
+              'PTP daemon',
+              view?.providers.airplay_ptp_daemon
+                ? `pid ${view.providers.airplay_ptp_daemon}`
+                : 'not running',
+            ],
+            ['LinkPlay', <OnOff key="linkplay" on={view?.providers.linkplay} />],
+            ['Sendspin', <OnOff key="sendspin" on={view?.providers.sendspin} />],
+            ['ffmpeg', <OnOff key="ffmpeg" on={view?.ffmpeg} yes="found" no="not found" />],
+          ]}
+        />
+      </Card>
       <SpotifyCard
         outcome={spotifyError ? `Logging in to Spotify failed: ${spotifyError}` : null}
       />
       {view ? (
-        <Card title="Config">
+        <Disclosure title="Config" hint="As the server read it">
           <JsonTree value={JSON.parse(JSON.stringify(view.config))} colors={colors} />
-        </Card>
+        </Disclosure>
       ) : null}
     </Page>
   );
 }
+
+/** Whether something is on, or found, as a badge. */
+function OnOff({
+  on,
+  yes = 'on',
+  no = 'off',
+}: {
+  on: boolean | undefined;
+  yes?: string;
+  no?: string;
+}) {
+  if (on === undefined) return <Text muted>–</Text>;
+  return <Badge label={on ? yes : no} tone={on ? 'good' : 'muted'} />;
+}
+
+/** A count, large, over what it counts. */
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <View style={styles.stat}>
+      <Text style={styles.statValue}>{value.toLocaleString()}</Text>
+      <Text variant="caption" muted>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create((theme) => ({
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  stat: {
+    flexGrow: 1,
+    flexBasis: { xs: '40%', md: 0 },
+    padding: theme.spacing.md,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surfaceVariant,
+  },
+  statValue: { ...theme.typography.title, color: theme.colors.text },
+}));
 
 type Metadata = NonNullable<AdminServer['library']['metadata']>;
 

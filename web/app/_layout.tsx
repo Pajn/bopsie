@@ -2,6 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { AuthProvider, useAccounts } from '@/auth/AuthProvider';
 
+// The browser's own controls, such as a choice's menu and a slider, follow the system's light or
+// dark as the theme does.
+if (typeof document !== 'undefined') document.documentElement.style.colorScheme = 'light dark';
+
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 5_000, retry: 1 } },
 });

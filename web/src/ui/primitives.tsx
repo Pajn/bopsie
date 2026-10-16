@@ -114,6 +114,8 @@ export function TextField({ label, style, ...props }: TextInputProps & { label: 
   );
 }
 
+type ButtonVariant = 'primary' | 'secondary' | 'danger';
+
 export function Button({
   title,
   icon,
@@ -125,7 +127,8 @@ export function Button({
   title: string;
   icon?: IconName;
   loading?: boolean;
-  variant?: 'primary' | 'secondary';
+  /** `danger` for what cannot be undone, as deleting. */
+  variant?: ButtonVariant;
 }) {
   const { theme } = useUnistyles();
   const inactive = disabled || loading;
@@ -152,7 +155,13 @@ export function Button({
             <Icon
               name={icon}
               size={15}
-              color={variant === 'primary' ? theme.colors.onAccent : theme.colors.text}
+              color={
+                variant === 'primary'
+                  ? theme.colors.onAccent
+                  : variant === 'danger'
+                    ? theme.colors.danger
+                    : theme.colors.text
+              }
             />
           ) : null}
           <Text style={styles.buttonText(variant)}>{title}</Text>
@@ -337,7 +346,7 @@ const styles = StyleSheet.create((theme) => ({
     paddingVertical: theme.spacing.sm,
   },
   errorText: { ...theme.typography.body, color: theme.colors.danger },
-  button: (variant: 'primary' | 'secondary') => ({
+  button: (variant: ButtonVariant) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -345,14 +354,26 @@ const styles = StyleSheet.create((theme) => ({
     minHeight: 34,
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
-    backgroundColor: variant === 'primary' ? theme.colors.accent : theme.colors.surfaceVariant,
+    backgroundColor:
+      variant === 'primary'
+        ? theme.colors.accent
+        : variant === 'danger'
+          ? 'transparent'
+          : theme.colors.surfaceVariant,
+    borderWidth: variant === 'danger' ? 1 : 0,
+    borderColor: theme.colors.danger,
   }),
-  buttonText: (variant: 'primary' | 'secondary') => ({
+  buttonText: (variant: ButtonVariant) => ({
     ...theme.typography.body,
     fontWeight: '600',
-    color: variant === 'primary' ? theme.colors.onAccent : theme.colors.text,
+    color:
+      variant === 'primary'
+        ? theme.colors.onAccent
+        : variant === 'danger'
+          ? theme.colors.danger
+          : theme.colors.text,
   }),
-  buttonHover: (variant: 'primary' | 'secondary') => ({
+  buttonHover: (variant: ButtonVariant) => ({
     backgroundColor: variant === 'primary' ? theme.colors.accent : theme.colors.border,
     opacity: variant === 'primary' ? 0.9 : 1,
   }),
@@ -369,14 +390,10 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: theme.radius.lg,
   },
   facts: { gap: theme.spacing.xs },
-  // Side by side where there is room, the label above its value on a phone.
-  fact: {
-    flexDirection: { xs: 'column', md: 'row' },
-    gap: { xs: 0, md: theme.spacing.md },
-    paddingVertical: { xs: 2, md: 0 },
-  },
-  factLabel: { width: { xs: 'auto', md: 140 }, paddingTop: { xs: 0, md: 2 } },
-  factValue: { flexGrow: 1, flexBasis: { xs: 'auto', md: 0 }, minWidth: 0 },
+  // The label beside its value, narrower on a phone; a long value wraps in its own column.
+  fact: { flexDirection: 'row', gap: theme.spacing.md },
+  factLabel: { width: { xs: 112, md: 140 }, paddingTop: 2 },
+  factValue: { flex: 1, minWidth: 0 },
 }));
 
 type ToneColors = Record<'good' | 'warning' | 'danger' | 'textMuted' | 'accent', string>;
