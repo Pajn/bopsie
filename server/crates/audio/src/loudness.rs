@@ -3,6 +3,14 @@
 //! Every source's figures are kept as ReplayGain 2 gains: the decibels that bring the audio to
 //! −18 LUFS. Peaks are linear sample peaks, 1.0 being full scale.
 
+use std::path::{Path, PathBuf};
+
+use ebur128::EbuR128;
+
+use crate::PcmFormat;
+use crate::decode::{DecodeError, Read};
+use crate::engine::{self, Input};
+
 /// The loudness ReplayGain 2 gains bring audio to, in LUFS.
 pub const REFERENCE_LUFS: f32 = -18.0;
 
@@ -54,6 +62,97 @@ impl Loudness {
     }
 }
 
+/// Measures the files of one album, as they play: each track's loudness and peak, and the
+/// album's over all of them together. A file that cannot be decoded, or is silent, is `None`
+/// and left out of the album's.
+pub fn measure_album(paths: &[PathBuf], ffmpeg: Option<&Path>) -> Vec<Option<Loudness>> {
+    let measured: Vec<Option<(EbuR128, f32)>> = paths
+        .iter()
+        .map(|path| match measure(path, ffmpeg) {
+            Ok(measured) => measured,
+            Err(error) => {
+                tracing::debug!(path = %path.display(), %error, "cannot measure");
+                None
+            }
+        })
+        .collect();
+    let states: Vec<&EbuR128> = measured.iter().flatten().map(|(state, _)| state).collect();
+    let album_gain = EbuR128::loudness_global_multiple(states.into_iter())
+        .ok()
+        .filter(|lufs| lufs.is_finite())
+        .map(|lufs| REFERENCE_LUFS - lufs as f32);
+    let album_peak = measured
+        .iter()
+        .flatten()
+        .map(|(_, peak)| *peak)
+        .fold(0f32, f32::max);
+    measured
+        .into_iter()
+        .map(|measured| {
+            let (state, peak) = measured?;
+            let lufs = state.loudness_global().ok().filter(|l| l.is_finite())?;
+            Some(Loudness {
+                track_gain_db: REFERENCE_LUFS - lufs as f32,
+                track_peak: peak,
+                album_gain_db: album_gain,
+                album_peak: album_gain.map(|_| album_peak),
+            })
+        })
+        .collect()
+}
+
+/// The file's loudness state and sample peak, as it plays: decoded as the engine decodes it,
+/// mono counted on both channels as it is heard. `None` for a file with no audio.
+fn measure(path: &Path, ffmpeg: Option<&Path>) -> Result<Option<(EbuR128, f32)>, DecodeError> {
+    let input = Input::File(path.to_owned());
+    let mut decoder = engine::open(&input, MEASURED, ffmpeg)?;
+    let format = decoder.format();
+    let mono = format.channels == 1;
+    let channels = if mono { 2 } else { format.channels };
+    let mut state = EbuR128::new(
+        u32::from(channels),
+        format.sample_rate,
+        ebur128::Mode::I | ebur128::Mode::SAMPLE_PEAK | ebur128::Mode::HISTOGRAM,
+    )
+    .map_err(|error| DecodeError::Unsupported(error.to_string()))?;
+    let mut decoded = Vec::new();
+    let mut doubled = Vec::new();
+    let mut any = false;
+    loop {
+        decoded.clear();
+        match decoder.read(&mut decoded)? {
+            Read::End => break,
+            Read::Pending => continue,
+            Read::Data => {}
+        }
+        any |= !decoded.is_empty();
+        let frames = if mono {
+            doubled.clear();
+            doubled.extend(decoded.iter().flat_map(|&s| [s, s]));
+            &doubled
+        } else {
+            &decoded
+        };
+        state
+            .add_frames_f32(frames)
+            .map_err(|error| DecodeError::Corrupt(error.to_string()))?;
+    }
+    if !any {
+        return Ok(None);
+    }
+    let peak = (0..u32::from(channels))
+        .filter_map(|channel| state.sample_peak(channel).ok())
+        .fold(0f64, f64::max) as f32;
+    Ok(Some((state, peak)))
+}
+
+/// What ffmpeg is asked for when it decodes a file to measure; Symphonia decodes as the file
+/// is.
+const MEASURED: PcmFormat = PcmFormat {
+    sample_rate: 48_000,
+    channels: 2,
+};
+
 /// A ReplayGain gain as tags write it, such as `-6.20 dB` or `+1.5`.
 pub fn parse_gain(text: &str) -> Option<f32> {
     let number = text.trim();
@@ -85,6 +184,50 @@ pub fn parse_r128(text: &str) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sine at 1 kHz, `seconds` long, at `amplitude` of full scale, as a 16-bit WAV.
+    fn sine(path: &Path, amplitude: f64, seconds: u32, channels: u16) {
+        let rate = 48_000u32;
+        let samples: Vec<i16> = (0..rate * seconds)
+            .flat_map(|i| {
+                let value = amplitude
+                    * (2.0 * std::f64::consts::PI * 1_000.0 * f64::from(i) / f64::from(rate)).sin();
+                let sample = (value * 32_767.0).round() as i16;
+                std::iter::repeat_n(sample, usize::from(channels))
+            })
+            .collect();
+        bopsie_fixtures::write_wav(path, rate, channels, &samples).unwrap();
+    }
+
+    #[test]
+    fn files_are_measured_as_they_are_heard() {
+        let dir = tempfile::tempdir().unwrap();
+        let loud = dir.path().join("loud.wav");
+        let quiet = dir.path().join("quiet.wav");
+        let mono = dir.path().join("mono.wav");
+        let broken = dir.path().join("broken.wav");
+        // A full-scale 1 kHz sine on both channels is 0 LUFS, as BS.1770 is calibrated; half as
+        // loud is 6 dB quieter.
+        sine(&loud, 1.0, 3, 2);
+        sine(&quiet, 0.5, 3, 2);
+        sine(&mono, 0.5, 3, 1);
+        std::fs::write(&broken, b"not audio").unwrap();
+        let measured = measure_album(&[loud, quiet, mono, broken], None);
+        let gain = |i: usize| measured[i].unwrap().track_gain_db;
+        assert!((gain(0) - -18.0).abs() < 0.2, "{}", gain(0));
+        assert!((gain(1) - gain(0) - 6.02).abs() < 0.1, "{}", gain(1));
+        // Mono plays on both channels, so it is heard as loud as the same in stereo.
+        assert!((gain(2) - gain(1)).abs() < 0.1, "{}", gain(2));
+        assert!(measured[3].is_none());
+        let peak = measured[0].unwrap().track_peak;
+        assert!((peak - 1.0).abs() < 0.01, "{peak}");
+        // The album's gain lies between its loudest and quietest tracks', and its peak is the
+        // loudest's.
+        let album = measured[1].unwrap();
+        let album_gain = album.album_gain_db.unwrap();
+        assert!(gain(0) < album_gain && album_gain < gain(1), "{album_gain}");
+        assert_eq!(album.album_peak, Some(peak));
+    }
 
     const LOUD: Loudness = Loudness {
         track_gain_db: -8.0,

@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 bopsie-core.workspace = true
 audioadapter-buffers.workspace = true
+ebur128.workspace = true
 rubato.workspace = true
 symphonia.workspace = true
 thiserror.workspace = true

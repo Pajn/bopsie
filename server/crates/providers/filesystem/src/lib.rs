@@ -297,6 +297,10 @@ impl MusicProvider for FilesystemProvider {
         2
     }
 
+    fn local_files(&self) -> bool {
+        true
+    }
+
     fn read_track(&self, id: &str) -> Result<ScannedTrack, ProviderError> {
         let path = self.resolve(id)?;
         let file = lofty::read_from_path(&path)

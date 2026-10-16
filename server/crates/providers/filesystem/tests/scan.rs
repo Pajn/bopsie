@@ -1711,3 +1711,56 @@ async fn a_files_loudness_tags_are_kept_and_played_with() {
         .unwrap();
     assert_eq!(played[0].1.loudness, None);
 }
+
+#[tokio::test]
+async fn files_without_loudness_tags_are_measured_once_by_album() {
+    let f = fixture();
+    // The first album is tagged throughout; the second not at all.
+    for (number, title) in [(1, "Opening"), (2, "Middle"), (3, "Closing")] {
+        let path = f.dir.path().join(format!(
+            "music/Test Artist/First Album/{number:02} - {title}.wav"
+        ));
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.set_title(title.to_owned());
+        tag.set_artist("Test Artist".to_owned());
+        tag.set_album("First Album".to_owned());
+        tag.insert_text(ItemKey::ReplayGainTrackGain, "-1.00 dB".to_owned());
+        tag.insert_text(ItemKey::ReplayGainAlbumGain, "-1.00 dB".to_owned());
+        tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    }
+    f.library.sync().await.unwrap();
+    let (_, status) = f.library.loudness_status().await.unwrap();
+    assert_eq!((status.files, status.tagged, status.due), (6, 3, 3));
+
+    let measured = f.library.measure_loudness(None, 50).await.unwrap();
+    assert_eq!(
+        (measured.albums, measured.files, measured.failed),
+        (1, 3, 0)
+    );
+    let (_, status) = f.library.loudness_status().await.unwrap();
+    assert_eq!((status.measured, status.due), (3, 0));
+    let alpha = id(&f.library, MediaType::Track, "Alpha").await;
+    let played = f
+        .library
+        .playable(&format!("library://track/{alpha}"))
+        .await
+        .unwrap();
+    let loudness = played[0].1.loudness.unwrap();
+    assert!(loudness.album_gain_db.is_some() && loudness.track_peak > 0.0);
+    // Nothing is due again until a file changes.
+    assert_eq!(f.library.measure_loudness(None, 50).await.unwrap().files, 0);
+
+    // A changed file has its whole album measured again.
+    let beta = f
+        .dir
+        .path()
+        .join("music/Other Artist/Second Album/02 - Beta.wav");
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Beta".to_owned());
+    tag.set_artist("Other Artist".to_owned());
+    tag.set_album("Second Album".to_owned());
+    tag.save_to_path(&beta, WriteOptions::default()).unwrap();
+    f.library.sync().await.unwrap();
+    let measured = f.library.measure_loudness(None, 50).await.unwrap();
+    assert_eq!((measured.albums, measured.files), (1, 3));
+}

@@ -172,6 +172,18 @@ export const adminServer = z.looseObject({
         ),
       }),
     ),
+    /** How loud files are, for normalisation: from tags, or measured. Older servers leave it
+     * out. */
+    loudness: z.optional(
+      z.looseObject({
+        enabled: z.boolean(),
+        running: z.boolean(),
+        files: z.number(),
+        tagged: z.number(),
+        measured: z.number(),
+        due: z.number(),
+      }),
+    ),
   }),
   config: z.unknown(),
 });

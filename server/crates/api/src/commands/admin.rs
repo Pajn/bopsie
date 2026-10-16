@@ -482,6 +482,24 @@ pub struct LibraryView {
     pub last_sync: Option<SyncView>,
     /// Looking albums up on MusicBrainz.
     pub metadata: MetadataView,
+    /// How loud files are, for normalisation.
+    pub loudness: LoudnessView,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LoudnessView {
+    /// Whether tracks are normalised, as `[audio] normalisation` says.
+    pub enabled: bool,
+    /// Files are being measured.
+    pub running: bool,
+    /// Local files in the library.
+    pub files: u32,
+    /// Files whose tags say how loud they are.
+    pub tagged: u32,
+    /// Files the server measured.
+    pub measured: u32,
+    /// Files still to be measured.
+    pub due: u32,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -607,6 +625,15 @@ impl Command for Server {
                 failed: last.failed,
             }),
         };
+        let (running, status) = api.library.loudness_status().await?;
+        let loudness = LoudnessView {
+            enabled: api.config.audio.normalisation,
+            running,
+            files: status.files,
+            tagged: status.tagged,
+            measured: status.measured,
+            due: status.due,
+        };
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -630,6 +657,7 @@ impl Command for Server {
                 syncing: api.library.syncing(),
                 last_sync,
                 metadata,
+                loudness,
             },
             config: redacted(&api.config),
         })

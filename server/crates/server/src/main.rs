@@ -16,8 +16,8 @@ use bopsie_core::config::Config;
 use bopsie_core::db::Database;
 use bopsie_core::events::EventBus;
 use bopsie_core::logtail::Tail;
-use bopsie_library::Library;
 use bopsie_library::provider::MusicProvider;
+use bopsie_library::{Library, Measured};
 use bopsie_metadata::fanart::{self, Fanart};
 use bopsie_metadata::fingerprint::{self, AcoustId};
 use bopsie_metadata::job::Enricher;
@@ -60,6 +60,10 @@ const RESYNC: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 /// How long after starting albums are first looked up on MusicBrainz, and how often after.
 const ENRICH_FIRST: Duration = Duration::from_secs(60);
 const ENRICH_EVERY: Duration = Duration::from_secs(15 * 60);
+/// How often files are looked at for any left to measure, besides after each sync.
+const MEASURE_EVERY: Duration = Duration::from_secs(15 * 60);
+/// How many albums are measured between looks at what is due.
+const MEASURE_BATCH: u32 = 10;
 
 /// What is logged unless `RUST_LOG` says otherwise. The tag reader warns about every odd tag it
 /// skips, which buries everything else in a large library, and Spotify Connect's mDNS
@@ -156,7 +160,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         devices.clone(),
         events.clone(),
         PlaybackConfig {
-            ffmpeg,
+            ffmpeg: ffmpeg.clone(),
             base_url: config.server.reachable_url(),
             normalise: config.audio.normalise(),
             policy: Policy {
@@ -288,6 +292,24 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
                     () = wanted.notified() => {}
                 }
                 enricher.run().await;
+            }
+        });
+    }
+
+    // Files whose tags do not say how loud they are are measured in the background, an album at
+    // a time, after each sync: the stamps are the progress, so a restart carries on.
+    if config.audio.normalisation {
+        let library = library.clone();
+        let ffmpeg = ffmpeg.clone();
+        tokio::spawn(async move {
+            let wanted = library.loudness_wanted();
+            let mut every = tokio::time::interval(MEASURE_EVERY);
+            loop {
+                tokio::select! {
+                    _ = every.tick() => {}
+                    () = wanted.notified() => {}
+                }
+                measure_loudness(&library, ffmpeg.clone()).await;
             }
         });
     }
@@ -467,6 +489,40 @@ async fn shutdown_signal() {
     tokio::select! {
         () = interrupt => {}
         () = terminate => {}
+    }
+}
+
+/// Measures every file whose loudness is due, and logs what came of it.
+async fn measure_loudness(library: &Library, ffmpeg: Option<PathBuf>) {
+    library.measuring(true);
+    let started = std::time::Instant::now();
+    let mut total = Measured::default();
+    loop {
+        match library
+            .measure_loudness(ffmpeg.clone(), MEASURE_BATCH)
+            .await
+        {
+            Ok(measured) if measured.albums > 0 => {
+                total.albums += measured.albums;
+                total.files += measured.files;
+                total.failed += measured.failed;
+            }
+            Ok(_) => break,
+            Err(error) => {
+                tracing::warn!(%error, "measuring loudness failed");
+                break;
+            }
+        }
+    }
+    library.measuring(false);
+    if total.albums > 0 {
+        tracing::info!(
+            albums = total.albums,
+            files = total.files,
+            failed = total.failed,
+            seconds = started.elapsed().as_secs(),
+            "measured loudness"
+        );
     }
 }
 

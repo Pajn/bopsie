@@ -127,6 +127,11 @@ pub trait MusicProvider: Send + Sync + 'static {
     fn separate_albums(&self) -> bool {
         false
     }
+    /// Whether its tracks are local files, whose loudness the server measures when their tags
+    /// do not say.
+    fn local_files(&self) -> bool {
+        false
+    }
     /// What a track plays from: its file, or, for a provider that streams, its stream.
     fn media(&self, id: &str) -> Option<Input> {
         self.file(id).map(Input::File)

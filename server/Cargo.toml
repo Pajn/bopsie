@@ -65,6 +65,7 @@ rcgen = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std", "tls12"] }
 rustls-pki-types = { version = "1.15", features = ["std"] }
+ebur128 = "0.1.10"
 rubato = "5.0"
 rust-embed = { version = "8.13", features = ["interpolate-folder-path", "mime-guess"] }
 rusqlite = { version = "0.40", features = ["bundled", "trace"] }

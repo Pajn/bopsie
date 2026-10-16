@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod edit;
 pub mod enrich;
 pub mod ids;
+pub mod loudness;
 pub mod matching;
 pub mod provider;
 pub mod query;
@@ -53,6 +54,19 @@ pub struct Library {
     metadata_wanted: Arc<tokio::sync::Notify>,
     /// The metadata job: whether it runs, and how its last run went.
     metadata_run: Arc<std::sync::Mutex<MetadataRun>>,
+    /// Woken after a sync, which may leave files to measure.
+    loudness_wanted: Arc<tokio::sync::Notify>,
+    /// Whether files are being measured.
+    measuring: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// What a run of measuring files did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Measured {
+    pub albums: usize,
+    pub files: usize,
+    /// Files that could not be measured.
+    pub failed: usize,
 }
 
 /// An image for [`Library::set_item_images`].
@@ -143,6 +157,8 @@ impl Library {
             last_sync: Arc::default(),
             metadata_wanted: Arc::default(),
             metadata_run: Arc::default(),
+            loudness_wanted: Arc::default(),
+            measuring: Arc::default(),
         }
     }
 
@@ -515,7 +531,83 @@ impl Library {
             deleted: changes.deleted.len(),
             failed,
         });
+        self.loudness_wanted.notify_one();
         Ok(changes)
+    }
+
+    /// The providers whose files are measured.
+    fn measured_instances(&self) -> Vec<String> {
+        self.providers
+            .iter()
+            .filter(|provider| provider.local_files())
+            .map(|provider| provider.instance_id().to_owned())
+            .collect()
+    }
+
+    /// Measures up to `albums` albums of files whose loudness is not known, decoding with
+    /// `ffmpeg` what Symphonia cannot, one album at a time off the async threads.
+    pub async fn measure_loudness(&self, ffmpeg: Option<PathBuf>, albums: u32) -> Result<Measured> {
+        let instances = self.measured_instances();
+        let due = self
+            .read(move |conn| loudness::due(conn, &instances, albums))
+            .await?;
+        let mut measured = Measured::default();
+        for album in due {
+            let provider = self
+                .providers
+                .iter()
+                .find(|provider| provider.instance_id() == album.instance)
+                .cloned();
+            let ffmpeg = ffmpeg.clone();
+            let instance = album.instance.clone();
+            let files = blocking(move || {
+                let paths: Vec<Option<PathBuf>> = album
+                    .files
+                    .iter()
+                    .map(|file| provider.as_ref()?.file(&file.item))
+                    .collect();
+                let found: Vec<PathBuf> = paths.iter().flatten().cloned().collect();
+                let mut loudness =
+                    bopsie_audio::loudness::measure_album(&found, ffmpeg.as_deref()).into_iter();
+                album
+                    .files
+                    .into_iter()
+                    .zip(paths)
+                    .map(|(file, path)| (file, path.and_then(|_| loudness.next().flatten())))
+                    .collect::<Vec<_>>()
+            })
+            .await?;
+            measured.albums += 1;
+            measured.files += files.len();
+            measured.failed += files.iter().filter(|(_, l)| l.is_none()).count();
+            self.db
+                .call(move |conn| Ok(loudness::measured(conn, &instance, &files)?))
+                .await?;
+        }
+        Ok(measured)
+    }
+
+    /// Woken after a sync, which may leave files to measure, for the measuring job to wait on.
+    pub fn loudness_wanted(&self) -> Arc<tokio::sync::Notify> {
+        self.loudness_wanted.clone()
+    }
+
+    /// The measuring job says it started or stopped.
+    pub fn measuring(&self, running: bool) {
+        self.measuring
+            .store(running, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// How far the library's files' loudness is known, and whether the job is measuring.
+    pub async fn loudness_status(&self) -> Result<(bool, loudness::LoudnessStatus)> {
+        let instances = self.measured_instances();
+        let status = self
+            .read(move |conn| loudness::status(conn, &instances))
+            .await?;
+        Ok((
+            self.measuring.load(std::sync::atomic::Ordering::Relaxed),
+            status,
+        ))
     }
 
     /// Edits item `id`: each field of `changes` is set, or with `null` reset to what was
