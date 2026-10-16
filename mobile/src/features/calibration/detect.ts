@@ -12,8 +12,9 @@ const MIN_CLARITY = 8;
 /** An earlier peak this close to the strongest is the sound itself, and the strongest an echo. */
 const DIRECT_PATH_MS = 25;
 const DIRECT_PATH_SHARE = 0.5;
-/** How far apart a speaker's rounds may be and still be trusted. */
-const MAX_SPREAD_MS = 5;
+/** How far apart a speaker's rounds may be and still be trusted: a Cast receiver keeps to its
+ * timeline within several milliseconds either way, and the median of its rounds is still sound. */
+const MAX_SPREAD_MS = 15;
 
 /** The sweep a speaker plays, at `rate`: the server's, sample for sample. */
 export function chirpSamples(chirp: Chirp, rate: number): Float64Array {

@@ -156,6 +156,12 @@ describe('speakerResults', () => {
       clarity: 20,
     }));
     expect(speakerResults(heard)[0]?.problem).toBe('unsteady');
+    // A Cast receiver, a few milliseconds either way of its timeline, is trusted.
+    const cast = speakerResults(
+      heard.map((h, i) => ({ ...h, delayMs: [420, 428, 423][i] ?? 0 })),
+    )[0];
+    expect(cast?.problem).toBeNull();
+    expect(cast?.delayMs).toBe(423);
     const steady = speakerResults(heard.map((h, i) => ({ ...h, delayMs: 12 + i * 0.5 })))[0];
     expect(steady?.delayMs).toBe(12.5);
   });
