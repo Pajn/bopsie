@@ -227,6 +227,29 @@ page lists its ids, linked to MusicBrainz, and Refresh metadata looks it up agai
 
 Files are never written to. `[metadata]` turns each of these off.
 
+### Volume normalisation
+
+Every track plays at the same loudness, -18 LUFS unless `target_lufs` under `[audio]` says
+otherwise. The server applies the gain as it decodes, so every speaker in a group hears the
+same, whatever it is played through. How loud a track is comes from:
+
+- **Its tags:** ReplayGain track and album gains and peaks, in any tag format, or an Opus file's
+  `R128_TRACK_GAIN` and `R128_ALBUM_GAIN`.
+- **Measuring:** files whose tags do not hold both gains are measured in the background with
+  EBU R128, an album at a time, after each sync. A folder where any file needs it is measured
+  whole, so one album's gains come from one method. A file is measured again only when it
+  changes. The web UI's server page says how many are left.
+- **Spotify:** each track's own figures, which Spotify keeps in its files.
+
+A track plays at its album's gain when shuffle is off and the track before or after it in the
+queue is from the same album, so an album keeps the difference between its quiet and loud
+songs; otherwise it plays at its own. A track is never raised past its peak, so a quiet track
+does not clip; that holds back more tracks at a higher target. A track nothing is known of
+plays as it is. The queue's current item says what it got in its `streamdetails`.
+
+Spotify Connect plays through librespot's own normalisation, at the same target.
+`normalisation = false` under `[audio]` turns it all off.
+
 A new server has no users. Create the first, an admin, before signing in:
 
 ```sh

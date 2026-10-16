@@ -193,3 +193,12 @@ Each line says what to do, what to hear, and what the log shows when it went rig
 51. **Another app.** Cast to the speaker from another app while Bopsie plays to it: the other app
     plays, and the log says `the Cast receiver stopped`. Bopsie does not take the speaker back
     until it is played to again.
+
+### Volume normalisation
+
+52. **Measured.** After a sync, the log says `measured loudness` with how many albums and files;
+    the web UI's server page shows none left to measure once it is done.
+53. **Album or track.** Play an album in order: its current item's `streamdetails` has
+    `prefer_album_loudness` true. Shuffle it: false, and the gain changes from track to track.
+54. **Even.** A loud album and a quiet one, back to back, sound about as loud; so do a file and
+    a Spotify track in one queue, and Spotify Connect beside them.
