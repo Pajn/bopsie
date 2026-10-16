@@ -231,5 +231,15 @@ pub const MIGRATIONS: Migrations = Migrations {
         UPDATE provider_mappings SET stamp = NULL
         WHERE media_type = 'track' AND provider_domain = 'spotify';
     ",
+        "
+        -- The provider's album each of its tracks came from, such as a folder: an album
+        -- mapping no track came from is pruned, as a deleted copy of a folder is.
+        ALTER TABLE provider_mappings ADD COLUMN provider_album TEXT;
+
+        -- A file's album is its folder: the path up to its last slash.
+        UPDATE provider_mappings
+        SET provider_album = rtrim(rtrim(provider_item_id, replace(provider_item_id, '/', '')), '/')
+        WHERE media_type = 'track' AND provider_domain = 'filesystem_local';
+    ",
     ],
 };

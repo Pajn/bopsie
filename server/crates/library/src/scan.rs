@@ -345,6 +345,17 @@ fn names(names: &[String], fallback: &str) -> Vec<String> {
 /// The artist tracks without one are credited to.
 pub const UNKNOWN_ARTIST: &str = "Unknown Artist";
 
+/// What the provider calls the track's album: its own id for it, such as a folder, else its
+/// name. None when the track has no album.
+fn provider_album(track: &ScannedTrack) -> Option<&str> {
+    let name = track
+        .album
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())?;
+    Some(track.album_id.as_deref().unwrap_or(name))
+}
+
 fn album(
     tx: &Connection,
     source: &Source,
@@ -374,7 +385,7 @@ fn album(
     } else {
         key
     };
-    let provider_album = track.album_id.as_deref().unwrap_or(name);
+    let provider_album = provider_album(track).unwrap_or(name);
     // A service's album id is the album, wherever it was merged to; a folder is not, since its
     // files may be retagged as another album.
     let mapped: Option<i64> = if source.separate_albums {
@@ -618,13 +629,14 @@ pub fn upsert_track(
         }
     };
     tx.execute(
-        "UPDATE provider_mappings SET stamp = ?3, audio_format = ?4
+        "UPDATE provider_mappings SET stamp = ?3, audio_format = ?4, provider_album = ?5
          WHERE provider_instance = ?1 AND media_type = 'track' AND provider_item_id = ?2",
         params![
             source.instance,
             provider_id,
             stamp,
-            encode_format(&track.audio_format)
+            encode_format(&track.audio_format),
+            provider_album(track)
         ],
     )?;
     set_ids(tx, source, MediaType::Track, id, &track.ids)?;
@@ -790,8 +802,9 @@ pub fn prune(tx: &Connection, changes: &mut Changes) -> Result<()> {
         let mut statement = tx.prepare(sql)?;
         statement.query_map([], |row| row.get(0))?.collect()
     };
-    // A provider no longer holding any of an album's tracks no longer holds the album, though
-    // others still do.
+    // A provider no longer holds an album none of its tracks of the album came from, though
+    // others still do, or its other albums merged into it: a copy of a folder, once deleted.
+    // A track read before its provider album was recorded counts as from any.
     // CROSS JOIN keeps SQLite to the album's own tracks first: left to choose, it walks every
     // track of the provider for each album, which takes seconds on a large library.
     let mut statement = tx.prepare(
@@ -800,7 +813,9 @@ pub fn prune(tx: &Connection, changes: &mut Changes) -> Result<()> {
              SELECT 1 FROM tracks CROSS JOIN provider_mappings AS track
                  ON track.media_type = 'track' AND track.item_id = tracks.id
              WHERE tracks.album_id = album.item_id
-                 AND track.provider_instance = album.provider_instance)
+                 AND track.provider_instance = album.provider_instance
+                 AND (track.provider_album IS NULL
+                      OR track.provider_album = album.provider_item_id))
          RETURNING item_id, provider_instance",
     )?;
     let dropped = statement

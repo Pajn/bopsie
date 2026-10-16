@@ -232,6 +232,48 @@ async fn removing_files_removes_what_only_they_held() {
     )));
 }
 
+/// The provider's ids for the album: for files, its folders.
+async fn album_folders(library: &Library, album: i64) -> Vec<String> {
+    let item = library
+        .item(MediaType::Album, album)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut folders: Vec<String> = item
+        .fields()
+        .provider_mappings
+        .iter()
+        .map(|mapping| mapping.item_id.clone())
+        .collect();
+    folders.sort();
+    folders
+}
+
+#[tokio::test]
+async fn a_deleted_copy_of_a_folder_is_no_longer_a_source_of_its_album() {
+    let f = fixture();
+    let music = f.dir.path().join("music");
+    let copy = music.join("Copies/First Album");
+    fs::create_dir_all(&copy).unwrap();
+    for entry in fs::read_dir(music.join("Test Artist/First Album")).unwrap() {
+        let path = entry.unwrap().path();
+        fs::copy(&path, copy.join(path.file_name().unwrap())).unwrap();
+    }
+    f.library.sync().await.unwrap();
+    let album = id(&f.library, MediaType::Album, "First Album").await;
+    assert_eq!(
+        album_folders(&f.library, album).await,
+        ["Copies/First Album", "Test Artist/First Album"]
+    );
+
+    fs::remove_dir_all(music.join("Copies")).unwrap();
+    f.library.sync().await.unwrap();
+    assert_eq!(
+        album_folders(&f.library, album).await,
+        ["Test Artist/First Album"]
+    );
+}
+
 #[tokio::test]
 async fn listings_page_filter_and_order() {
     let f = fixture();
