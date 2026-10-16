@@ -1,10 +1,12 @@
 import { signIn } from '@bopsie/client/auth/signIn';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Image, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useAccountActions, useAccounts, useActiveAccount } from '@/auth/AuthProvider';
 import { describeError } from '@/lib/errors';
 import { Button, Card, InlineError, Stack, Text, TextField } from '@/ui/primitives';
+
+const ICON = require('../assets/mark.png');
 
 /** The page is served by the server it manages, so that is the server to sign in to. */
 function serverUrl(): string {
@@ -47,6 +49,7 @@ export default function SignInScreen() {
       <Card style={styles.card}>
         <Stack gap="lg">
           <Stack gap="xs">
+            <Image source={ICON} style={styles.icon} accessibilityIgnoresInvertColors />
             <Text variant="title">Bopsie</Text>
             <Text muted>
               {expired
@@ -57,6 +60,7 @@ export default function SignInScreen() {
           <Stack>
             <TextField
               label="Username"
+              autoFocus={!username}
               autoCapitalize="none"
               autoCorrect={false}
               autoComplete="username"
@@ -65,6 +69,7 @@ export default function SignInScreen() {
             />
             <TextField
               label="Password"
+              autoFocus={Boolean(username)}
               secureTextEntry
               autoComplete="current-password"
               value={password}
@@ -89,4 +94,5 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.background,
   },
   card: { width: '100%', maxWidth: 380 },
+  icon: { width: 56, height: 56, borderRadius: 14, marginBottom: theme.spacing.sm },
 }));

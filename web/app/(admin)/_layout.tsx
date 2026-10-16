@@ -1,6 +1,6 @@
 import { Link, Slot, usePathname } from 'expo-router';
 import { type ReactNode, useState } from 'react';
-import { Pressable, type StyleProp, View, type ViewStyle } from 'react-native';
+import { Image, Pressable, type StyleProp, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAccountActions } from '@/auth/AuthProvider';
@@ -8,6 +8,8 @@ import { ConnectionProvider, useConnection } from '@/connection/ConnectionProvid
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text, type WebPress } from '@/ui/primitives';
 import { ToastProvider } from '@/ui/Toast';
+
+const ICON = require('../../assets/mark.png');
 
 const PAGES: ReadonlyArray<{ href: string; title: string; icon: IconName }> = [
   { href: '/players', title: 'Players', icon: 'speaker' },
@@ -106,7 +108,10 @@ function Sidebar({ pathname }: { pathname: string }) {
   return (
     <View style={styles.sidebar}>
       <View style={styles.brand}>
-        <Text variant="heading">Bopsie</Text>
+        <View style={styles.brandName}>
+          <Image source={ICON} style={styles.brandIcon} accessibilityIgnoresInvertColors />
+          <Text variant="heading">Bopsie</Text>
+        </View>
         <Status />
       </View>
       <View style={styles.navItems}>
@@ -233,6 +238,8 @@ const styles = StyleSheet.create((theme) => ({
     paddingHorizontal: theme.spacing.sm,
     paddingTop: theme.spacing.sm,
   },
+  brandName: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  brandIcon: { width: 24, height: 24, borderRadius: 6 },
   navItems: { flex: 1, gap: 2 },
   navItem: {
     flexDirection: 'row',
