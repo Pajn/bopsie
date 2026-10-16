@@ -14,7 +14,7 @@ use bopsie_audio::decode::Read;
 use bopsie_audio::engine::Media;
 use bopsie_audio::loudness::REFERENCE_LUFS;
 use bopsie_core::db::Database;
-use bopsie_sources_spotify::media::{FORMAT, SpotifyMedia};
+use bopsie_sources_spotify::media::{FORMAT, SPOTIFY_REFERENCE_LUFS, SpotifyMedia};
 use bopsie_sources_spotify::{Endpoints, SpotifyAccount};
 use librespot_core::SpotifyId;
 
@@ -27,50 +27,53 @@ async fn main() {
     let account = SpotifyAccount::open(db, data_dir, Endpoints::default())
         .await
         .expect("the account");
-    println!("track                   header dB  measured dB  difference");
-    let mut differences = Vec::new();
+    println!("track                   header dB  measured dB  implied reference LUFS");
+    let mut implied = Vec::new();
     for id in args {
         let track = SpotifyId::from_base62(&id).expect("a track id");
         let media = SpotifyMedia::new(account.clone(), track, tokio::runtime::Handle::current());
-        let result = tokio::task::spawn_blocking(move || {
-            let mut decoder = media.open(FORMAT).ok()?;
+        let result = tokio::task::spawn_blocking(move || -> Result<(f32, f32), String> {
+            let mut decoder = media.open(FORMAT).map_err(|e| e.to_string())?;
             let mut state = ebur128::EbuR128::new(
                 2,
                 FORMAT.sample_rate,
                 ebur128::Mode::I | ebur128::Mode::HISTOGRAM,
             )
-            .ok()?;
+            .map_err(|e| e.to_string())?;
             let mut out = Vec::new();
             loop {
                 out.clear();
-                match decoder.read(&mut out).ok()? {
+                match decoder.read(&mut out).map_err(|e| e.to_string())? {
                     Read::End => break,
                     Read::Pending => continue,
-                    Read::Data => state.add_frames_f32(&out).ok()?,
+                    Read::Data => state.add_frames_f32(&out).map_err(|e| e.to_string())?,
                 }
             }
-            let header = decoder.loudness()?.track_gain_db;
-            let measured = REFERENCE_LUFS - state.loudness_global().ok()? as f32;
-            Some((header, measured))
+            let header = decoder
+                .loudness()
+                .ok_or("no loudness in the header")?
+                .track_gain_db;
+            let lufs = state.loudness_global().map_err(|e| e.to_string())?;
+            Ok((header, REFERENCE_LUFS - lufs as f32))
         })
         .await
         .unwrap();
         match result {
-            Some((header, measured)) => {
-                println!(
-                    "{id}  {header:>9.2}  {measured:>11.2}  {:>10.2}",
-                    measured - header
-                );
-                differences.push(measured - header);
+            Ok((header, measured)) => {
+                // The header's gains are taken as being to SPOTIFY_REFERENCE_LUFS; they bring
+                // the audio to this instead.
+                let reference = SPOTIFY_REFERENCE_LUFS - (measured - header);
+                println!("{id}  {header:>9.2}  {measured:>11.2}  {reference:>10.2}");
+                implied.push(reference);
             }
-            None => println!("{id}  could not be measured"),
+            Err(error) => println!("{id}  {error}"),
         }
     }
-    if !differences.is_empty() {
-        let mean = differences.iter().sum::<f32>() / differences.len() as f32;
+    if !implied.is_empty() {
+        let mean = implied.iter().sum::<f32>() / implied.len() as f32;
         println!(
-            "mean difference {mean:.2} dB over {} tracks",
-            differences.len()
+            "Spotify's gains bring tracks to {mean:.2} LUFS, over {} tracks",
+            implied.len()
         );
     }
 }
