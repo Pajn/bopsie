@@ -64,6 +64,8 @@ export function IconButton({
 
 const ICON = { sm: 14, md: 16, lg: 20 } as const;
 const BOX = { sm: 28, md: 34, lg: 44 } as const;
+/** On a phone, room for a finger: about the 44 points touch guidelines ask for. */
+const TOUCH = { sm: 40, md: 44, lg: 48 } as const;
 
 /**
  * A volume from 0 to 100 as a slider, with the mute switch beside it and the level after it.
@@ -305,9 +307,9 @@ export function Disclosure({
 
 const styles = StyleSheet.create((theme) => ({
   button: (variant: 'primary' | 'secondary' | 'ghost', size: 'sm' | 'md' | 'lg') => ({
-    width: BOX[size],
-    height: BOX[size],
-    borderRadius: size === 'lg' ? BOX.lg / 2 : theme.radius.md,
+    width: { xs: TOUCH[size], md: BOX[size] },
+    height: { xs: TOUCH[size], md: BOX[size] },
+    borderRadius: size === 'lg' ? 9999 : theme.radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor:

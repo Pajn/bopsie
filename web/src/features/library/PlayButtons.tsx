@@ -24,7 +24,7 @@ export function TargetPicker() {
 }
 
 /** Plays `uri`, or adds it to the end, on the chosen player's queue, saying which it did. */
-function usePlay(uri: string, startItem?: string) {
+export function usePlay(uri: string, startItem?: string) {
   const { connection } = useConnection();
   const { player } = usePlayTarget();
   const run = useRun();

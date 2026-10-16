@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
+import Head from 'expo-router/head';
 import { AuthProvider, useAccounts } from '@/auth/AuthProvider';
 
 // The browser's own controls, such as a choice's menu and a slider, follow the system's light or
@@ -33,10 +34,13 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <RootNavigator />
-      </AuthProvider>
-    </QueryClientProvider>
+    // Pages name the browser's tab through Head, which needs its provider in a single-page app.
+    <Head.Provider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <RootNavigator />
+        </AuthProvider>
+      </QueryClientProvider>
+    </Head.Provider>
   );
 }

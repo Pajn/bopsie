@@ -4,7 +4,7 @@ import { Image, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useAccountActions, useAccounts, useActiveAccount } from '@/auth/AuthProvider';
 import { describeError } from '@/lib/errors';
-import { Button, Card, InlineError, Stack, Text, TextField } from '@/ui/primitives';
+import { Button, Card, DocumentTitle, InlineError, Stack, Text, TextField } from '@/ui/primitives';
 
 const ICON = require('../assets/mark.png');
 
@@ -46,6 +46,7 @@ export default function SignInScreen() {
 
   return (
     <View style={styles.page}>
+      <DocumentTitle title="Sign in" />
       <Card style={styles.card}>
         <Stack gap="lg">
           <Stack gap="xs">

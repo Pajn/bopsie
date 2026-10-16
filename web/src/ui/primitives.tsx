@@ -1,4 +1,5 @@
 import { Link } from 'expo-router';
+import Head from 'expo-router/head';
 import { type ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
@@ -43,6 +44,7 @@ export function Page({
 }) {
   const header = (
     <View style={styles.pageHeader}>
+      <DocumentTitle title={title} />
       {back ? (
         <Link href={back.href as never} asChild>
           <Pressable accessibilityRole="link" style={styles.back}>
@@ -80,6 +82,18 @@ export function Page({
         <View style={styles.pageBody}>{children}</View>
       </View>
     </ScrollView>
+  );
+}
+
+/**
+ * Names the browser's tab and history entry for the page, as `Kitchen · Bopsie`, so tabs and
+ * Back's list say where each leads.
+ */
+export function DocumentTitle({ title }: { title: string }) {
+  return (
+    <Head>
+      <title>{title && title !== 'Bopsie' ? `${title} · Bopsie` : 'Bopsie'}</title>
+    </Head>
   );
 }
 
@@ -359,7 +373,8 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: theme.spacing.xs,
-    minHeight: 34,
+    // Room for a finger on a phone.
+    minHeight: { xs: 40, md: 34 },
     borderRadius: theme.radius.md,
     paddingHorizontal: theme.spacing.md,
     backgroundColor:
