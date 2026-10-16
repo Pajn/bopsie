@@ -23,3 +23,15 @@ export function elapsedNow(
   if (queue.state !== 'playing' || queue.buffering) return queue.elapsed_time;
   return queue.elapsed_time + Math.max(0, nowMs / 1000 - queue.elapsed_time_last_updated);
 }
+
+/** How long something has run, in the two largest units: `45 s`, `12 min`, `3 h 5 min`, `2 d 4 h`. */
+export function uptime(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const d = Math.floor(s / 86_400);
+  const h = Math.floor((s % 86_400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return h > 0 ? `${d} d ${h} h` : `${d} d`;
+  if (h > 0) return m > 0 ? `${h} h ${m} min` : `${h} h`;
+  if (m > 0) return `${m} min`;
+  return `${s} s`;
+}

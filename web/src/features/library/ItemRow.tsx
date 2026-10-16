@@ -27,11 +27,20 @@ export function itemHref(item: Item): string {
   return `/library/${item.media_type}/${encodeURIComponent(item.provider)}/${encodeURIComponent(item.item_id)}`;
 }
 
-export function ItemRow({ item, actions }: { item: Item; actions?: ReactNode }) {
+/** An item in a line: its artwork, name and who made it. `divided` rules it off from the next. */
+export function ItemRow({
+  item,
+  actions,
+  divided = true,
+}: {
+  item: Item;
+  actions?: ReactNode;
+  divided?: boolean;
+}) {
   const { account } = useConnection();
   const artwork = imageUrl(account.serverUrl, item, 80);
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, divided && styles.divided]}>
       {artwork ? (
         <Image source={{ uri: artwork }} style={styles.art} />
       ) : (
@@ -58,9 +67,8 @@ const styles = StyleSheet.create((theme) => ({
     alignItems: 'center',
     gap: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
-    borderBottomWidth: 1,
-    borderColor: theme.colors.border,
   },
+  divided: { borderBottomWidth: 1, borderColor: theme.colors.border },
   art: {
     width: 40,
     height: 40,

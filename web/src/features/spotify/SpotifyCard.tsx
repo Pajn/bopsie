@@ -51,7 +51,7 @@ export function SpotifyCard({ outcome }: { outcome: string | null }) {
         <Facts
           rows={[
             ['Search and saved library', status.web_user ?? 'not logged in'],
-            ['Playback and playlists', status.playback_user ?? 'not signed in'],
+            ['Playback and playlists', status.playback_user ?? 'not logged in'],
             ['Developer app', status.client_id ?? 'none'],
           ]}
         />
@@ -120,12 +120,12 @@ export function SpotifyCard({ outcome }: { outcome: string | null }) {
         ) : (
           <Stack horizontal gap="sm">
             <Button
-              title={status.playback_user ? 'Sign in again' : 'Sign in from the Spotify app'}
+              title={status.playback_user ? 'Log in again' : 'Log in from the Spotify app'}
               onPress={() => run(() => startSpotifyPairing(connection))}
             />
             {status.playback_user ? (
               <Button
-                title="Sign out"
+                title="Log out"
                 variant="secondary"
                 onPress={() => run(() => signOutOfSpotify(connection, 'playback'))}
               />

@@ -1,6 +1,6 @@
 import type { AdminServer } from '@bopsie/client/api/schemas/admin';
-import { useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { Link, useLocalSearchParams } from 'expo-router';
+import { type ReactNode, useState } from 'react';
 import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
@@ -9,7 +9,7 @@ import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
 import { SpotifyCard } from '@/features/spotify/SpotifyCard';
 import { describeError } from '@/lib/errors';
-import { duration } from '@/lib/time';
+import { uptime } from '@/lib/time';
 import { Disclosure } from '@/ui/controls';
 import { Badge, Button, Card, Facts, InlineError, Page, Stack, Text } from '@/ui/primitives';
 
@@ -81,7 +81,7 @@ export default function ServerScreen() {
         <Facts
           rows={[
             ['Version', view?.version ?? info?.server_version ?? '–'],
-            ['Up for', view ? duration(view.uptime_s) : '–'],
+            ['Up for', view ? uptime(view.uptime_s) : '–'],
             ['Server id', info?.server_id ?? '–'],
             ['Schema', String(info?.schema_version ?? '–')],
             ['AirPlay', <OnOff key="airplay" on={view?.providers.airplay} />],
@@ -145,19 +145,34 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: theme.colors.surfaceVariant,
   },
   statValue: { ...theme.typography.title, color: theme.colors.text },
+  link: { color: theme.colors.accent, fontWeight: '600' },
 }));
 
 type Metadata = NonNullable<AdminServer['library']['metadata']>;
 
 /** How far the library's albums have been looked up on MusicBrainz, and how the last run went. */
-function musicBrainzRow(metadata: Metadata): [string, string] {
+function musicBrainzRow(metadata: Metadata): [string, ReactNode] {
   if (!metadata.enabled) return ['MusicBrainz', 'off'];
-  const progress = `${metadata.checked} of ${metadata.albums} albums looked up, ${metadata.identified} identified, ${metadata.suggested} to decide`;
   const last = metadata.last_run;
   const run = metadata.running
     ? 'looking up now'
     : last
       ? `last run ${at(last.finished)}: ${last.matched} matched, ${last.suggested} suggested, ${last.unmatched} unmatched, ${last.failed} failed`
       : 'no run since the server started';
-  return ['MusicBrainz', `${progress}\n${run}`];
+  return [
+    'MusicBrainz',
+    <View key="musicbrainz">
+      <Text>
+        {metadata.checked} of {metadata.albums} albums looked up, {metadata.identified} identified
+        {metadata.suggested > 0 ? ', ' : ''}
+        {metadata.suggested > 0 ? (
+          <Link href="/library?tab=suggestions">
+            {/* Styled inside: the link merges its child's style, which loses unistyles' classes. */}
+            <Text style={styles.link}>{metadata.suggested} to decide</Text>
+          </Link>
+        ) : null}
+      </Text>
+      <Text muted>{run}</Text>
+    </View>,
+  ];
 }

@@ -1,6 +1,7 @@
 import { type LibraryKind, libraryCount, libraryItems } from '@bopsie/client/api/endpoints/library';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { View, type ViewInstance } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
@@ -68,7 +69,11 @@ function LoadMore({ loading, onVisible }: { loading: boolean; onVisible: () => v
 
 export default function LibraryScreen() {
   const { account, connection } = useConnection();
-  const [tab, setTab] = useState<Tab>('albums');
+  // A link can open a tab, such as the server page's to the suggestions.
+  const { tab: linked } = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<Tab>(
+    [...KINDS, ...TOOLS].some((t) => t.value === linked) ? (linked as Tab) : 'albums',
+  );
   const browsing = tab !== 'suggestions' && tab !== 'duplicates';
   const kind: LibraryKind = browsing ? tab : 'albums';
   const [typed, setSearch] = useState('');

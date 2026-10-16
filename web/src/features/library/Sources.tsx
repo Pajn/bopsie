@@ -23,6 +23,17 @@ function idUrl(kind: string, value: string): string | null {
   return entity[kind] ? `https://musicbrainz.org/${entity[kind]}/${value}` : null;
 }
 
+/** What an external id is, as a person reads it; one not known here keeps its own name. */
+const ID_NAMES: Record<string, string> = {
+  musicbrainz_albumid: 'MusicBrainz release',
+  musicbrainz_releasegroupid: 'MusicBrainz release group',
+  musicbrainz_recordingid: 'MusicBrainz recording',
+  musicbrainz_trackid: 'MusicBrainz track',
+  musicbrainz_artistid: 'MusicBrainz artist',
+  isrc: 'ISRC',
+  barcode: 'Barcode',
+};
+
 /** A provider's own page for what it holds, if it has one people can open. */
 function mappingUrl(domain: string, mediaType: string, id: string): string | null {
   return domain === 'spotify' ? `https://open.spotify.com/${mediaType}/${id}` : null;
@@ -130,7 +141,7 @@ export function Sources({ item }: { item: Item }) {
       {ids.length ? (
         <Facts
           rows={ids.map(([kind, values]) => [
-            kind,
+            ID_NAMES[kind] ?? kind,
             <Stack key={kind} gap="xs">
               {values.map((value) => (
                 <Linked key={value} text={value} url={idUrl(kind, value)} />
