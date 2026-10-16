@@ -194,7 +194,8 @@ function ReleaseSummary({ suggestion }: { suggestion: ReleaseSuggestion }) {
       </Text>
       <Text variant="caption" muted numberOfLines={2}>
         {details.map((fact, i) => (
-          <Text key={fact.kind} style={fact.differs && styles.differs}>
+          // Each part is a text of its own, which takes the caption's look only when told.
+          <Text key={fact.kind} variant="caption" muted style={fact.differs && styles.differs}>
             {i > 0 ? ' · ' : ''}
             {fact.text}
           </Text>
