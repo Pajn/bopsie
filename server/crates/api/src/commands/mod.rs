@@ -4,6 +4,7 @@ pub mod admin;
 pub mod airplay;
 pub mod audiobookshelf;
 pub mod auth;
+pub mod backups;
 pub mod calibration;
 pub mod music;
 pub mod players;
@@ -114,6 +115,11 @@ pub fn registry() -> Registry {
         .add::<spotify::SignOut>()
         .add::<audiobookshelf::Status>()
         .add::<audiobookshelf::Login>()
-        .add::<audiobookshelf::SignOut>();
+        .add::<audiobookshelf::SignOut>()
+        .add::<backups::Status>()
+        .add::<backups::Create>()
+        .add::<backups::Delete>()
+        .add::<backups::SetSchedule>()
+        .add::<backups::Restore>();
     registry
 }

@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 bopsie-core.workspace = true
+bopsie-backup.workspace = true
 bopsie-audio.workspace = true
 bopsie-library.workspace = true
 bopsie-players.workspace = true
@@ -32,6 +33,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 

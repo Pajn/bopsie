@@ -81,7 +81,9 @@ async fn main() -> ExitCode {
         .init();
     choose_tls();
     match run(Args::parse(), logs).await {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(Stopped::Done) => ExitCode::SUCCESS,
+        // A restore takes effect at the next start: the supervisor starts the server again.
+        Ok(Stopped::Restart) => ExitCode::from(RESTART),
         Err(error) => {
             tracing::error!("{error}");
             ExitCode::FAILURE
@@ -96,9 +98,31 @@ fn choose_tls() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
-async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
+/// The exit status that asks the supervisor, Docker or systemd, to start the server again:
+/// `EX_TEMPFAIL`.
+const RESTART: u8 = 75;
+
+/// Why the server stopped.
+enum Stopped {
+    Done,
+    /// To restore a backup, which it does as it starts again.
+    Restart,
+}
+
+async fn run(args: Args, logs: Tail) -> Result<Stopped, Box<dyn std::error::Error>> {
     let config = Config::load(args.config.as_deref())?;
     std::fs::create_dir_all(&config.storage.data_dir)?;
+    // A backup staged to be restored replaces the data directory's state before anything
+    // opens it.
+    let backups_dir = config.storage.backups();
+    if let Some(restored) = bopsie_backup::apply_staged(&config.storage.data_dir, &[&backups_dir])?
+    {
+        tracing::info!(
+            created = restored.created,
+            version = restored.server_version,
+            "restored a backup"
+        );
+    }
     let migrations = [
         bopsie_api::MIGRATIONS,
         &[
@@ -111,6 +135,14 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
     ]
     .concat();
     let db = Database::open(&config.storage.data_dir.join("bopsie.db"), &migrations)?;
+    let backups = bopsie_api::backups::Backups::new(
+        db.clone(),
+        config.storage.data_dir.clone(),
+        backups_dir,
+        migrations.clone(),
+        env!("CARGO_PKG_VERSION").to_owned(),
+    );
+    tokio::spawn(backups.clone().run_schedule());
     let events = EventBus::default();
 
     let spotify_account = if config.spotify.enabled {
@@ -196,6 +228,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         web: config.web.dir.clone().map_or(Web::Embedded, Web::Dir),
         ffmpeg: ffmpeg_found,
         logs,
+        backups: backups.clone(),
     };
     let api = Api::new(db.clone(), config.clone(), services, commands::registry()).await?;
     let spotify = config.spotify.enabled.then(|| {
@@ -348,7 +381,10 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         .with_graceful_shutdown(until_closed())
         .into_future(),
     );
-    shutdown_signal().await;
+    let stopped = tokio::select! {
+        () = shutdown_signal() => Stopped::Done,
+        () = backups.restart_requested() => Stopped::Restart,
+    };
     tracing::info!("shutting down");
     // Spotify Connect first, so no one picks a speaker now; then playback, while speakers can
     // still be told; then AirPlay's processes; then the listeners. WebSocket clients stay connected until told otherwise, so all of it is
@@ -375,7 +411,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         Ok(result) => result??,
         Err(_) => tracing::info!("closing what is still open"),
     }
-    Ok(())
+    Ok(stopped)
 }
 
 /// AirPlay, when `cliairplay` can be found. Without it, the server runs without AirPlay.

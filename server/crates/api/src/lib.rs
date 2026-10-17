@@ -2,6 +2,7 @@
 //! auth, the command table, event forwarding, the image proxy and the Sendspin proxy.
 
 pub mod auth;
+pub mod backups;
 pub mod command;
 pub mod commands;
 mod http;
@@ -58,6 +59,8 @@ pub struct Services {
     pub ffmpeg: bool,
     /// The log's latest lines.
     pub logs: Tail,
+    /// The server's backups.
+    pub backups: backups::Backups,
 }
 
 /// Everything a request handler can reach.
@@ -81,6 +84,7 @@ pub struct Api {
     pub logs: Tail,
     /// When the server started, in Unix seconds.
     pub started: u64,
+    pub backups: backups::Backups,
     web: Web,
     thumbnails: imageproxy::Thumbnails,
 }
@@ -127,6 +131,7 @@ impl Api {
                 .unwrap_or_default()
                 .as_secs(),
             web: services.web,
+            backups: services.backups,
             thumbnails: imageproxy::Thumbnails::default(),
         }))
     }
@@ -164,6 +169,13 @@ pub(crate) mod tests {
             web: Web::default(),
             ffmpeg: false,
             logs: Tail::default(),
+            backups: backups::Backups::new(
+                db.clone(),
+                "data".into(),
+                "data/backups".into(),
+                Vec::new(),
+                "test".into(),
+            ),
         };
         Api::new(db, Config::default(), services, Registry::default())
             .await

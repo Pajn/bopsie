@@ -22,6 +22,7 @@ bopsie-sources.workspace = true
 bopsie-sources-spotify.workspace = true
 bopsie-sources-audiobookshelf.workspace = true
 bopsie-api.workspace = true
+bopsie-backup.workspace = true
 axum.workspace = true
 clap.workspace = true
 tokio.workspace = true

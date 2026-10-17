@@ -62,6 +62,17 @@ pub struct ServerConfig {
 pub struct StorageConfig {
     /// Where the database lives. Relative paths are relative to the working directory.
     pub data_dir: PathBuf,
+    /// Where backups are kept: `backups` in the data directory unless set.
+    pub backups_dir: Option<PathBuf>,
+}
+
+impl StorageConfig {
+    /// Where backups are kept.
+    pub fn backups(&self) -> PathBuf {
+        self.backups_dir
+            .clone()
+            .unwrap_or_else(|| self.data_dir.join("backups"))
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -332,6 +343,7 @@ impl Default for StorageConfig {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from("data"),
+            backups_dir: None,
         }
     }
 }

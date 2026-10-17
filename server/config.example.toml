@@ -14,6 +14,9 @@ name = "Bopsie"
 [storage]
 # Where the database lives, relative to the working directory unless absolute.
 data_dir = "data"
+# Where backups are kept: "backups" in the data directory unless set. A folder on another disk,
+# or one that is copied off the machine, keeps them apart from what they back up.
+# backups_dir = "/backups"
 
 [library]
 # Folders of music to scan, at startup and on request.

@@ -127,6 +127,13 @@ async fn start_full(seconds: u32, web: Web, spotify: bool) -> Server {
         web,
         ffmpeg: false,
         logs: Default::default(),
+        backups: bopsie_api::backups::Backups::new(
+            db.clone(),
+            dir.path().join("data"),
+            dir.path().join("data/backups"),
+            [MIGRATIONS, &[bopsie_library::MIGRATIONS]].concat(),
+            "test".into(),
+        ),
     };
     let api = Api::new(db, Config::default(), services, commands::registry())
         .await

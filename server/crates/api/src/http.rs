@@ -40,6 +40,11 @@ pub fn router(api: Arc<Api>) -> Router {
             "/artwork",
             post(artwork).layer(axum::extract::DefaultBodyLimit::max(ARTWORK_LIMIT)),
         )
+        .route("/backups/{name}", get(download_backup))
+        .route(
+            "/backups/restore",
+            post(restore_backup).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .fallback(web::fallback)
         .with_state(api);
     match streams {
@@ -293,20 +298,116 @@ const ARTWORK_LIMIT: usize = 10 * 1024 * 1024;
 
 /// `POST /artwork`: an admin uploads an image, JPEG or PNG, as the raw request body. It is kept
 /// in the artwork cache and named by the proxy id answered, for an edit's `image`.
-async fn artwork(State(api): ApiState, headers: HeaderMap, body: Bytes) -> Response {
+/// Checks the request's bearer token is an admin's; the response to send when it is not.
+async fn admin(api: &Api, headers: &HeaderMap) -> Result<(), Response> {
     let token = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
     let Some(token) = token else {
-        return unauthorized("Authentication required");
+        return Err(unauthorized("Authentication required"));
     };
     let session = match api.auth.authenticate(token).await {
         Ok(session) => session,
-        Err(_) => return unauthorized("Authentication failed"),
+        Err(_) => return Err(unauthorized("Authentication failed")),
     };
     if !session.allows(crate::auth::Scope::Admin) {
-        return text(StatusCode::FORBIDDEN, "This needs the admin scope");
+        return Err(text(StatusCode::FORBIDDEN, "This needs the admin scope"));
+    }
+    Ok(())
+}
+
+/// A backup from the backups directory, as a download. Admins only.
+async fn download_backup(
+    State(api): ApiState,
+    headers: HeaderMap,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Response {
+    if let Err(refused) = admin(&api, &headers).await {
+        return refused;
+    }
+    let path = match api.backups.path_of(&name) {
+        Ok(path) => path,
+        Err(error) => return text(StatusCode::NOT_FOUND, &error.details),
+    };
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(file) => file,
+        Err(_) => return internal_error(),
+    };
+    let size = file.metadata().await.map(|m| m.len()).unwrap_or(0);
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file));
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_owned()),
+            (header::CONTENT_LENGTH, size.to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{name}\""),
+            ),
+        ],
+        body,
+    )
+        .into_response()
+}
+
+/// Restores the backup in the request's body, with its passphrase in `X-Backup-Passphrase`
+/// when it is encrypted: checks it, answers, then the server restarts and restores it. Admins
+/// only.
+async fn restore_backup(
+    State(api): ApiState,
+    headers: HeaderMap,
+    body: axum::body::Body,
+) -> Response {
+    use futures::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    if let Err(refused) = admin(&api, &headers).await {
+        return refused;
+    }
+    let passphrase = headers
+        .get("x-backup-passphrase")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .filter(|p| !p.is_empty());
+    // Written to disk as it comes, as a backup is larger than is held in memory.
+    let path = api.backups.upload_path();
+    let written = async {
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let mut file = tokio::fs::File::create(&path).await?;
+        let mut stream = body.into_data_stream();
+        while let Some(chunk) = stream.next().await {
+            file.write_all(&chunk.map_err(std::io::Error::other)?)
+                .await?;
+        }
+        file.sync_all().await
+    }
+    .await;
+    if let Err(error) = written {
+        let _ = tokio::fs::remove_file(&path).await;
+        tracing::warn!(%error, "cannot receive a backup");
+        return text(StatusCode::BAD_REQUEST, "The backup did not arrive whole");
+    }
+    let restored = api.backups.restore(path.clone(), passphrase).await;
+    let _ = tokio::fs::remove_file(&path).await;
+    match restored {
+        Ok(()) => (StatusCode::ACCEPTED, Json(json!({"restarting": true}))).into_response(),
+        Err(error) => {
+            let status = match error.code {
+                ErrorCode::AuthenticationFailed => StatusCode::UNAUTHORIZED,
+                ErrorCode::InvalidData => StatusCode::UNPROCESSABLE_ENTITY,
+                ErrorCode::ResourceBusy => StatusCode::CONFLICT,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            text(status, &error.details)
+        }
+    }
+}
+
+async fn artwork(State(api): ApiState, headers: HeaderMap, body: Bytes) -> Response {
+    if let Err(refused) = admin(&api, &headers).await {
+        return refused;
     }
     let extension = match image::guess_format(&body) {
         Ok(image::ImageFormat::Jpeg) => "jpg",
