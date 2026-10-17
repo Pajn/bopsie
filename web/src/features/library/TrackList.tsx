@@ -181,12 +181,14 @@ const styles = StyleSheet.create((theme) => ({
   grow: { flex: 1, minWidth: 0 },
   wide: { display: { xs: 'none', md: 'flex' } },
   narrow: { display: { xs: 'flex', md: 'none' } },
+  // At least a track's width, so the column lines up; an hour or more widens it, unwrapped.
   duration: {
     display: { xs: 'none', md: 'flex' },
-    width: 44,
+    minWidth: 44,
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
-  },
+    whiteSpace: 'nowrap',
+  } as object,
   actions: {
     flexDirection: 'row',
     alignItems: 'center',

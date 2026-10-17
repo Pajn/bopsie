@@ -420,12 +420,14 @@ const styles = StyleSheet.create((theme) => ({
   index: { width: 24, alignItems: 'center' },
   itemText: { flex: 1, minWidth: 0 },
   currentTitle: { color: theme.colors.accent, fontWeight: '600' },
+  // At least a track's width, so the column lines up; an hour or more widens it, unwrapped.
   duration: {
     display: { xs: 'none', md: 'flex' },
-    width: 44,
+    minWidth: 44,
     textAlign: 'right',
     fontVariant: ['tabular-nums'],
-  },
+    whiteSpace: 'nowrap',
+  } as object,
   wideActions: { display: { xs: 'none', md: 'flex' }, flexDirection: 'row', gap: 2 },
   narrowOnly: { display: { xs: 'flex', md: 'none' } },
   narrowActions: {

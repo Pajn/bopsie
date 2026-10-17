@@ -330,7 +330,13 @@ const styles = StyleSheet.create((theme) => ({
   track: { flex: 1, minWidth: 80 },
   level: { width: 28, textAlign: 'right', fontVariant: ['tabular-nums'] },
   seek: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, minWidth: 0 },
-  time: { width: 44, fontVariant: ['tabular-nums'] },
+  // As wide as a time of hours needs, which the track gives way to; never wrapped.
+  time: {
+    minWidth: 44,
+    flexShrink: 0,
+    fontVariant: ['tabular-nums'],
+    whiteSpace: 'nowrap',
+  } as object,
   timeEnd: { textAlign: 'right' },
   search: {
     flex: 1,
