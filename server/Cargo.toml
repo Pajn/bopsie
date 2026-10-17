@@ -16,6 +16,7 @@ members = [
     "crates/sources/spotify",
     "crates/sources/audiobookshelf",
     "crates/api",
+    "crates/backup",
     "crates/server",
     "crates/fixtures",
 ]
@@ -41,8 +42,10 @@ bopsie-sources = { path = "crates/sources" }
 bopsie-sources-spotify = { path = "crates/sources/spotify" }
 bopsie-sources-audiobookshelf = { path = "crates/sources/audiobookshelf" }
 bopsie-api = { path = "crates/api" }
+bopsie-backup = { path = "crates/backup" }
 bopsie-fixtures = { path = "crates/fixtures" }
 
+age = "0.11"
 argon2 = "0.6"
 audioadapter-buffers = "5.2"
 axum = { version = "0.8", features = ["ws"] }
@@ -76,6 +79,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
 symphonia = { version = "0.6", features = ["all"] }
+tar = "0.4"
 tempfile = "3.27"
 thiserror = "2.0"
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
@@ -89,6 +93,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.28", features = ["v4"] }
 walkdir = "2.5"
+zstd = "0.13"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
