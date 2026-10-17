@@ -21,6 +21,7 @@ export function ProgressLine({ queue }: { queue: HeardQueue }) {
   const duration = queue.current_item?.duration ?? 0;
   const playing = advancing(queue);
   const { elapsed_time: elapsed, elapsed_time_last_updated: measuredAt } = queue;
+  const rate = queue.playback_speed;
 
   useEffect(() => {
     cancelAnimation(progress);
@@ -28,15 +29,15 @@ export function ProgressLine({ queue }: { queue: HeardQueue }) {
       progress.value = 0;
       return;
     }
-    const position = positionAt({ elapsed, measuredAt, playing, duration }, Date.now());
+    const position = positionAt({ elapsed, measuredAt, playing, duration, rate }, Date.now());
     progress.value = Math.min(1, position / duration);
     if (playing && position < duration) {
       progress.value = withTiming(1, {
-        duration: (duration - position) * 1000,
+        duration: ((duration - position) / rate) * 1000,
         easing: Easing.linear,
       });
     }
-  }, [progress, duration, playing, elapsed, measuredAt]);
+  }, [progress, duration, playing, elapsed, measuredAt, rate]);
 
   const style = useAnimatedStyle(() => ({ transform: [{ scaleX: progress.value }] }));
   if (!duration) return null;

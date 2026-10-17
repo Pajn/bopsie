@@ -4,8 +4,10 @@ import {
   type QueueCommand,
   queueCommand,
   seek,
+  setPlaybackSpeed,
   setRepeat,
   setShuffle,
+  setSleepTimer,
 } from '@bopsie/client/api/endpoints/players';
 import type { RepeatMode } from '@bopsie/client/api/schemas/player';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
@@ -88,6 +90,11 @@ export function usePlaybackActions() {
       seek: (seconds: number) => run((id) => seek(connection, id, seconds)),
       shuffle: (enabled: boolean) => run((id) => setShuffle(connection, id, enabled)),
       repeat: (mode: RepeatMode) => run((id) => setRepeat(connection, id, mode)),
+      /** How fast the book playing plays, keeping its pitch; it plays so the next time too. */
+      speed: (speed: number) => run((id) => setPlaybackSpeed(connection, id, speed)),
+      /** Pauses the group in some minutes or at the end of the chapter; `null` cancels it. */
+      sleep: (timer: { minutes: number } | 'end_of_chapter' | null) =>
+        run((id) => setSleepTimer(connection, id, timer)),
     }),
     [connection, run],
   );

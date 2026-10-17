@@ -1,4 +1,8 @@
-import { album as albumSchema, track as trackSchema } from '@bopsie/client/api/schemas/media';
+import {
+  album as albumSchema,
+  audiobook,
+  track as trackSchema,
+} from '@bopsie/client/api/schemas/media';
 import { artistRows } from './sections';
 
 const album = (id: string, year: number | null, albumType = 'unknown') =>
@@ -28,7 +32,9 @@ const summary = (rows: ReturnType<typeof artistRows>) =>
         ? `t${row.track.item_id}`
         : row.type === 'album'
           ? `a${row.album.item_id}`
-          : `+${row.hidden}`,
+          : row.type === 'book'
+            ? `b${row.book.item_id}`
+            : `+${row.hidden}`,
   );
 
 describe('artistRows', () => {
@@ -87,5 +93,19 @@ describe('artistRows', () => {
 
   it('is empty for an artist with neither', () => {
     expect(artistRows([], [], { popular: false, expanded: false })).toEqual([]);
+  });
+});
+
+describe('an author', () => {
+  it('lists their audiobooks first', () => {
+    const book = audiobook.parse({
+      item_id: 'li_h',
+      provider: 'audiobookshelf',
+      name: 'The Hobbit',
+      uri: 'audiobookshelf://audiobook/li_h',
+      media_type: 'audiobook',
+    });
+    const rows = artistRows([], tracks(1), { popular: true, expanded: false }, [book]);
+    expect(summary(rows)).toEqual(['# Audiobooks', 'bli_h', '# Popular', 't0']);
   });
 });

@@ -9,6 +9,8 @@ export interface Measured {
   playing: boolean;
   /** Seconds, when known. */
   duration?: number | null | undefined;
+  /** How fast it plays: a book can play faster or slower. */
+  rate?: number | undefined;
 }
 
 /**
@@ -16,8 +18,11 @@ export interface Measured {
  * measured it; while playing, the position moves on from there. Kept within the track's
  * duration when that is known.
  */
-export function positionAt({ elapsed, measuredAt, playing, duration }: Measured, nowMs: number) {
-  const position = playing ? elapsed + Math.max(0, nowMs / 1000 - measuredAt) : elapsed;
+export function positionAt(
+  { elapsed, measuredAt, playing, duration, rate = 1 }: Measured,
+  nowMs: number,
+) {
+  const position = playing ? elapsed + rate * Math.max(0, nowMs / 1000 - measuredAt) : elapsed;
   return duration ? Math.min(position, duration) : position;
 }
 
@@ -37,6 +42,7 @@ export function queuePosition(queue: PlayerQueue, nowMs: number): number {
       measuredAt: queue.elapsed_time_last_updated,
       playing: advancing(queue),
       duration: queue.current_item?.duration,
+      rate: queue.playback_speed,
     },
     nowMs,
   );

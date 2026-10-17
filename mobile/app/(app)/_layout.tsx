@@ -15,6 +15,8 @@ export default function AppLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="outputs" options={{ title: 'Play on', ...modalScreenOptions }} />
           <Stack.Screen name="player-menu" options={sheetScreenOptions} />
+          <Stack.Screen name="player-speed" options={sheetScreenOptions} />
+          <Stack.Screen name="player-sleep" options={sheetScreenOptions} />
           <Stack.Screen name="item-menu" options={sheetScreenOptions} />
           <Stack.Screen name="library-sort" options={sheetScreenOptions} />
           <Stack.Screen name="calibrate" options={{ title: 'Speaker sync' }} />

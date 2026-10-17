@@ -5,6 +5,13 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, View, type ViewInstance } from 'react-native';
 import { Gesture, GestureDetector, type GestureType } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import {
+  chapterName,
+  playsABook,
+  sleeping,
+  sleepLeft,
+  speedLabel,
+} from '@/features/audiobooks/model';
 import { useActiveGroup } from '@/features/outputs/ActiveGroupProvider';
 import { useOutputs } from '@/features/outputs/useOutputs';
 import { formatDuration, queuePosition } from '@/player/progress';
@@ -36,6 +43,7 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
   const queue = loaded ?? emptyQueue(activeId ?? 'none');
   const playback = usePlaybackActions();
   const colors = usePlayerColors();
+  const { theme } = useUnistyles();
   const playing = queue?.state === 'playing';
   // The position only moves while it can be seen.
   const now = useNow(playing && open);
@@ -72,6 +80,10 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
   const duration = current.duration;
   const hasLinks = queue.current_item ? itemLinks(queue.current_item).length > 0 : false;
   const where = active?.name ?? 'Choose a player';
+  // A book has a speed and a sleep timer where music has shuffle and repeat.
+  const book = playsABook(queue);
+  const chapter = book ? chapterName(queue) : null;
+  const asleep = book ? sleepLeft(queue, now) : null;
 
   return (
     <View
@@ -128,23 +140,49 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
             <Text variant="caption" muted testID="player-position">
               {idle ? '' : queue?.buffering ? 'Starting…' : formatDuration(position)}
             </Text>
+            {chapter || asleep ? (
+              <Text
+                variant="caption"
+                muted
+                numberOfLines={1}
+                style={styles.chapter}
+                testID="player-chapter"
+              >
+                {[chapter, asleep && `Sleep: ${asleep}`].filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
             <Text variant="caption" muted>
               {duration ? formatDuration(duration) : ''}
             </Text>
           </View>
         </View>
         <View style={styles.controls}>
-          <Toggle
-            icon="shuffle"
-            label="Shuffle"
-            on={queue.shuffle_enabled}
-            hidden={queue.source !== null || idle}
-            onPress={() => {
-              haptics.toggle(!queue.shuffle_enabled);
-              playback.shuffle(!queue.shuffle_enabled);
-            }}
-            testID="player-shuffle"
-          />
+          {book ? (
+            <Pressable
+              onPress={() => router.push('/player-speed')}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={`Playback speed ${speedLabel(queue.playback_speed)}`}
+              style={({ pressed }) => [styles.toggle, pressed && styles.pressed]}
+              testID="player-speed"
+            >
+              <Text variant="label" style={queue.playback_speed !== 1 && { color: colors.accent }}>
+                {speedLabel(queue.playback_speed)}
+              </Text>
+            </Pressable>
+          ) : (
+            <Toggle
+              icon="shuffle"
+              label="Shuffle"
+              on={queue.shuffle_enabled}
+              hidden={queue.source !== null || idle}
+              onPress={() => {
+                haptics.toggle(!queue.shuffle_enabled);
+                playback.shuffle(!queue.shuffle_enabled);
+              }}
+              testID="player-shuffle"
+            />
+          )}
           <Control
             icon="skip-back"
             label="Previous"
@@ -166,19 +204,36 @@ export function PlayerBody({ open, travel }: { open: boolean; travel: number }) 
             disabled={idle}
             testID="player-next"
           />
-          <Toggle
-            icon="repeat"
-            label={REPEAT_LABELS[queue.repeat_mode]}
-            on={queue.repeat_mode !== 'off'}
-            badge={queue.repeat_mode === 'one' ? '1' : undefined}
-            hidden={queue.source !== null || idle}
-            onPress={() => {
-              const mode = nextRepeatMode(queue.repeat_mode);
-              haptics.toggle(mode !== 'off');
-              playback.repeat(mode);
-            }}
-            testID="player-repeat"
-          />
+          {book ? (
+            <Pressable
+              onPress={() => router.push('/player-sleep')}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={asleep ? `Sleep timer: ${asleep}` : 'Sleep timer'}
+              style={({ pressed }) => [styles.toggle, pressed && styles.pressed]}
+              testID="player-sleep"
+            >
+              <Icon
+                name="moon"
+                size={22}
+                color={sleeping(queue) ? colors.accent : theme.colors.textMuted}
+              />
+            </Pressable>
+          ) : (
+            <Toggle
+              icon="repeat"
+              label={REPEAT_LABELS[queue.repeat_mode]}
+              on={queue.repeat_mode !== 'off'}
+              badge={queue.repeat_mode === 'one' ? '1' : undefined}
+              hidden={queue.source !== null || idle}
+              onPress={() => {
+                const mode = nextRepeatMode(queue.repeat_mode);
+                haptics.toggle(mode !== 'off');
+                playback.repeat(mode);
+              }}
+              testID="player-repeat"
+            />
+          )}
         </View>
       </View>
       {/* The queue's bar is drawn over this space, from which it opens over the whole player. */}
@@ -338,7 +393,8 @@ const styles = StyleSheet.create((theme, rt) => ({
   cover: { width: FULL_COVER, height: FULL_COVER },
   names: { gap: theme.spacing.xs },
   center: { textAlign: 'center' },
-  times: { flexDirection: 'row', justifyContent: 'space-between' },
+  times: { flexDirection: 'row', justifyContent: 'space-between', gap: theme.spacing.sm },
+  chapter: { flex: 1, textAlign: 'center' },
   controls: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   toggle: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   badge: {

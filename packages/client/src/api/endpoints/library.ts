@@ -109,7 +109,7 @@ export const search = (connection: MaConnection, query: string, limit = 25, prov
     'music/search',
     {
       search_query: query,
-      media_types: ['artist', 'album', 'track', 'playlist'],
+      media_types: ['artist', 'album', 'track', 'playlist', 'audiobook'],
       limit,
       ...(providers && { providers }),
     },

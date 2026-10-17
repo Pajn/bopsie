@@ -46,6 +46,7 @@ export function asHeard(queue: PlayerQueue, player: Player | undefined): HeardQu
     state: player.playback_state,
     elapsed_time: media.elapsed_time ?? 0,
     elapsed_time_last_updated: media.elapsed_time_last_updated ?? 0,
+    playback_speed: 1,
     current_item: {
       queue_id: queue.queue_id,
       queue_item_id: `source:${sourceId}`,

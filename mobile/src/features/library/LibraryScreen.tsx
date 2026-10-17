@@ -1,11 +1,16 @@
-import { type LibraryKind, libraryItems } from '@bopsie/client/api/endpoints/library';
-import type { Album, Artist, Playlist, Track } from '@bopsie/client/api/schemas/media';
+import {
+  audiobooks,
+  type LibraryKind,
+  libraryItems,
+  searchAudiobooks,
+} from '@bopsie/client/api/endpoints/library';
+import type { Album, Artist, Audiobook, Playlist, Track } from '@bopsie/client/api/schemas/media';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { LegendList } from '@legendapp/list/react-native';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, TextInput, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, TextInput, useWindowDimensions, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { usePlaybackActions } from '@/features/player/usePlayback';
@@ -14,26 +19,33 @@ import { useDebounced } from '@/lib/useDebounced';
 import { Icon } from '@/ui/Icon';
 import { InlineError, Screen, Text } from '@/ui/primitives';
 import { SkeletonRows } from '@/ui/Skeleton';
-import { AlbumRow, ArtistRow, PlaylistRow, TrackRow } from './rows';
+import { AlbumRow, ArtistRow, BookRow, PlaylistRow, TrackRow } from './rows';
 import { chooseLibraryLayout, useLibraryLayout, useLibrarySort } from './useLibrarySort';
 
-const KINDS: Array<{ kind: LibraryKind; label: string }> = [
+/** The library's kinds, and the audiobooks the sources serve, which the library stores none of. */
+type Kind = LibraryKind | 'audiobooks';
+
+const KINDS: Array<{ kind: Kind; label: string }> = [
   { kind: 'albums', label: 'Albums' },
   { kind: 'artists', label: 'Artists' },
   { kind: 'tracks', label: 'Tracks' },
   { kind: 'playlists', label: 'Playlists' },
+  { kind: 'audiobooks', label: 'Audiobooks' },
 ];
 const PAGE_SIZE = 100;
 
-type Item = Album | Artist | Track | Playlist;
+type Item = Album | Artist | Track | Playlist | Audiobook;
 
 export function LibraryScreen() {
-  const [kind, setKind] = useState<LibraryKind>('albums');
+  const [kind, setKind] = useState<Kind>('albums');
+  const books = kind === 'audiobooks';
+  // Books keep the source's order and lay out as albums do.
+  const musicKind: LibraryKind = books ? 'albums' : kind;
   const { theme } = useUnistyles();
   const [filter, setFilter] = useState('');
   const search = useDebounced(filter.trim(), 300);
-  const sort = useLibrarySort(kind);
-  const layout = useLibraryLayout(kind);
+  const sort = useLibrarySort(musicKind);
+  const layout = useLibraryLayout(musicKind);
   const grid = layout === 'grid';
   const { width } = useWindowDimensions();
   // Two across, between the screen's padding and a gap.
@@ -42,17 +54,21 @@ export function LibraryScreen() {
   const playback = usePlaybackActions();
   const router = useRouter();
   const query = useInfiniteQuery({
-    queryKey: [...queryKeys.libraryList(account.id, kind, search), sort.key],
-    queryFn: ({ pageParam }) =>
-      libraryItems(connection, kind, {
-        limit: PAGE_SIZE,
-        offset: pageParam,
-        orderBy: sort.key,
-        search,
-      }) as Promise<Item[]>,
+    queryKey: [...queryKeys.libraryList(account.id, kind, search), books ? '' : sort.key],
+    queryFn: ({ pageParam }): Promise<Item[]> =>
+      books
+        ? search
+          ? searchAudiobooks(connection, search)
+          : audiobooks(connection, { limit: PAGE_SIZE, offset: pageParam })
+        : libraryItems(connection, musicKind, {
+            limit: PAGE_SIZE,
+            offset: pageParam,
+            orderBy: sort.key,
+            search,
+          }),
     initialPageParam: 0,
     getNextPageParam: (last, pages) =>
-      last.length < PAGE_SIZE ? undefined : pages.length * PAGE_SIZE,
+      (books && search) || last.length < PAGE_SIZE ? undefined : pages.length * PAGE_SIZE,
   });
   const items = query.data?.pages.flat() ?? [];
 
@@ -68,7 +84,13 @@ export function LibraryScreen() {
       <Text variant="title" style={styles.title}>
         Library
       </Text>
-      <View style={styles.segments} accessibilityRole="tablist">
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.segmentScroll}
+        contentContainerStyle={styles.segments}
+        accessibilityRole="tablist"
+      >
         {KINDS.map((entry) => (
           <Pressable
             key={entry.kind}
@@ -83,7 +105,7 @@ export function LibraryScreen() {
             </Text>
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
       <View style={styles.tools}>
         <View style={styles.filter}>
           <Icon name="search" size={16} color={theme.colors.textMuted} />
@@ -110,21 +132,23 @@ export function LibraryScreen() {
             </Pressable>
           ) : null}
         </View>
-        <Pressable
-          onPress={() => router.push({ pathname: '/library-sort', params: { kind } })}
-          style={({ pressed }) => [styles.sort, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel={`Sorted by ${sort.label}. Change the order`}
-          testID="library-sort"
-        >
-          <Icon name="bar-chart-2" size={14} color={theme.colors.accent} />
-          <Text variant="label" style={styles.sortText}>
-            {sort.label}
-          </Text>
-        </Pressable>
+        {books ? null : (
+          <Pressable
+            onPress={() => router.push({ pathname: '/library-sort', params: { kind: musicKind } })}
+            style={({ pressed }) => [styles.sort, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`Sorted by ${sort.label}. Change the order`}
+            testID="library-sort"
+          >
+            <Icon name="bar-chart-2" size={14} color={theme.colors.accent} />
+            <Text variant="label" style={styles.sortText}>
+              {sort.label}
+            </Text>
+          </Pressable>
+        )}
         {kind !== 'tracks' ? (
           <Pressable
-            onPress={() => chooseLibraryLayout(kind, grid ? 'list' : 'grid')}
+            onPress={() => chooseLibraryLayout(musicKind, grid ? 'list' : 'grid')}
             hitSlop={8}
             style={({ pressed }) => [styles.layout, pressed && styles.pressed]}
             accessibilityRole="button"
@@ -152,6 +176,8 @@ export function LibraryScreen() {
                 showArtwork
                 onPress={() => playTrack(item as Track)}
               />
+            ) : books ? (
+              <BookRow book={item as Audiobook} {...(grid && { tile })} />
             ) : (
               <PlaylistRow playlist={item as Playlist} {...(grid && { tile })} />
             )}
@@ -171,7 +197,11 @@ export function LibraryScreen() {
             <SkeletonRows round={kind === 'artists'} artwork={kind === 'tracks' ? 40 : 48} />
           ) : (
             <Text muted style={styles.empty}>
-              {search ? `Nothing matches “${search}”.` : 'Nothing here yet.'}
+              {search
+                ? `Nothing matches “${search}”.`
+                : books
+                  ? 'No audiobooks. An admin signs the server in to Audiobookshelf in its web UI.'
+                  : 'Nothing here yet.'}
             </Text>
           )
         }
@@ -183,11 +213,8 @@ export function LibraryScreen() {
 
 const styles = StyleSheet.create((theme) => ({
   title: { marginVertical: theme.spacing.md },
-  segments: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    marginBottom: theme.spacing.md,
-  },
+  segmentScroll: { flexGrow: 0, marginBottom: theme.spacing.md },
+  segments: { flexDirection: 'row', gap: theme.spacing.sm },
   segment: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs + 2,

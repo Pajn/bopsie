@@ -1,4 +1,9 @@
-import { artistAlbums, artistTracks, getArtist } from '@bopsie/client/api/endpoints/library';
+import {
+  artistAlbums,
+  artistAudiobooks,
+  artistTracks,
+  getArtist,
+} from '@bopsie/client/api/endpoints/library';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { LegendList } from '@legendapp/list/react-native';
 import { useQuery } from '@tanstack/react-query';
@@ -9,7 +14,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { ItemHeader } from '@/features/library/ItemHeader';
 import { MoreButton } from '@/features/library/menu';
-import { AlbumRow, TrackRow } from '@/features/library/rows';
+import { AlbumRow, BookRow, TrackRow } from '@/features/library/rows';
 import { useOpenItemMenu } from '@/features/library/useOpenItemMenu';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
@@ -43,15 +48,22 @@ export function ArtistScreen({
     queryKey: [...queryKeys.item(account.id, 'artist', id, provider), 'tracks'],
     queryFn: () => artistTracks(connection, ref),
   });
-  const error = artist.error ?? albums.error ?? tracks.error;
-  const loading = albums.isPending || tracks.isPending;
+  // An author is an artist of the source that serves their books; elsewhere there are none.
+  const books = useQuery({
+    queryKey: [...queryKeys.item(account.id, 'artist', id, provider), 'audiobooks'],
+    queryFn: () => artistAudiobooks(connection, ref),
+  });
+  const error = artist.error ?? albums.error ?? tracks.error ?? books.error;
+  const loading = albums.isPending || tracks.isPending || books.isPending;
   const rows = useMemo(
     () =>
-      artistRows(albums.data ?? [], tracks.data ?? [], {
-        popular: provider !== 'library',
-        expanded,
-      }),
-    [albums.data, tracks.data, provider, expanded],
+      artistRows(
+        albums.data ?? [],
+        tracks.data ?? [],
+        { popular: provider !== 'library', expanded },
+        books.data ?? [],
+      ),
+    [albums.data, tracks.data, books.data, provider, expanded],
   );
   const trackUris = useMemo(() => (tracks.data ?? []).map((track) => track.uri), [tracks.data]);
 
@@ -74,6 +86,8 @@ export function ArtistScreen({
         );
       case 'album':
         return <AlbumRow album={row.album} />;
+      case 'book':
+        return <BookRow book={row.book} />;
       case 'more':
         return (
           <Pressable

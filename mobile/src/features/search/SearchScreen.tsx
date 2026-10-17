@@ -7,7 +7,14 @@ import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Artwork } from '@/features/library/Artwork';
-import { AlbumRow, ArtistRow, artistNames, PlaylistRow, TrackRow } from '@/features/library/rows';
+import {
+  AlbumRow,
+  ArtistRow,
+  artistNames,
+  BookRow,
+  PlaylistRow,
+  TrackRow,
+} from '@/features/library/rows';
 import { usePlaybackActions } from '@/features/player/usePlayback';
 import { describeError } from '@/lib/errors';
 import { useDebounced } from '@/lib/useDebounced';
@@ -44,7 +51,7 @@ export function SearchScreen() {
         Search
       </Text>
       <TextField
-        label="Artists, albums, tracks and playlists"
+        label="Artists, albums, tracks, playlists and audiobooks"
         value={text}
         onChangeText={setText}
         autoCapitalize="none"
@@ -91,7 +98,7 @@ export function SearchScreen() {
         ) : null}
         {query.length > 0 && results.isFetching && !data ? <SkeletonRows count={6} /> : null}
         {results.isError ? <InlineError message={describeError(results.error)} /> : null}
-        {data && !top ? (
+        {data && !top && data.audiobooks.length === 0 ? (
           <Text muted style={styles.nothing}>
             {`Nothing found for “${query}”.`}
           </Text>
@@ -112,6 +119,9 @@ export function SearchScreen() {
             </Section>
             <Section title="Playlists" items={data.playlists} keyOf={(p) => p.uri}>
               {(playlist) => <PlaylistRow playlist={playlist} />}
+            </Section>
+            <Section title="Audiobooks" items={data.audiobooks} keyOf={(b) => b.uri}>
+              {(book) => <BookRow book={book} />}
             </Section>
           </Stack>
         ) : null}

@@ -1,7 +1,8 @@
-import type { Album, Artist, Playlist, Track } from '@bopsie/client/api/schemas/media';
+import type { Album, Artist, Audiobook, Playlist, Track } from '@bopsie/client/api/schemas/media';
 import { useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { bookProgress } from '@/features/audiobooks/model';
 import { PlayingBars, usePlayingState } from '@/features/player/PlayingBars';
 import { sourceName } from '@/features/search/scope';
 import { useProviders } from '@/features/search/useProviders';
@@ -255,6 +256,43 @@ export function PlaylistRow({ playlist, tile }: { playlist: Playlist } & ItemPro
       testID={`playlist-${playlist.item_id}`}
       artwork={<Artwork item={playlist} size={48} imageSize={80} placeholder="list" />}
       title={playlist.name}
+      {...(subtitle ? { subtitle } : {})}
+    />
+  );
+}
+
+/** An audiobook, opening its page: who wrote it, and how far into it listening is. */
+export function BookRow({ book, tile }: { book: Audiobook } & ItemProps) {
+  const router = useRouter();
+  const subtitle = [book.authors.map((author) => author.name).join(', '), bookProgress(book)]
+    .filter(Boolean)
+    .join(' · ');
+  const open = () =>
+    router.push({
+      pathname: '/audiobook/[id]',
+      params: { id: book.item_id, provider: book.provider, name: book.name },
+    });
+  if (tile) {
+    return (
+      <Tile
+        onPress={open}
+        onMenu={open}
+        testID={`audiobook-${book.item_id}`}
+        item={book}
+        size={tile}
+        placeholder="book"
+        title={book.name}
+        {...(subtitle ? { subtitle } : {})}
+      />
+    );
+  }
+  return (
+    <Row
+      onPress={open}
+      onMenu={open}
+      testID={`audiobook-${book.item_id}`}
+      artwork={<Artwork item={book} size={48} imageSize={80} placeholder="book" />}
+      title={book.name}
       {...(subtitle ? { subtitle } : {})}
     />
   );
