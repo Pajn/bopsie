@@ -8,8 +8,13 @@ import { Button, Card, DocumentTitle, InlineError, Stack, Text, TextField } from
 
 const ICON = require('../assets/mark.png');
 
-/** The page is served by the server it manages, so that is the server to sign in to. */
+/**
+ * The page is served by the server it manages, so that is the server to sign in to, unless the
+ * build names another: a development server's page has no server of its own.
+ */
 function serverUrl(): string {
+  const named = process.env.EXPO_PUBLIC_SERVER_URL;
+  if (named) return named;
   return typeof window === 'undefined' ? '' : window.location.origin;
 }
 

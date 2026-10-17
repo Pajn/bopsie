@@ -25,8 +25,15 @@ pnpm lint
 pnpm test
 ```
 
-The app signs in to the server that serves it, so open it through the server rather than a
-separate dev server.
+The app signs in to the server that serves it. To work on it with a development server, which
+reloads as you edit, name a server for it to sign in to instead:
+
+```sh
+EXPO_PUBLIC_SERVER_URL=https://music.example.com pnpm start
+```
+
+It talks to the server over its WebSocket and loads artwork from it, neither of which the
+browser restricts across origins, so any server you can sign in to will do.
 
 ### Smoke tests
 
