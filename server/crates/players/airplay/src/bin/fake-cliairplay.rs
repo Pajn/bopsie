@@ -5,7 +5,8 @@
 //! It records what it is given in `FAKE_CLIAIRPLAY_DIR`: `args` (one argument per line),
 //! `audio.pcm` (everything read from stdin) and `commands` (each command line, prefixed by how
 //! many audio bytes had arrived when it did). Other variables shape its behaviour:
-//! `FAKE_CLIAIRPLAY_FAIL=<code>` fails to connect with that error code,
+//! `FAKE_CLIAIRPLAY_FAIL=<code>` fails to connect with that error code, and
+//! `FAKE_CLIAIRPLAY_FAIL_ONCE=<code>` does so only the first time in the directory,
 //! `FAKE_CLIAIRPLAY_CONNECT_MS` delays the connection, and `FAKE_CLIAIRPLAY_START_LATE_MS`
 //! moves every START that much later than asked, and `FAKE_CLIAIRPLAY_CLOCK_READY_MS` reports
 //! a PTP clock that is ready that long after connecting. `FAKE_CLIAIRPLAY_EXIT_ONCE_MS` makes
@@ -102,7 +103,13 @@ fn main() {
         .clone();
 
     println!("[STATUS] route protocol=airplay2 flow=native timing=ntp buffered=0");
-    if let Ok(code) = std::env::var("FAKE_CLIAIRPLAY_FAIL") {
+    let fail_once = std::env::var("FAKE_CLIAIRPLAY_FAIL_ONCE").ok().filter(|_| {
+        let marker = dir.join("failed");
+        let first = !marker.exists();
+        std::fs::write(marker, b"").unwrap();
+        first
+    });
+    if let Some(code) = std::env::var("FAKE_CLIAIRPLAY_FAIL").ok().or(fail_once) {
         status(&format!(
             "error code={code} http=401 detail=\"fake failure\""
         ));

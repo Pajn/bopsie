@@ -273,6 +273,16 @@ impl Supervisor {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Whether a connection that failed must wait before it is tried again.
+    pub fn backing_off(&self) -> bool {
+        self.inner
+            .backoff
+            .lock()
+            .unwrap()
+            .wait(Instant::now())
+            .is_some()
+    }
+
     /// Why the last connection failed, if it did and none has succeeded since.
     pub fn failure(&self) -> Option<Failure> {
         self.inner.last_failure.lock().unwrap().clone()

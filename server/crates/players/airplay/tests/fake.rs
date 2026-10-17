@@ -673,3 +673,22 @@ fn a_volume_set_on_the_speaker_is_taken() {
     fake.endpoint.dacp(Request::Volume(None));
     assert_eq!(fake.endpoint.state().muted, Some(true));
 }
+
+#[test]
+fn a_speaker_that_refused_once_is_connected_again_by_a_later_output() {
+    let fake = fake_with(&[("FAKE_CLIAIRPLAY_FAIL_ONCE", "connect_failed")], "0x4");
+    assert!(fake.endpoint.supervisor().ensure_connected().is_err());
+    assert!(eventually(|| !fake.endpoint.supervisor().backing_off()));
+    // Joining a playing group, as the group puts it back after its output failed.
+    let samples = noise(5, 4_410 * 2);
+    let (mut handle, _) = session_with(&fake, &samples, false);
+    let events = until_idle(&mut handle);
+    handle.shutdown();
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Event::OutputFailed { .. })),
+        "{events:?}"
+    );
+    assert!(fake.endpoint.supervisor().is_connected());
+}

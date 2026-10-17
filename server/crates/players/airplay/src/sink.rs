@@ -101,7 +101,11 @@ impl AirplaySink {
     fn try_start(&mut self) -> io::Result<()> {
         if !self.supervisor.is_connected() {
             if !self.supervisor.is_connecting() {
-                if let Some(failure) = self.supervisor.failure() {
+                // A connection that failed is tried again once its wait is over; until then
+                // the output fails, for the group to put it back later.
+                if let Some(failure) = self.supervisor.failure()
+                    && self.supervisor.backing_off()
+                {
                     return Err(failure.into());
                 }
                 self.supervisor.connect_in_background();
