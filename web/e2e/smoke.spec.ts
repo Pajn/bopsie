@@ -76,6 +76,40 @@ test('adds an album to a queue, and moves one of its tracks up', async ({ page, 
     .toBe(true);
 });
 
+test('adds an album to a queue, and drags one of its tracks to the top of it', async ({ page }) => {
+  await page.goto('/library');
+  await page.getByRole('link', { name: 'Second Album', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Plays on' })
+    .first()
+    .selectOption({ label: KITCHEN.name });
+  await page.getByRole('main').getByRole('button', { name: 'Add to queue', exact: true }).click();
+  await expect(page.getByRole('alert', { name: `Added to ${KITCHEN.name}'s queue` })).toBeVisible({
+    timeout: 15_000,
+  });
+
+  await page.goto(`/queues/${KITCHEN.id}`);
+  const titles = page.getByText(/^(Alpha|Beta|Gamma)$/);
+  await expect(titles.last()).toBeVisible();
+  // The album just added is the last of the queue, whatever earlier tests left in it. Its rows
+  // are brought clear of the now-playing bar, which would take the press.
+  const handle = page.getByLabel('Drag to reorder Gamma').last();
+  await handle.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  const gamma = await handle.boundingBox();
+  const alpha = await page.getByLabel('Drag to reorder Alpha').last().boundingBox();
+  if (!gamma || !alpha) throw new Error('The rows to drag between are not shown');
+  await page.mouse.move(gamma.x + gamma.width / 2, gamma.y + gamma.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(alpha.x + alpha.width / 2, alpha.y, { steps: 10 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => {
+      const order = await titles.allTextContents();
+      return order.lastIndexOf('Gamma') < order.lastIndexOf('Alpha');
+    })
+    .toBe(true);
+});
+
 test('groups one speaker with another, and takes it out again', async ({ page }) => {
   await page.goto('/players');
   await page.getByRole('button', { name: `More controls for ${BEDROOM.name}` }).click();

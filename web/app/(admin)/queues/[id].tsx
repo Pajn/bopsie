@@ -6,6 +6,8 @@ import {
   seek,
 } from '@bopsie/client/api/endpoints/players';
 import type { PlayerQueue, QueueItem } from '@bopsie/client/api/schemas/player';
+import { queryKeys } from '@bopsie/client/connection/queryKeys';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
@@ -18,6 +20,8 @@ import { useTreeColors } from '@/debug/treeColors';
 import { BookControls, playsABook, QueueChapters } from '@/features/audiobooks/BookControls';
 import { Credits } from '@/features/library/Credits';
 import { describeItem, itemArtwork } from '@/features/queues/items';
+import { makeRoom, moveItem } from '@/features/queues/reorder';
+import { type Drag, useDragReorder } from '@/features/queues/useDragReorder';
 import { describeError } from '@/lib/errors';
 import { duration, elapsedNow } from '@/lib/time';
 import { useNow } from '@/lib/useNow';
@@ -140,7 +144,10 @@ function NowPlaying({ id, queue, run }: { id: string; queue: PlayerQueue; run: R
   );
 }
 
-/** An item of the queue, with what can be done to it beside it, or below it on a phone. */
+/**
+ * An item of the queue, with what can be done to it beside it, or below it on a phone. One
+ * the player does not hold yet has a handle to drag it into a new order by.
+ */
 function ItemRow({
   id,
   item,
@@ -148,6 +155,9 @@ function ItemRow({
   current,
   held,
   run,
+  drag,
+  rowRef,
+  onDragStart,
 }: {
   id: string;
   item: QueueItem;
@@ -155,12 +165,21 @@ function ItemRow({
   current: number;
   held: number;
   run: Run;
+  drag: Drag | null;
+  rowRef: (node: object | null) => void;
+  onDragStart: (clientY: number) => void;
 }) {
   const { account, connection } = useConnection();
   const { theme } = useUnistyles();
   const [open, setOpen] = useState(false);
   const { title, subtitle } = describeItem(item);
   const isCurrent = index === current;
+  const lifted = drag?.from === index;
+  const shift = drag
+    ? lifted
+      ? drag.offset
+      : makeRoom(index, drag.from, drag.to, drag.height)
+    : 0;
   const actions = (
     <>
       <IconButton
@@ -197,7 +216,14 @@ function ItemRow({
     </>
   );
   return (
-    <View style={styles.item(isCurrent, index < current)}>
+    <View
+      ref={rowRef}
+      style={[
+        styles.item(isCurrent, index < current),
+        drag && (lifted ? styles.lifted : styles.makingRoom),
+        shift !== 0 && { transform: [{ translateY: shift }] },
+      ]}
+    >
       <View style={styles.itemRow}>
         <View style={styles.index}>
           {isCurrent ? (
@@ -235,6 +261,24 @@ function ItemRow({
             onPress={() => setOpen(!open)}
           />
         </View>
+        {index > held ? (
+          <View
+            accessibilityLabel={`Drag to reorder ${title}`}
+            {...({ title: `Drag to reorder ${title}` } as object)}
+            onPointerDown={(event) => {
+              if (event.nativeEvent.button !== 0) return;
+              // Neither selects text nor, on a phone, scrolls the page.
+              event.preventDefault();
+              onDragStart(event.nativeEvent.clientY);
+            }}
+            style={[styles.handle, lifted && styles.grabbing]}
+            testID={`queue-drag-${item.queue_item_id}`}
+          >
+            <Icon name="menu" size={16} color={theme.colors.textMuted} />
+          </View>
+        ) : (
+          <View style={styles.handleSpace} />
+        )}
       </View>
       {open ? <View style={styles.narrowActions}>{actions}</View> : null}
     </View>
@@ -243,7 +287,8 @@ function ItemRow({
 
 export default function QueueScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { connection } = useConnection();
+  const { account, connection } = useConnection();
+  const queryClient = useQueryClient();
   const colors = useTreeColors();
   const players = usePlayers();
   const queue = useQueue(id);
@@ -255,6 +300,22 @@ export default function QueueScreen() {
   const held = Math.max(q?.current_index ?? -1, q?.index_in_buffer ?? -1);
   const loadError = queue.error ?? items.error;
   const count = items.data?.length ?? 0;
+
+  // A dropped item shows where it was dropped at once; the server's own order replaces it when
+  // the move settles, so one it refuses is withdrawn.
+  const reorder = useDragReorder(held + 1, count - 1, (from, to) => {
+    const item = items.data?.[from];
+    if (!item) return;
+    const key = queryKeys.queueItems(account.id, id);
+    // A fetch already under way would bring back the order from before the move.
+    void queryClient.cancelQueries({ queryKey: key });
+    queryClient.setQueryData<QueueItem[]>(key, (all) => all && moveItem(all, from, to));
+    run(() =>
+      moveQueueItem(connection, id, item.queue_item_id, to - from).finally(
+        () => void queryClient.invalidateQueries({ queryKey: key }),
+      ),
+    );
+  });
 
   return (
     <Page
@@ -292,7 +353,7 @@ export default function QueueScreen() {
           {items.data?.length === 0 ? (
             <Text muted>The queue is empty. Play something from the library to fill it.</Text>
           ) : null}
-          <View>
+          <View ref={reorder.listRef}>
             {items.data?.map((item, index) => (
               <ItemRow
                 key={item.queue_item_id}
@@ -302,6 +363,9 @@ export default function QueueScreen() {
                 current={q?.current_index ?? -1}
                 held={held}
                 run={run}
+                drag={reorder.drag}
+                rowRef={reorder.rowRef(index)}
+                onDragStart={(clientY) => reorder.start(index, clientY)}
               />
             ))}
           </View>
@@ -333,6 +397,25 @@ const styles = StyleSheet.create((theme) => ({
     backgroundColor: current ? theme.colors.surfaceVariant : 'transparent',
     opacity: played ? 0.55 : 1,
   }),
+  // Over the rows it passes, which slide aside for it as it goes.
+  lifted: {
+    position: 'relative',
+    zIndex: 1,
+    backgroundColor: theme.colors.surface,
+    boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+  },
+  makingRoom: { transitionProperty: 'transform', transitionDuration: '150ms' } as object,
+  handle: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'grab',
+    touchAction: 'none',
+    userSelect: 'none',
+  } as object,
+  grabbing: { cursor: 'grabbing' } as object,
+  handleSpace: { width: 28 },
   itemRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
   index: { width: 24, alignItems: 'center' },
   itemText: { flex: 1, minWidth: 0 },
