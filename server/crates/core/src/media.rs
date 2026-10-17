@@ -15,6 +15,7 @@ pub enum MediaType {
     Album,
     Track,
     Playlist,
+    Audiobook,
 }
 
 impl MediaType {
@@ -24,6 +25,7 @@ impl MediaType {
             MediaType::Album => "album",
             MediaType::Track => "track",
             MediaType::Playlist => "playlist",
+            MediaType::Audiobook => "audiobook",
         }
     }
 
@@ -33,6 +35,7 @@ impl MediaType {
             "album" => Some(MediaType::Album),
             "track" => Some(MediaType::Track),
             "playlist" => Some(MediaType::Playlist),
+            "audiobook" => Some(MediaType::Audiobook),
             _ => None,
         }
     }
@@ -128,7 +131,7 @@ pub struct Metadata {
     pub popularity: Option<u32>,
     pub release_date: Option<String>,
     pub languages: Option<Vec<String>>,
-    pub chapters: Option<Value>,
+    pub chapters: Option<Vec<Chapter>>,
     pub collections: Option<Value>,
     pub last_refresh: Option<i64>,
 }
@@ -229,6 +232,52 @@ pub struct Playlist {
     pub supported_mediatypes: Vec<MediaType>,
 }
 
+/// A chapter of an audiobook, as Music Assistant's `MediaItemChapter`, which gives its times in
+/// seconds from the start of the book; kept here in milliseconds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Chapter {
+    /// Its number, from 0, in the order chapters come.
+    pub position: u32,
+    pub name: String,
+    #[serde(rename = "start", serialize_with = "seconds")]
+    pub start_ms: u64,
+    #[serde(rename = "end", serialize_with = "maybe_seconds")]
+    pub end_ms: Option<u64>,
+}
+
+fn seconds<S: serde::Serializer>(ms: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_f64(*ms as f64 / 1_000.0)
+}
+
+fn maybe_seconds<S: serde::Serializer>(ms: &Option<u64>, serializer: S) -> Result<S::Ok, S::Error> {
+    match ms {
+        Some(ms) => seconds(ms, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// The chapter playing at `ms` into a book with `chapters`, by index.
+pub fn chapter_at(chapters: &[Chapter], ms: u64) -> Option<usize> {
+    chapters.iter().rposition(|chapter| chapter.start_ms <= ms)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Audiobook {
+    #[serde(flatten)]
+    pub fields: ItemFields,
+    pub publisher: Option<String>,
+    /// Its authors, as artists of the source that serves the book, so each leads to their
+    /// other books.
+    pub authors: Vec<ItemMapping>,
+    pub narrators: Vec<String>,
+    /// Whole seconds.
+    pub duration: u32,
+    /// Finished, as its source says; `None` when it says nothing.
+    pub fully_played: Option<bool>,
+    /// Where listening left off, in milliseconds; `None` when it was never started.
+    pub resume_position_ms: Option<u64>,
+}
+
 /// Any media item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
@@ -237,6 +286,7 @@ pub enum MediaItem {
     Album(Box<Album>),
     Track(Box<Track>),
     Playlist(Box<Playlist>),
+    Audiobook(Box<Audiobook>),
 }
 
 impl MediaItem {
@@ -246,6 +296,24 @@ impl MediaItem {
             MediaItem::Album(item) => &item.fields,
             MediaItem::Track(item) => &item.fields,
             MediaItem::Playlist(item) => &item.fields,
+            MediaItem::Audiobook(item) => &item.fields,
+        }
+    }
+}
+
+impl Audiobook {
+    /// The book as a track, for what plays it to name and time it: its authors as its artists,
+    /// no album.
+    pub fn as_track(&self) -> Track {
+        Track {
+            fields: self.fields.clone(),
+            duration: self.duration,
+            artists: self.authors.clone(),
+            last_played: 0,
+            album: None,
+            disc_number: 0,
+            track_number: 0,
+            audio_metadata: None,
         }
     }
 }
@@ -277,6 +345,81 @@ mod tests {
         assert_eq!(parse_library_uri("spotify://track/12"), None);
         assert_eq!(parse_library_uri("library://radio/1"), None);
         assert_eq!(parse_library_uri("library://track/x"), None);
+    }
+
+    #[test]
+    fn the_chapter_at_a_time() {
+        let chapter = |position, start_ms| Chapter {
+            position,
+            name: format!("Chapter {position}"),
+            start_ms,
+            end_ms: None,
+        };
+        let chapters = [chapter(0, 0), chapter(1, 60_000), chapter(2, 125_500)];
+        assert_eq!(chapter_at(&chapters, 0), Some(0));
+        assert_eq!(chapter_at(&chapters, 59_999), Some(0));
+        assert_eq!(chapter_at(&chapters, 60_000), Some(1));
+        assert_eq!(chapter_at(&chapters, 4_000_000), Some(2));
+        assert_eq!(chapter_at(&[], 10), None);
+        // As Music Assistant has it: seconds.
+        assert_eq!(
+            serde_json::to_value(&chapters[2]).unwrap(),
+            serde_json::json!({"position": 2, "name": "Chapter 2", "start": 125.5, "end": null})
+        );
+    }
+
+    #[test]
+    fn an_audiobook_has_music_assistants_fields() {
+        let fields = ItemFields {
+            item_id: "li_1".to_owned(),
+            provider: "audiobookshelf--a".to_owned(),
+            name: "The Hobbit".to_owned(),
+            version: String::new(),
+            sort_name: "hobbit".to_owned(),
+            uri: "audiobookshelf--a://audiobook/li_1".to_owned(),
+            external_ids: Vec::new(),
+            is_playable: true,
+            media_type: MediaType::Audiobook,
+            provider_mappings: Vec::new(),
+            metadata: Metadata::default(),
+            favorite: false,
+            position: None,
+            date_added: None,
+        };
+        let author = ItemMapping {
+            item_id: "aut_1".to_owned(),
+            provider: "audiobookshelf--a".to_owned(),
+            name: "J. R. R. Tolkien".to_owned(),
+            version: String::new(),
+            sort_name: "j. r. r. tolkien".to_owned(),
+            uri: "audiobookshelf--a://artist/aut_1".to_owned(),
+            external_ids: Vec::new(),
+            is_playable: true,
+            media_type: MediaType::Artist,
+            available: true,
+            image: None,
+            year: None,
+        };
+        let book = Audiobook {
+            fields,
+            publisher: Some("HarperCollins".to_owned()),
+            authors: vec![author],
+            narrators: vec!["Andy Serkis".to_owned()],
+            duration: 37_800,
+            fully_played: Some(false),
+            resume_position_ms: Some(120_000),
+        };
+        let json = serde_json::to_value(&book).unwrap();
+        assert_eq!(json["media_type"], "audiobook");
+        assert_eq!(json["authors"][0]["name"], "J. R. R. Tolkien");
+        assert_eq!(json["narrators"], serde_json::json!(["Andy Serkis"]));
+        assert_eq!(json["duration"], 37_800);
+        assert_eq!(json["resume_position_ms"], 120_000);
+        assert_eq!(json["fully_played"], false);
+        assert_eq!(MediaType::parse("audiobook"), Some(MediaType::Audiobook));
+        let track = book.as_track();
+        assert_eq!(track.artists[0].name, "J. R. R. Tolkien");
+        assert_eq!(track.duration, 37_800);
     }
 
     #[test]

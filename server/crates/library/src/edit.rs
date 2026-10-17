@@ -28,6 +28,8 @@ pub fn fields(media_type: MediaType) -> &'static [&'static str] {
         MediaType::Album => &["name", "sort_name", "year", "artists", "image"],
         MediaType::Artist => &["name", "sort_name"],
         MediaType::Playlist => &["name"],
+        // Edited at their source.
+        MediaType::Audiobook => &[],
     }
 }
 
@@ -37,6 +39,9 @@ fn table(media_type: MediaType) -> &'static str {
         MediaType::Album => "albums",
         MediaType::Track => "tracks",
         MediaType::Playlist => "playlists",
+        // Audiobooks are served by their sources as they are; the library stores none, and
+        // every way in returns before asking for their table.
+        MediaType::Audiobook => unreachable!("the library stores no audiobooks"),
     }
 }
 
@@ -119,6 +124,9 @@ pub fn forget(conn: &Connection, media_type: MediaType, id: i64) -> DbResult<()>
 }
 
 fn exists(conn: &Connection, media_type: MediaType, id: i64) -> DbResult<bool> {
+    if !crate::query::stored(media_type) {
+        return Ok(false);
+    }
     conn.query_row(
         &format!(
             "SELECT EXISTS (SELECT 1 FROM {} WHERE id = ?1)",

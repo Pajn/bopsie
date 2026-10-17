@@ -33,7 +33,15 @@ fn table(media_type: MediaType) -> &'static str {
         MediaType::Album => "albums",
         MediaType::Track => "tracks",
         MediaType::Playlist => "playlists",
+        // Audiobooks are served by their sources as they are; the library stores none, and
+        // every way in returns before asking for their table.
+        MediaType::Audiobook => unreachable!("the library stores no audiobooks"),
     }
+}
+
+/// Whether the library stores items of `media_type`: everything but audiobooks.
+pub fn stored(media_type: MediaType) -> bool {
+    media_type != MediaType::Audiobook
 }
 
 /// The SQL ordering for Music Assistant's `order_by` keys, with the id as a tiebreak. Keys
@@ -104,6 +112,9 @@ fn filters(media_type: MediaType, query: &ListQuery) -> (String, Vec<rusqlite::t
 }
 
 pub fn list(conn: &Connection, media_type: MediaType, query: &ListQuery) -> Result<Vec<MediaItem>> {
+    if !stored(media_type) {
+        return Ok(Vec::new());
+    }
     let (filter, mut params) = filters(media_type, query);
     params.push(query.limit.unwrap_or(DEFAULT_LIMIT).into());
     params.push(query.offset.unwrap_or(0).into());
@@ -117,6 +128,9 @@ pub fn list(conn: &Connection, media_type: MediaType, query: &ListQuery) -> Resu
 }
 
 pub fn count(conn: &Connection, media_type: MediaType, query: &ListQuery) -> Result<u32> {
+    if !stored(media_type) {
+        return Ok(0);
+    }
     let (filter, params) = filters(media_type, query);
     conn.query_row(
         &format!("SELECT count(*) FROM {} {filter}", table(media_type)),
@@ -142,6 +156,7 @@ pub fn item(conn: &Connection, media_type: MediaType, id: i64) -> Result<Option<
         MediaType::Album => album_in_full(conn, id)?.map(|item| MediaItem::Album(Box::new(item))),
         MediaType::Track => track(conn, id)?.map(|item| MediaItem::Track(Box::new(item))),
         MediaType::Playlist => playlist(conn, id)?.map(|item| MediaItem::Playlist(Box::new(item))),
+        MediaType::Audiobook => None,
     })
 }
 
@@ -312,12 +327,10 @@ fn images(
 
 /// The item `id` is: itself while it exists, else the item it was merged into.
 pub fn resolve(conn: &Connection, media_type: MediaType, id: i64) -> Result<i64> {
-    let table = match media_type {
-        MediaType::Artist => "artists",
-        MediaType::Album => "albums",
-        MediaType::Track => "tracks",
-        MediaType::Playlist => "playlists",
-    };
+    if !stored(media_type) {
+        return Ok(id);
+    }
+    let table = table(media_type);
     let exists: bool = conn.query_row(
         &format!("SELECT EXISTS (SELECT 1 FROM {table} WHERE id = ?1)"),
         [id],
@@ -355,7 +368,7 @@ fn genres(conn: &Connection, media_type: MediaType, id: i64) -> Result<Option<Ve
                  AND item_id IN (SELECT album_id FROM album_artists WHERE artist_id = ?1)
              GROUP BY genre ORDER BY count(*) DESC, min(position) LIMIT 3"
         }
-        MediaType::Playlist => return Ok(None),
+        MediaType::Playlist | MediaType::Audiobook => return Ok(None),
     };
     let mut statement = conn.prepare_cached(sql)?;
     let genres: Vec<String> = statement
@@ -695,6 +708,9 @@ pub fn search(
     query: &str,
     limit: u32,
 ) -> Result<Vec<MediaItem>> {
+    if !stored(media_type) {
+        return Ok(Vec::new());
+    }
     let fts = fts_queries(query);
     let mut parts = Vec::new();
     let mut params: Vec<rusqlite::types::Value> = Vec::new();

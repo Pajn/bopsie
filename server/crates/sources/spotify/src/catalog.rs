@@ -340,6 +340,10 @@ impl Catalog for SpotifyCatalog {
         limit: usize,
     ) -> BoxFuture<'a, CatalogResult<Vec<MediaItem>>> {
         Box::pin(async move {
+            // Spotify's audiobooks are not served.
+            if media_type == MediaType::Audiobook {
+                return Ok(Vec::new());
+            }
             let path = format!(
                 "search?q={}&type={}&limit={}",
                 crate::account::urlencode(query),
@@ -360,6 +364,7 @@ impl Catalog for SpotifyCatalog {
                     MediaType::Album => MediaItem::Album(Box::new(web_album(item))),
                     MediaType::Track => MediaItem::Track(Box::new(web_track(item, None))),
                     MediaType::Playlist => MediaItem::Playlist(Box::new(web_playlist(item))),
+                    MediaType::Audiobook => unreachable!("not searched for"),
                 })
                 .collect())
         })
@@ -378,6 +383,9 @@ impl Catalog for SpotifyCatalog {
                 MediaType::Playlist => {
                     format!("playlists/{id}?fields=id,name,owner,images")
                 }
+                MediaType::Audiobook => {
+                    return Err(CatalogError::NotFound(format!("Spotify audiobook {id}")));
+                }
             };
             let object = self.account.get(&path).await.map_err(unavailable)?;
             Ok(match media_type {
@@ -385,6 +393,7 @@ impl Catalog for SpotifyCatalog {
                 MediaType::Album => MediaItem::Album(Box::new(web_album(&object))),
                 MediaType::Track => MediaItem::Track(Box::new(web_track(&object, None))),
                 MediaType::Playlist => MediaItem::Playlist(Box::new(web_playlist(&object))),
+                MediaType::Audiobook => unreachable!("refused above"),
             })
         })
     }

@@ -119,6 +119,9 @@ pub(crate) fn table(media_type: MediaType) -> &'static str {
         MediaType::Album => "albums",
         MediaType::Track => "tracks",
         MediaType::Playlist => "playlists",
+        // Audiobooks are served by their sources as they are; the library stores none, and
+        // every way in returns before asking for their table.
+        MediaType::Audiobook => unreachable!("the library stores no audiobooks"),
     }
 }
 

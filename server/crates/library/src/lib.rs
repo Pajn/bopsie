@@ -390,6 +390,8 @@ impl Library {
                 MediaType::Album => catalog.album_tracks(id).await?,
                 MediaType::Artist => catalog.artist_tracks(id).await?,
                 MediaType::Playlist => catalog.playlist_tracks(id).await?,
+                // Played as itself, by the source that serves it.
+                MediaType::Audiobook => return Err(not_found()),
             };
             return Ok(tracks
                 .into_iter()
@@ -407,6 +409,7 @@ impl Library {
             MediaType::Album => self.album_tracks(id).await?,
             MediaType::Artist => self.artist_tracks(id).await?,
             MediaType::Playlist => self.playlist_tracks(id).await?,
+            MediaType::Audiobook => return Err(not_found()),
         };
         let mut sources = Vec::with_capacity(tracks.len());
         for track in &tracks {
