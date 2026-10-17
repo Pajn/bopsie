@@ -349,6 +349,56 @@ TEST_SERVER_URL=http://localhost:8095 TEST_SERVER_USERNAME=admin \
   TEST_SERVER_PASSWORD=at-least-8-characters pnpm test:integration
 ```
 
+### Backups
+
+A backup is the whole server in one file: the database (users and their sign-ins, settings,
+player and speaker settings, metadata edits, merge decisions, play history, calibration, and
+the Spotify and Audiobookshelf logins), the artwork, the AirPlay pairings and the Spotify
+playback login. The music itself is not in it. It is a zstd-compressed tar archive,
+`bopsie-<time>.tar.zst`, taken while the server runs; artwork makes up most of it, and does not
+compress much, so a backup is about the size of the data directory without the database's
+temporary files.
+
+The Backups card on the web UI's server page makes one and downloads it, lists the backups kept
+on the server to download, restore or delete, and sets a schedule. The same is there for
+scripts: the `admin/backups/*` commands, `GET /backups/<name>` to download one and
+`POST /backups/restore` to restore an uploaded one, both with an admin's token as
+`Authorization: Bearer <token>`.
+
+- **Where they are kept:** `backups` in the data directory, unless `backups_dir` under
+  `[storage]` names another directory. Backups kept on the same disk as what they back up are
+  lost with it: point `backups_dir` at another disk or a mounted share, or copy the directory
+  off the machine with your own tools.
+- **Schedule:** off until set. Daily or weekly at an hour, keeping the newest few; older
+  scheduled backups are removed, and backups made by hand are left alone. A backup due while the
+  server was down is made when it starts.
+- **Passphrase:** a backup made with one is encrypted in the age format, as
+  `bopsie-<time>.tar.zst.age`, and cannot be restored without it. A passphrase given for one
+  backup is kept nowhere. Scheduled backups need theirs on the server to be made, so it is kept
+  in the server's database, which those backups keep encrypted.
+- **Unencrypted backups hold secrets:** users' password hashes and the logins above. Keep them
+  as private as the data directory.
+
+**Restoring** replaces everything the backup holds. The server checks the backup first, and
+refuses one it cannot read, one with the wrong passphrase, or one from a newer version of the
+server. It then exits with status 75, and is restored as it starts again: what it replaces is
+moved to `before-restore-<time>` in the data directory, and the database is brought up to date
+if the backup is from an older version. Starting again needs a supervisor that restarts it, as
+Docker's `restart: unless-stopped` and the service below (`Restart=on-failure`) do; without one,
+start it again by hand. To undo a restore, stop the server and move the entries of
+`before-restore-<time>` back into the data directory.
+
+A backup can also be restored by hand, with the server stopped:
+
+```sh
+age -d -o backup.tar.zst bopsie-<time>.tar.zst.age    # only when it is encrypted
+mv data data.old && mkdir data
+tar --zstd -xf backup.tar.zst -C data
+```
+
+`bopsie-backup.json` in it says when it was made, by which version, and with which schema; the
+server does not need it in the data directory.
+
 ### In a container
 
 The image has the server, ffmpeg, `cliairplay` and `fpcalc`. CI publishes it from `main` as
@@ -362,7 +412,8 @@ docker run -d --name bopsie --network host \
 ```
 
 AirPlay discovery and streaming need the host's network, hence `--network host`. The image
-keeps its data in the `/data` volume and plays the music mounted at `/music`; its config is
+keeps its data in the `/data` volume, its backups in `/data/backups`, and plays the music
+mounted at `/music`; its config is
 [`packaging/container.toml`](packaging/container.toml), and a file mounted over
 `/etc/bopsie/config.toml` replaces it. It runs as an unprivileged user; `cliairplay` carries
 `CAP_NET_BIND_SERVICE` for the PTP clock, which works as long as the container keeps that
