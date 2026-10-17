@@ -44,20 +44,24 @@ function report(error: unknown) {
   Alert.alert('Could not play', describeError(error));
 }
 
-/** Plays media on the active group and controls what it plays, through the Music Assistant API. */
+/**
+ * Plays media on the active group and controls what it plays, through the Music Assistant API.
+ * Each action settles once the server has answered, never rejecting, so a control can show it
+ * is under way until then; a failure has already been reported.
+ */
 export function usePlaybackActions() {
   const { connection } = useConnection();
   const { activeId } = useActiveGroup();
   const router = useRouter();
 
   const run = useCallback(
-    (work: (id: string) => Promise<void>) => {
+    (work: (id: string) => Promise<void>): Promise<void> => {
       // Only where the phone cannot play itself and no other player is chosen yet.
       if (!activeId) {
         router.push('/outputs');
-        return;
+        return Promise.resolve();
       }
-      work(activeId).catch(report);
+      return work(activeId).catch(report);
     },
     [activeId, router],
   );

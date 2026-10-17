@@ -1,13 +1,14 @@
 import type { Album, Artist, Playlist, Track } from '@bopsie/client/api/schemas/media';
 import { useRouter } from 'expo-router';
-import { Pressable, View } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { PlayingBars, usePlayingState } from '@/features/player/PlayingBars';
 import { sourceName } from '@/features/search/scope';
 import { useProviders } from '@/features/search/useProviders';
 import { formatDuration } from '@/player/progress';
 import { haptics } from '@/ui/haptics';
 import { Text } from '@/ui/primitives';
+import { usePending } from '@/ui/usePending';
 import { Artwork } from './Artwork';
 import { MoreButton } from './menu';
 import { useOpenItemMenu } from './useOpenItemMenu';
@@ -32,6 +33,7 @@ function Row({
   subtitle,
   trailing,
   current,
+  busy,
 }: {
   onPress: () => void;
   onMenu: () => void;
@@ -43,6 +45,8 @@ function Row({
   trailing?: string;
   /** What plays now, which the title marks. */
   current?: boolean;
+  /** What the row's press started is still starting. */
+  busy?: boolean;
 }) {
   return (
     <Pressable
@@ -54,6 +58,7 @@ function Row({
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={title}
+      accessibilityState={{ busy: Boolean(busy) }}
       testID={testID}
     >
       {artwork}
@@ -255,7 +260,10 @@ export function PlaylistRow({ playlist, tile }: { playlist: Playlist } & ItemPro
   );
 }
 
-/** A track in a list. `onPress` plays it, usually within its album or playlist. */
+/**
+ * A track in a list. `onPress` plays it, usually within its album or playlist; until that has
+ * started, a spinner stands where the playing bars will.
+ */
 export function TrackRow({
   track,
   onPress,
@@ -263,16 +271,19 @@ export function TrackRow({
   index,
 }: {
   track: Track;
-  onPress: () => void;
+  onPress: () => Promise<unknown> | undefined;
   showArtwork?: boolean;
   index?: number;
 }) {
+  const { theme } = useUnistyles();
   const subtitle = useMarked(track.provider, artistNames(track));
   const openMenu = useOpenItemMenu();
   const playing = usePlayingState(track.uri);
+  const play = usePending(onPress);
   return (
     <Row
-      onPress={onPress}
+      onPress={play.onPress}
+      busy={play.pending}
       onMenu={() => openMenu('track', track)}
       moreButton
       testID={`track-${track.item_id}`}
@@ -280,11 +291,19 @@ export function TrackRow({
         showArtwork ? (
           <View>
             <Artwork item={track.album ?? track} size={40} imageSize={80} />
-            {playing ? (
+            {play.pending ? (
+              <View style={styles.scrim}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              </View>
+            ) : playing ? (
               <View style={styles.scrim}>
                 <PlayingBars playing={playing === 'playing'} color="#FFFFFF" />
               </View>
             ) : null}
+          </View>
+        ) : play.pending ? (
+          <View style={styles.number}>
+            <ActivityIndicator size="small" color={theme.colors.accent} />
           </View>
         ) : playing ? (
           <View style={styles.number}>

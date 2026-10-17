@@ -114,8 +114,8 @@ export function ArtistScreen({
             <ItemHeader
               item={artist.data ?? null}
               title={artist.data?.name ?? name ?? ''}
-              onPlay={() => artist.data && playback.play(artist.data.uri)}
-              onShuffle={() => artist.data && playback.shufflePlay(artist.data.uri)}
+              onPlay={() => (artist.data ? playback.play(artist.data.uri) : undefined)}
+              onShuffle={() => (artist.data ? playback.shufflePlay(artist.data.uri) : undefined)}
               round
               placeholder="user"
             />

@@ -3,9 +3,13 @@ import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import type { IconName } from '@/ui/Icon';
 import { Button, Text } from '@/ui/primitives';
+import { usePending } from '@/ui/usePending';
 import { Artwork } from './Artwork';
 
-/** The top of an album, artist or playlist page: artwork, names, and play and shuffle buttons. */
+/**
+ * The top of an album, artist or playlist page: artwork, names, and play and shuffle buttons,
+ * each spinning until what it started has.
+ */
 export function ItemHeader({
   item,
   title,
@@ -18,11 +22,13 @@ export function ItemHeader({
   item: WithImages | null;
   title: string;
   subtitle?: string;
-  onPlay: () => void;
-  onShuffle: () => void;
+  onPlay: () => Promise<unknown> | undefined;
+  onShuffle: () => Promise<unknown> | undefined;
   round?: boolean;
   placeholder?: IconName;
 }) {
+  const play = usePending(onPlay);
+  const shuffle = usePending(onShuffle);
   return (
     <View style={styles.header}>
       <Artwork
@@ -43,8 +49,21 @@ export function ItemHeader({
         ) : null}
       </View>
       <View style={styles.buttons}>
-        <Button title="Play" onPress={onPlay} testID="item-play" />
-        <Button title="Shuffle" variant="secondary" onPress={onShuffle} testID="item-shuffle" />
+        <Button
+          title="Play"
+          loading={play.pending}
+          onPress={play.onPress}
+          accessibilityState={{ busy: play.pending }}
+          testID="item-play"
+        />
+        <Button
+          title="Shuffle"
+          variant="secondary"
+          loading={shuffle.pending}
+          onPress={shuffle.onPress}
+          accessibilityState={{ busy: shuffle.pending }}
+          testID="item-shuffle"
+        />
       </View>
     </View>
   );

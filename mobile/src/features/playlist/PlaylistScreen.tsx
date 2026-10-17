@@ -55,7 +55,11 @@ export function PlaylistScreen({
         data={tracks.data ?? []}
         keyExtractor={(track, index) => `${index}/${track.provider}/${track.item_id}`}
         renderItem={({ item }) => (
-          <TrackRow track={item} showArtwork onPress={() => uri && playback.play(uri, item.uri)} />
+          <TrackRow
+            track={item}
+            showArtwork
+            onPress={() => (uri ? playback.play(uri, item.uri) : undefined)}
+          />
         )}
         estimatedItemSize={56}
         ListHeaderComponent={
@@ -64,8 +68,8 @@ export function PlaylistScreen({
               item={playlist.data ?? null}
               title={playlist.data?.name ?? name ?? ''}
               {...(playlist.data?.owner ? { subtitle: playlist.data.owner } : {})}
-              onPlay={() => uri && playback.play(uri)}
-              onShuffle={() => uri && playback.shufflePlay(uri)}
+              onPlay={() => (uri ? playback.play(uri) : undefined)}
+              onShuffle={() => (uri ? playback.shufflePlay(uri) : undefined)}
               placeholder="list"
             />
             {error ? <InlineError message={describeError(error)} /> : null}

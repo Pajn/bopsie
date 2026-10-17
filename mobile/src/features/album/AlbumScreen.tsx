@@ -58,7 +58,7 @@ export function AlbumScreen({
           <TrackRow
             track={item}
             index={index}
-            onPress={() => uri && playback.play(uri, item.uri)}
+            onPress={() => (uri ? playback.play(uri, item.uri) : undefined)}
           />
         )}
         estimatedItemSize={56}
@@ -72,8 +72,8 @@ export function AlbumScreen({
                   ? [artistNames(album.data), album.data.year].filter(Boolean).join(' · ')
                   : ''
               }
-              onPlay={() => uri && playback.play(uri)}
-              onShuffle={() => uri && playback.shufflePlay(uri)}
+              onPlay={() => (uri ? playback.play(uri) : undefined)}
+              onShuffle={() => (uri ? playback.shufflePlay(uri) : undefined)}
             />
             {error ? <InlineError message={describeError(error)} /> : null}
           </>

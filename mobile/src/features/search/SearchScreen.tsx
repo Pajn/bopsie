@@ -3,7 +3,7 @@ import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { type ReactNode, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Artwork } from '@/features/library/Artwork';
@@ -14,6 +14,7 @@ import { useDebounced } from '@/lib/useDebounced';
 import { Icon } from '@/ui/Icon';
 import { InlineError, Screen, Stack, Text, TextField } from '@/ui/primitives';
 import { SkeletonRows } from '@/ui/Skeleton';
+import { usePending } from '@/ui/usePending';
 import { EVERYWHERE, type SearchScope, searchScopes } from './scope';
 import { type TopResult, topResult } from './searchResults';
 import { useProviders } from './useProviders';
@@ -223,15 +224,19 @@ function Recent({
 
 const KINDS = { artist: 'Artist', album: 'Album', track: 'Track', playlist: 'Playlist' } as const;
 
-/** The result the search most likely meant, large, with a way to play it at once. */
+/**
+ * The result the search most likely meant, large, with a way to play it at once, which spins
+ * until it has started.
+ */
 function TopResultCard({ result }: { result: TopResult }) {
   const router = useRouter();
   const playback = usePlaybackActions();
   const { theme } = useUnistyles();
   const { item, kind } = result;
+  const play = usePending(() => playback.play(item.uri));
   const open = () => {
     if (kind === 'track') {
-      playback.play(item.uri);
+      play.onPress();
       return;
     }
     const pathname =
@@ -248,6 +253,7 @@ function TopResultCard({ result }: { result: TopResult }) {
       style={({ pressed }) => [styles.top, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={`Top result: ${item.name}`}
+      accessibilityState={{ busy: kind === 'track' && play.pending }}
       testID="search-top"
     >
       <Artwork
@@ -266,14 +272,19 @@ function TopResultCard({ result }: { result: TopResult }) {
         </Text>
       </View>
       <Pressable
-        onPress={() => playback.play(item.uri)}
+        onPress={play.onPress}
         hitSlop={8}
         style={({ pressed }) => [styles.play, pressed && styles.pressed]}
         accessibilityRole="button"
         accessibilityLabel={`Play ${item.name}`}
+        accessibilityState={{ busy: play.pending }}
         testID="search-top-play"
       >
-        <Icon name="play" size={22} color={theme.colors.onAccent} style={styles.playIcon} />
+        {play.pending ? (
+          <ActivityIndicator color={theme.colors.onAccent} />
+        ) : (
+          <Icon name="play" size={22} color={theme.colors.onAccent} style={styles.playIcon} />
+        )}
       </Pressable>
     </Pressable>
   );
