@@ -99,7 +99,9 @@ timeline, and `admin/calibration/apply` takes how late the phone heard each one 
 early speakers wait for the latest. Calibrating pauses the group. AirPlay speakers keep in step
 with each other on PTP, so beside other protocols they move together: calibrating a group that
 mixes them sets one offset all AirPlay speakers wait in such groups, and leaves their own
-`sync_adjust_ms` alone. A group of AirPlay speakers alone plays without it.
+`sync_adjust_ms` alone. A group of AirPlay speakers alone plays without it. The web UI's Sync
+page shows each speaker's adjustment, the AirPlay offset and what the last calibration set, and
+changes any of them by hand (`admin/sync`, `admin/sync/update`).
 
 A speaker's own controls act on the group it plays in, as the app would: pause pressed on
 one speaker pauses all of them, and play, next, previous and its volume buttons work the same

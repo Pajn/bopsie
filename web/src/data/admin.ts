@@ -1,4 +1,9 @@
-import { adminDevices, adminGroups, adminServerInfo } from '@bopsie/client/api/endpoints/admin';
+import {
+  adminDevices,
+  adminGroups,
+  adminServerInfo,
+  adminSync,
+} from '@bopsie/client/api/endpoints/admin';
 import { listPlayers } from '@bopsie/client/api/endpoints/players';
 import { getSpotifyStatus } from '@bopsie/client/api/endpoints/spotify';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
@@ -51,6 +56,15 @@ export function useSpotify() {
   return useQuery({
     queryKey: queryKeys.admin(account.id, 'spotify'),
     queryFn: () => getSpotifyStatus(connection),
+    refetchInterval: POLL_MS,
+  });
+}
+
+export function useSync() {
+  const { account, connection } = useConnection();
+  return useQuery({
+    queryKey: queryKeys.admin(account.id, 'sync'),
+    queryFn: () => adminSync(connection),
     refetchInterval: POLL_MS,
   });
 }

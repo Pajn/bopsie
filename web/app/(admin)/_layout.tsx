@@ -15,6 +15,7 @@ const ICON = require('../../assets/mark.png');
 const PAGES: ReadonlyArray<{ href: string; title: string; icon: IconName }> = [
   { href: '/players', title: 'Players', icon: 'speaker' },
   { href: '/queues', title: 'Queues', icon: 'list' },
+  { href: '/sync', title: 'Sync', icon: 'sliders' },
   { href: '/library', title: 'Library', icon: 'disc' },
   { href: '/logs', title: 'Logs', icon: 'terminal' },
   { href: '/users', title: 'Users', icon: 'users' },

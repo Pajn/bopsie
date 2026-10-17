@@ -276,3 +276,39 @@ export const calibrationAdjustment = z.looseObject({
   sync_adjust_ms: z.number(),
 });
 export type CalibrationAdjustment = z.infer<typeof calibrationAdjustment>;
+
+/** A speaker the last calibration measured, and what it set for it. */
+export const calibratedSpeaker = z.looseObject({
+  endpoint_id: z.string(),
+  device_id: z.nullable(z.string()),
+  name: z.nullable(z.string()),
+  /** How late its chirps were heard after they were due, in ms. */
+  heard_ms: z.number(),
+  previous_ms: z.number(),
+  sync_adjust_ms: z.number(),
+  /** What it set is the offset every AirPlay speaker shares beside other protocols. */
+  shared_airplay: z.boolean(),
+});
+export type CalibratedSpeaker = z.infer<typeof calibratedSpeaker>;
+
+/** How speakers are kept in step. */
+export const syncView = z.looseObject({
+  /** How much later every AirPlay speaker plays in a group that mixes protocols, in ms. */
+  mixed_airplay_ms: z.number(),
+  last_calibration: z.nullable(
+    z.looseObject({ at: z.number(), speakers: z.array(calibratedSpeaker) }),
+  ),
+  endpoints: z.array(
+    z.looseObject({
+      endpoint_id: z.string(),
+      device_id: z.string(),
+      name: z.string(),
+      provider: z.string(),
+      available: z.boolean(),
+      sync_adjust_ms: z.number(),
+      /** Where its adjustment comes from; null for the default. */
+      source: z.nullable(z.looseObject({ layer: z.string(), name: z.optional(z.string()) })),
+    }),
+  ),
+});
+export type SyncView = z.infer<typeof syncView>;

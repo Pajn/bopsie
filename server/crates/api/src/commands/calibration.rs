@@ -9,6 +9,7 @@ use bopsie_queues::calibration;
 use bopsie_queues::playback::AIRPLAY;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::auth::Scope;
 use crate::command::{Access, Command, Context};
@@ -188,6 +189,32 @@ impl Command for CalibrationApply {
         }
         if let (Some(new_offset), false) = (new_offset, args.dry_run) {
             playback.set_mixed_airplay_ms(new_offset).await?;
+        }
+        if !args.dry_run {
+            let speakers: Vec<Value> = out
+                .iter()
+                .zip(&measured)
+                .map(|(adjustment, (_, delay, _, airplay))| {
+                    let device = devices.device_of(&adjustment.endpoint_id);
+                    json!({
+                        "endpoint_id": adjustment.endpoint_id,
+                        "device_id": device.as_ref().map(|d| d.id.clone()),
+                        "name": device.as_ref().map(|d| d.name.clone()),
+                        "heard_ms": delay,
+                        "previous_ms": adjustment.previous_ms,
+                        "sync_adjust_ms": adjustment.sync_adjust_ms,
+                        "shared_airplay": new_offset.is_some() && *airplay,
+                    })
+                })
+                .collect();
+            playback
+                .record_calibration(json!({
+                    "at": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_secs()),
+                    "speakers": speakers,
+                }))
+                .await?;
         }
         if !args.dry_run {
             tracing::info!(?out, "calibrated");

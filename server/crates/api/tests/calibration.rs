@@ -137,6 +137,31 @@ async fn a_group_is_calibrated_from_what_a_phone_heard() {
     let kitchen_settings = server.players.saved_endpoint("kitchen");
     assert_eq!(kitchen_settings.quirks.sync_adjust_ms, None);
 
+    // What calibration set shows beside each endpoint's adjustment, and the offset can be
+    // set by hand.
+    let sync = client.result("admin/sync", json!({})).await;
+    assert_eq!(sync["mixed_airplay_ms"], 5);
+    let last = &sync["last_calibration"]["speakers"];
+    assert_eq!(last[0]["endpoint_id"], "kitchen");
+    assert_eq!(last[0]["shared_airplay"], true);
+    assert_eq!(last[1]["heard_ms"], 40.0);
+    let phone_now = sync["endpoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["endpoint_id"] == "phone")
+        .unwrap();
+    assert_eq!(phone_now["sync_adjust_ms"], 0);
+    assert_eq!(phone_now["provider"], "sendspin");
+    client
+        .result("admin/sync/update", json!({"mixed_airplay_ms": 120}))
+        .await;
+    assert_eq!(server.api.playback.mixed_airplay_ms(), 120);
+    let refused: Value = client
+        .send("admin/sync/update", json!({"mixed_airplay_ms": 99_999}))
+        .await;
+    assert!(refused["error_code"].is_number(), "{refused}");
+
     let refused: Value = client
         .send(
             "admin/calibration/apply",

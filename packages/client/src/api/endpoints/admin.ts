@@ -10,6 +10,7 @@ import {
   librarySuggestion,
   logLine,
   releaseSuggestion,
+  syncView,
 } from '../schemas/admin';
 
 /** Every device and its endpoints, with all the server knows of each. Admins only. */
@@ -200,3 +201,12 @@ export async function uploadArtwork(
   if (typeof answer.proxy_id !== 'string') throw new Error('The server answered without an id');
   return answer.proxy_id;
 }
+
+/** How speakers are kept in step: each one's adjustment, the AirPlay offset beside other
+ * protocols, and what the last calibration set. Admins only. */
+export const adminSync = (connection: MaConnection) =>
+  connection.command('admin/sync', {}, { schema: syncView });
+
+/** Sets how much later AirPlay speakers play in a group that mixes protocols. Admins only. */
+export const updateSync = (connection: MaConnection, mixedAirplayMs: number) =>
+  connection.command('admin/sync/update', { mixed_airplay_ms: mixedAirplayMs });

@@ -9,6 +9,7 @@ pub mod players;
 pub mod queues;
 pub mod settings;
 pub mod spotify;
+pub mod sync;
 
 use crate::command::Registry;
 
@@ -95,6 +96,8 @@ pub fn registry() -> Registry {
         .add::<settings::DuplicateFiles>()
         .add::<calibration::CalibrationStart>()
         .add::<calibration::CalibrationApply>()
+        .add::<sync::Sync>()
+        .add::<sync::SyncUpdate>()
         .add::<spotify::Status>()
         .add::<spotify::SetClientId>()
         .add::<spotify::Login>()

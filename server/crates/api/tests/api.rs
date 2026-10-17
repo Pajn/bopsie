@@ -508,6 +508,8 @@ async fn info_and_the_command_list_need_no_auth() {
             "admin/spotify/set_client_id",
             "admin/spotify/sign_out",
             "admin/spotify/status",
+            "admin/sync",
+            "admin/sync/update",
             "airplay/pair_finish",
             "airplay/pair_start",
             "auth/login",

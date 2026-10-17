@@ -109,3 +109,15 @@ test('the now-playing bar shows what plays, and pauses it', async ({ page }) => 
   await bar.getByRole('button', { name: 'Pause' }).click();
   await expect(bar.getByRole('button', { name: 'Play' })).toBeVisible();
 });
+
+test('shows how speakers are kept in step, and moves one', async ({ page }) => {
+  await page.goto('/sync');
+  await expect(page.getByText('AirPlay beside other protocols')).toBeVisible();
+  const field = page.getByLabel(`${KITCHEN.name} over`, { exact: false }).first();
+  await expect(field).toBeVisible();
+  await field.fill('7');
+  await field.press('Enter');
+  await expect(page.getByText(`${KITCHEN.name} waits 7 ms from the next play`)).toBeVisible();
+  await page.getByRole('button', { name: `Clear ${KITCHEN.name}'s adjustment` }).click();
+  await expect(field).toHaveValue('0');
+});

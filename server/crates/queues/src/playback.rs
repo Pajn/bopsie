@@ -56,6 +56,8 @@ const SETTLING: Duration = Duration::from_secs(15);
 const WITHDRAWN_RETURN: Duration = Duration::from_secs(30);
 /// The setting [`Playback::mixed_airplay_ms`] is kept under.
 const MIXED_AIRPLAY_MS: &str = "playback.mixed_airplay_ms";
+/// The setting [`Playback::last_calibration`] is kept under.
+const LAST_CALIBRATION: &str = "playback.last_calibration";
 /// The provider whose speakers keep in step on PTP.
 pub const AIRPLAY: &str = "airplay";
 
@@ -114,6 +116,8 @@ struct Inner {
     /// How much later AirPlay speakers play in a group that mixes protocols, in ms: they keep
     /// in step with each other on PTP, and as a whole with the others by this.
     mixed_airplay_ms: std::sync::atomic::AtomicI32,
+    /// What the last calibration set, as the API reports it.
+    last_calibration: Mutex<Option<serde_json::Value>>,
     /// Queues from an earlier run for devices not here yet.
     restored: Mutex<BTreeMap<String, Queue>>,
     /// Groups from an earlier run, by member, waiting for their devices.
@@ -241,6 +245,7 @@ impl Playback {
                 absent: Mutex::default(),
                 db: OnceLock::new(),
                 mixed_airplay_ms: Default::default(),
+                last_calibration: Mutex::default(),
                 restored: Mutex::default(),
                 saved_groups: Mutex::default(),
                 saved_volumes: Mutex::default(),
@@ -673,6 +678,11 @@ impl Playback {
         if let Some(ms) = mixed.and_then(|ms| ms.parse().ok()) {
             self.inner.mixed_airplay_ms.store(ms, Ordering::Relaxed);
         }
+        let last: Option<String> = db
+            .call(|conn| Ok(bopsie_core::db::setting(conn, LAST_CALIBRATION)?))
+            .await?;
+        *self.inner.last_calibration.lock().unwrap() =
+            last.and_then(|last| serde_json::from_str(&last).ok());
         let saved = store::load(&db).await?;
         let mut found: HashMap<String, Option<(Track, Playable)>> = HashMap::new();
         for queue in saved.queues.values() {
@@ -2030,6 +2040,28 @@ impl Playback {
                     conn,
                     MIXED_AIRPLAY_MS,
                     Some(&ms.to_string()),
+                )?)
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// What the last calibration set, as the API reported it, if one was saved.
+    pub fn last_calibration(&self) -> Option<serde_json::Value> {
+        self.inner.last_calibration.lock().unwrap().clone()
+    }
+
+    /// Keeps what a calibration set, to show later.
+    pub async fn record_calibration(&self, calibration: serde_json::Value) -> Result<()> {
+        let text = calibration.to_string();
+        *self.inner.last_calibration.lock().unwrap() = Some(calibration);
+        if let Some(db) = self.inner.db.get() {
+            db.call(move |conn| {
+                Ok(bopsie_core::db::set_setting(
+                    conn,
+                    LAST_CALIBRATION,
+                    Some(&text),
                 )?)
             })
             .await?;
