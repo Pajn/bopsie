@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use bopsie_audio::engine::Input;
-use bopsie_core::media::{Album, MediaItem, MediaType, Track};
+use bopsie_core::media::{Album, Audiobook, MediaItem, MediaType, Track};
 use bopsie_core::{Error, ErrorCode};
 use futures::future::BoxFuture;
 
@@ -56,8 +56,20 @@ pub trait Catalog: Send + Sync {
     fn artist_albums<'a>(&'a self, id: &'a str) -> BoxFuture<'a, CatalogResult<Vec<Album>>>;
     fn artist_tracks<'a>(&'a self, id: &'a str) -> BoxFuture<'a, CatalogResult<Vec<Track>>>;
     fn playlist_tracks<'a>(&'a self, id: &'a str) -> BoxFuture<'a, CatalogResult<Vec<Track>>>;
-    /// What track `id` plays from.
+    /// What track or audiobook `id` plays from.
     fn media(&self, track_id: &str) -> Option<Input>;
+    /// A page of its audiobooks, in its own order: `limit` from `offset`.
+    fn audiobooks<'a>(
+        &'a self,
+        _offset: usize,
+        _limit: usize,
+    ) -> BoxFuture<'a, CatalogResult<Vec<Audiobook>>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    /// How many audiobooks it has.
+    fn audiobook_count<'a>(&'a self) -> BoxFuture<'a, CatalogResult<usize>> {
+        Box::pin(async { Ok(0) })
+    }
     /// The URL of the largest image of each of `ids`'s artists the catalog has one of, by id.
     fn artist_images<'a>(
         &'a self,

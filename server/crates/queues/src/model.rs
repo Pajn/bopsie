@@ -250,7 +250,7 @@ pub fn player(
             let track = &item.track;
             json!({
                 "uri": track.fields.uri,
-                "media_type": "track",
+                "media_type": track.fields.media_type,
                 "title": track.fields.name,
                 "artist": first_artist(track),
                 "album": track.album.as_ref().map(|a| a.name.as_str()),

@@ -390,8 +390,12 @@ impl Library {
                 MediaType::Album => catalog.album_tracks(id).await?,
                 MediaType::Artist => catalog.artist_tracks(id).await?,
                 MediaType::Playlist => catalog.playlist_tracks(id).await?,
-                // Played as itself, by the source that serves it.
-                MediaType::Audiobook => return Err(not_found()),
+                // A book plays as one item, as a track of its own media type; its chapters
+                // come with it, in its metadata.
+                MediaType::Audiobook => match catalog.item(MediaType::Audiobook, id).await? {
+                    MediaItem::Audiobook(book) => vec![book.as_track()],
+                    _ => return Err(not_found()),
+                },
             };
             return Ok(tracks
                 .into_iter()

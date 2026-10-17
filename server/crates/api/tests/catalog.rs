@@ -139,3 +139,76 @@ async fn a_catalogs_items_browse_and_play() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
+
+#[tokio::test]
+async fn a_catalogs_audiobooks_list_search_and_play_as_one_item() {
+    let (server, token) = start_set_up_with(10).await;
+    let dir = tempfile::tempdir().unwrap();
+    FakeCatalog::add_to(&server.api.library, dir.path());
+    let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+
+    let books = client
+        .result("music/audiobooks/library_items", json!({}))
+        .await;
+    assert_eq!(books.as_array().unwrap().len(), 1);
+    assert_eq!(books[0]["name"], "The Fake Book");
+    assert_eq!(books[0]["media_type"], "audiobook");
+    assert_eq!(books[0]["narrators"], json!(["Fake Narrator"]));
+    assert_eq!(
+        client
+            .result("music/audiobooks/library_items", json!({"offset": 1}))
+            .await,
+        json!([])
+    );
+    assert_eq!(client.result("music/audiobooks/count", json!({})).await, 1);
+    let book = client
+        .result(
+            "music/audiobooks/get",
+            json!({"item_id": "fb1", "provider_instance_id_or_domain": FAKE}),
+        )
+        .await;
+    assert_eq!(book["authors"][0]["name"], "Fake Artist");
+    assert_eq!(book["metadata"]["chapters"][1]["start"], 2.0);
+    let found = client
+        .result(
+            "music/search",
+            json!({"search_query": "fake book", "media_types": ["audiobook"]}),
+        )
+        .await;
+    assert_eq!(names(&found, "audiobooks"), ["fake:The Fake Book"]);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while client
+        .result("players/all", json!({}))
+        .await
+        .as_array()
+        .unwrap()
+        .is_empty()
+    {
+        assert!(tokio::time::Instant::now() < deadline, "no player");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client
+        .result(
+            "player_queues/play_media",
+            json!({"queue_id": "kitchen", "media": "fake://audiobook/fb1", "option": "replace"}),
+        )
+        .await;
+    let queue = client
+        .result("player_queues/get", json!({"queue_id": "kitchen"}))
+        .await;
+    assert_eq!(queue["items"], 1, "one item, however many chapters");
+    let item = &queue["current_item"]["media_item"];
+    assert_eq!(item["media_type"], "audiobook");
+    assert_eq!(item["metadata"]["chapters"].as_array().unwrap().len(), 2);
+    while kitchen.frames() < 44_100 {
+        assert!(tokio::time::Instant::now() < deadline, "nothing played");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let player = client
+        .result("players/get", json!({"player_id": "kitchen"}))
+        .await;
+    assert_eq!(player["current_media"]["media_type"], "audiobook");
+}

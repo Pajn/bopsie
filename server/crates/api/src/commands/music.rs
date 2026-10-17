@@ -102,6 +102,65 @@ library_commands! {
     PlaylistItems, PlaylistCount, "playlists", MediaType::Playlist;
 }
 
+/// The catalogs that can answer now.
+fn available_catalogs(ctx: &Context) -> Vec<Arc<dyn Catalog>> {
+    ctx.api
+        .library
+        .catalogs()
+        .all()
+        .into_iter()
+        .filter(|catalog| catalog.available())
+        .collect()
+}
+
+pub struct AudiobookItems;
+impl Command for AudiobookItems {
+    const NAME: &'static str = "music/audiobooks/library_items";
+    const ACCESS: Access = Access::Scope(Scope::LibraryRead);
+    const SUMMARY: &'static str = "A page of the audiobooks the sources serve, such as Audiobookshelf's, as they have them: the library stores none.";
+    type Args = LibraryItemsArgs;
+    type Output = Vec<Value>;
+
+    async fn handle(ctx: Context, args: LibraryItemsArgs) -> Result<Vec<Value>> {
+        let mut offset = args.offset.unwrap_or(0) as usize;
+        let mut left = args.limit.unwrap_or(bopsie_library::query::DEFAULT_LIMIT) as usize;
+        let mut books = Vec::new();
+        // One source's books after another's, as one list.
+        for catalog in available_catalogs(&ctx) {
+            if left == 0 {
+                break;
+            }
+            let count = catalog.audiobook_count().await?;
+            if offset >= count {
+                offset -= count;
+                continue;
+            }
+            let page = catalog.audiobooks(offset, left).await?;
+            offset = 0;
+            left = left.saturating_sub(page.len());
+            books.extend(page);
+        }
+        values(books)
+    }
+}
+
+pub struct AudiobookCount;
+impl Command for AudiobookCount {
+    const NAME: &'static str = "music/audiobooks/count";
+    const ACCESS: Access = Access::Scope(Scope::LibraryRead);
+    const SUMMARY: &'static str = "How many audiobooks the sources serve.";
+    type Args = CountArgs;
+    type Output = u32;
+
+    async fn handle(ctx: Context, _args: CountArgs) -> Result<u32> {
+        let mut count = 0;
+        for catalog in available_catalogs(&ctx) {
+            count += catalog.audiobook_count().await?;
+        }
+        Ok(count as u32)
+    }
+}
+
 pub(crate) fn to_value(item: impl Serialize) -> Result<Value> {
     serde_json::to_value(item).map_err(|error| {
         tracing::error!(%error, "serializing a media item");
@@ -188,6 +247,7 @@ get_commands! {
     GetAlbum, "music/albums/get", MediaType::Album, "An album.";
     GetTrack, "music/tracks/get", MediaType::Track, "A track.";
     GetPlaylist, "music/playlists/get", MediaType::Playlist, "A playlist.";
+    GetAudiobook, "music/audiobooks/get", MediaType::Audiobook, "An audiobook, from the source that serves it.";
 }
 
 fn values<T: Serialize>(items: Vec<T>) -> Result<Vec<Value>> {
@@ -305,7 +365,8 @@ impl Command for ItemByUri {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchArgs {
     pub search_query: String,
-    /// Media types to search: `artist`, `album`, `track`, `playlist`. Defaults to all.
+    /// Media types to search: `artist`, `album`, `track`, `playlist`, `audiobook`. Defaults to
+    /// all.
     #[serde(default)]
     pub media_types: Option<Vec<String>>,
     /// Results per media type, from each source. Defaults to 50.
@@ -371,6 +432,7 @@ impl Command for Search {
             (MediaType::Album, &mut results.albums),
             (MediaType::Track, &mut results.tracks),
             (MediaType::Playlist, &mut results.playlists),
+            (MediaType::Audiobook, &mut results.audiobooks),
         ] {
             if !wanted(media_type) {
                 continue;

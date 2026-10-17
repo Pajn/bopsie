@@ -1,13 +1,13 @@
-//! A catalog for tests: one artist with one album of two tracks, and a playlist, each track
-//! playing from a WAV file.
+//! A catalog for tests: one artist with one album of two tracks, a playlist, and an audiobook
+//! in two chapters by the same artist, each track and the book playing from a WAV file.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bopsie_audio::engine::Input;
 use bopsie_core::media::{
-    Album, Artist, ArtistRef, ItemFields, ItemMapping, MediaItem, MediaType, Metadata, Playlist,
-    Track, sort_name,
+    Album, Artist, ArtistRef, Audiobook, Chapter, ItemFields, ItemMapping, MediaItem, MediaType,
+    Metadata, Playlist, Track, sort_name,
 };
 use bopsie_library::Library;
 use bopsie_library::catalog::{self, Catalog, CatalogError, CatalogResult};
@@ -102,11 +102,44 @@ fn playlist() -> Playlist {
     }
 }
 
+/// The book: 4 s, in two chapters of 2 s.
+pub fn audiobook() -> Audiobook {
+    let mut fields = fields(MediaType::Audiobook, "fb1", "The Fake Book");
+    fields.metadata.chapters = Some(vec![
+        Chapter {
+            position: 0,
+            name: "Beginning".to_owned(),
+            start_ms: 0,
+            end_ms: Some(2_000),
+        },
+        Chapter {
+            position: 1,
+            name: "End".to_owned(),
+            start_ms: 2_000,
+            end_ms: Some(4_000),
+        },
+    ]);
+    Audiobook {
+        fields,
+        publisher: None,
+        authors: vec![mapping(MediaType::Artist, "fr1", "Fake Artist")],
+        narrators: vec!["Fake Narrator".to_owned()],
+        duration: 4,
+        fully_played: Some(false),
+        resume_position_ms: Some(1_000),
+    }
+}
+
 impl FakeCatalog {
-    /// Adds the catalog to `library`, its tracks playing from WAV files written to `dir`.
+    /// Adds the catalog to `library`, its tracks and its book playing from WAV files written to
+    /// `dir`.
     pub fn add_to(library: &Library, dir: &Path) {
-        for track in tracks() {
-            let path = dir.join(format!("{}.wav", track.fields.item_id));
+        let ids = tracks()
+            .into_iter()
+            .map(|track| track.fields.item_id)
+            .chain(["fb1".to_owned()]);
+        for id in ids {
+            let path = dir.join(format!("{id}.wav"));
             bopsie_fixtures::write_wav(&path, 44_100, 2, &bopsie_fixtures::noise(3, 44_100 * 4))
                 .unwrap();
         }
@@ -123,6 +156,7 @@ fn all() -> Vec<MediaItem> {
         MediaItem::Playlist(Box::new(playlist())),
     ];
     items.extend(tracks().into_iter().map(|t| MediaItem::Track(Box::new(t))));
+    items.push(MediaItem::Audiobook(Box::new(audiobook())));
     items
 }
 
@@ -179,5 +213,21 @@ impl Catalog for FakeCatalog {
     fn media(&self, track_id: &str) -> Option<Input> {
         let path = self.files.join(format!("{track_id}.wav"));
         path.exists().then_some(Input::File(path))
+    }
+    fn audiobooks<'a>(
+        &'a self,
+        offset: usize,
+        limit: usize,
+    ) -> BoxFuture<'a, CatalogResult<Vec<Audiobook>>> {
+        Box::pin(async move {
+            Ok(vec![audiobook()]
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .collect())
+        })
+    }
+    fn audiobook_count<'a>(&'a self) -> BoxFuture<'a, CatalogResult<usize>> {
+        Box::pin(async { Ok(1) })
     }
 }
