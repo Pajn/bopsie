@@ -87,6 +87,11 @@ pub trait Catalog: Send + Sync {
     fn audiobook_count<'a>(&'a self) -> BoxFuture<'a, CatalogResult<usize>> {
         Box::pin(async { Ok(0) })
     }
+    /// Its audiobooks listening has started and not finished, the most recently listened to
+    /// first: at most `limit`.
+    fn in_progress<'a>(&'a self, _limit: usize) -> BoxFuture<'a, CatalogResult<Vec<Audiobook>>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
     /// The audiobooks artist `id` wrote.
     fn artist_audiobooks<'a>(
         &'a self,

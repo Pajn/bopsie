@@ -39,6 +39,7 @@ pub fn registry() -> Registry {
         .add::<music::PlaylistItems>()
         .add::<music::AudiobookItems>()
         .add::<music::AudiobookCount>()
+        .add::<music::InProgressItems>()
         .add::<music::PlaylistCount>()
         .add::<music::GetArtist>()
         .add::<music::GetAlbum>()

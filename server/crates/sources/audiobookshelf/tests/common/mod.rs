@@ -1,5 +1,5 @@
-//! A stand-in Audiobookshelf server: one library of three books by two authors, answering as
-//! the real one does the requests the source makes. It takes `reader`'s password `secret`,
+//! A stand-in Audiobookshelf server: one library of three books by two authors, and one of
+//! ebooks, with no audio, answering as the real one does the requests the source makes. It takes `reader`'s password `secret`,
 //! and an access token only until it is told the token expired.
 
 #![allow(dead_code)]
@@ -74,6 +74,42 @@ pub fn book(id: &str, title: &str, author: (&str, &str), duration: f64) -> Value
             "tracks": [],
         },
     })
+}
+
+/// An ebook: a book with no audio.
+pub fn ebook(id: &str, title: &str, author: (&str, &str)) -> Value {
+    let mut ebook = book(id, title, author, 0.0);
+    ebook["libraryId"] = json!("eb1");
+    ebook["media"]["numAudioFiles"] = json!(0);
+    ebook["media"]["chapters"] = json!([]);
+    ebook
+}
+
+pub fn ebooks() -> Vec<Value> {
+    vec![
+        ebook("li_e1", "Anathem", ("aut1", "Neal Stephenson")),
+        ebook("li_e2", "Cryptonomicon", ("aut1", "Neal Stephenson")),
+    ]
+}
+
+/// Where listening is in each book, as `/api/me` lists it: Snow Crash listened to last, The
+/// Hobbit before it, Anathem finished, and an ebook read.
+pub fn media_progress() -> Value {
+    let progress = |id: &str, at: f64, finished: bool, last: u64| {
+        json!({
+            "id": format!("prog-{id}"), "libraryItemId": id, "episodeId": null,
+            "currentTime": at, "isFinished": finished, "hideFromContinueListening": false,
+            "lastUpdate": last,
+        })
+    };
+    json!([
+        progress("li_h", 600.25, false, 1_700_000_100_000),
+        progress("li_s", 90.5, false, 1_700_000_200_000),
+        progress("li_a", 3_600.0, true, 1_700_000_300_000),
+        progress("li_e2", 0.0, false, 1_700_000_400_000),
+        {"id": "prog-ep", "libraryItemId": "pod-x", "episodeId": "ep1", "currentTime": 5.0,
+         "isFinished": false, "lastUpdate": 1_700_000_500_000u64},
+    ])
 }
 
 pub fn books() -> Vec<Value> {
@@ -152,6 +188,8 @@ async fn libraries(State(stand): State<Shared>, headers: HeaderMap) -> Response 
     Json(json!({"libraries": [
         {"id": "lib1", "name": "Audiobooks", "mediaType": "book", "displayOrder": 1,
          "icon": "audiobookshelf", "settings": {}},
+        {"id": "eb1", "name": "Ebooks", "mediaType": "book", "displayOrder": 3,
+         "icon": "book", "settings": {}},
         {"id": "pod1", "name": "Podcasts", "mediaType": "podcast", "displayOrder": 2,
          "icon": "podcast", "settings": {}},
     ]}))
@@ -166,15 +204,31 @@ async fn items(
 ) -> Response {
     let number = |key: &str| -> usize { query.get(key).and_then(|v| v.parse().ok()).unwrap_or(0) };
     let (limit, page) = (number("limit"), number("page"));
+    let filter = query.get("filter");
     log(
         &stand,
-        format!("GET /api/libraries/{library}/items?limit={limit}&page={page}"),
+        format!(
+            "GET /api/libraries/{library}/items?limit={limit}&page={page}{}",
+            filter.map(|f| format!("&filter={f}")).unwrap_or_default()
+        ),
     );
     if !authorized(&stand, &headers) {
         return unauthorized();
     }
-    assert_eq!(library, "lib1", "only the books' library is listed");
-    let all = books();
+    let mut all = match library.as_str() {
+        "lib1" => books(),
+        "eb1" => ebooks(),
+        _ => return (StatusCode::NOT_FOUND, "Not Found").into_response(),
+    };
+    if let Some(filter) = filter {
+        assert_eq!(
+            filter, "tracks.bm9uZQ==",
+            "the filter for items without audio"
+        );
+        all.retain(|item| item["media"]["duration"] == 0.0);
+    } else if library == "eb1" {
+        assert_eq!(limit, 1, "the ebooks are counted, never listed");
+    }
     let results: Vec<Value> = all.iter().skip(limit * page).take(limit).cloned().collect();
     Json(json!({"results": results, "total": all.len(), "limit": limit, "page": page}))
         .into_response()
@@ -380,11 +434,50 @@ async fn author(
     if query.get("include").map(String::as_str) == Some("items") {
         let theirs: Vec<Value> = books()
             .into_iter()
+            .chain(ebooks())
             .filter(|b| b["media"]["metadata"]["authors"][0]["id"] == id)
             .collect();
         author["libraryItems"] = json!(theirs);
     }
     Json(author).into_response()
+}
+
+async fn me(State(stand): State<Shared>, headers: HeaderMap) -> Response {
+    log(&stand, "GET /api/me".to_owned());
+    if !authorized(&stand, &headers) {
+        return unauthorized();
+    }
+    Json(json!({"id": "user1", "username": "reader", "mediaProgress": media_progress()}))
+        .into_response()
+}
+
+/// A library's shelves, as its home page shows them: what listening continues in, minified as
+/// the server lists items, without progress.
+async fn personalized(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(library): Path<String>,
+) -> Response {
+    log(&stand, format!("GET /api/libraries/{library}/personalized"));
+    if !authorized(&stand, &headers) {
+        return unauthorized();
+    }
+    let continuing: Vec<Value> = match library.as_str() {
+        // In the order the server keeps them; a finished book is not among them.
+        "lib1" => books().into_iter().filter(|b| b["id"] != "li_a").collect(),
+        "eb1" => ebooks()
+            .into_iter()
+            .filter(|b| b["id"] == "li_e2")
+            .collect(),
+        _ => return (StatusCode::NOT_FOUND, "Not Found").into_response(),
+    };
+    Json(json!([
+        {"id": "continue-listening", "label": "Continue Listening", "type": "book",
+         "entities": continuing},
+        {"id": "recently-added", "label": "Recently Added", "type": "book",
+         "entities": books()},
+    ]))
+    .into_response()
 }
 
 /// Starts the stand-in; answers with its address and its state.
@@ -403,6 +496,8 @@ pub async fn start() -> (String, Shared) {
         .route("/api/session/{id}/{what}", post(session_report))
         .route("/api/me/progress/{id}", axum::routing::patch(progress))
         .route("/api/authors/{id}", get(author))
+        .route("/api/me", get(me))
+        .route("/api/libraries/{id}/personalized", get(personalized))
         .with_state(stand.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr: SocketAddr = listener.local_addr().unwrap();

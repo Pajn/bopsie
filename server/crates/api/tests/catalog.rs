@@ -164,6 +164,16 @@ async fn a_catalogs_audiobooks_list_search_and_play_as_one_item() {
         json!([])
     );
     assert_eq!(client.result("music/audiobooks/count", json!({})).await, 1);
+    // Listening has started on it: it is in progress, where it was left.
+    let started = client.result("music/in_progress_items", json!({})).await;
+    assert_eq!(started[0]["uri"], "fake://audiobook/fb1");
+    assert_eq!(started[0]["resume_position_ms"], 1000);
+    assert_eq!(
+        client
+            .result("music/in_progress_items", json!({"limit": 0}))
+            .await,
+        json!([])
+    );
     let book = client
         .result(
             "music/audiobooks/get",

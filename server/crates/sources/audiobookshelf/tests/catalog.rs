@@ -247,3 +247,54 @@ async fn books_and_authors_are_found_and_an_authors_books_listed() {
     let names: Vec<&str> = theirs.iter().map(|b| b.fields.name.as_str()).collect();
     assert_eq!(names, ["Anathem", "Snow Crash"]);
 }
+
+#[tokio::test]
+async fn a_library_of_ebooks_holds_no_audiobooks() {
+    let f = fixture().await.signed_in().await;
+    // Three books; the ebooks' library is left out, and the server asked once which is which.
+    assert_eq!(f.catalog.audiobook_count().await.unwrap(), 3);
+    let names: Vec<String> = f
+        .catalog
+        .audiobooks(0, 10)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|b| b.fields.name)
+        .collect();
+    assert_eq!(names, ["Anathem", "The Hobbit", "Snow Crash"]);
+    let asked = |requests: &[String]| {
+        requests
+            .iter()
+            .filter(|r| r.contains("filter=tracks"))
+            .count()
+    };
+    assert_eq!(
+        asked(&f.stand.lock().unwrap().requests),
+        2,
+        "once per library"
+    );
+    // An author's ebooks are not among their audiobooks.
+    let theirs: Vec<String> = f
+        .catalog
+        .artist_audiobooks("aut1")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|b| b.fields.name)
+        .collect();
+    assert_eq!(theirs, ["Anathem", "Snow Crash"]);
+}
+
+#[tokio::test]
+async fn listening_continues_in_the_book_listened_to_last() {
+    let f = fixture().await.signed_in().await;
+    let started = f.catalog.in_progress(10).await.unwrap();
+    let names: Vec<&str> = started.iter().map(|b| b.fields.name.as_str()).collect();
+    // Not the finished book, nor the ebook being read.
+    assert_eq!(names, ["Snow Crash", "The Hobbit"]);
+    assert_eq!(started[0].resume_position_ms, Some(90_500));
+    assert_eq!(started[1].resume_position_ms, Some(600_250));
+    assert_eq!(started[1].fully_played, Some(false));
+    assert_eq!(f.catalog.in_progress(1).await.unwrap().len(), 1);
+    assert!(f.catalog.in_progress(0).await.unwrap().is_empty());
+}

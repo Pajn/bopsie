@@ -244,7 +244,11 @@ set in the config file.
 
 The books are browsed live, not synced into the library: the library's Audiobooks tab, search,
 and an author's page ask Audiobookshelf as they are shown. An author is an artist of the
-Audiobookshelf source, so their page lists their books. Books play through ffmpeg, which must be
+Audiobookshelf source, so their page lists their books. A library of books most of whose items
+have no audio, such as one of ebooks, is left out, as is any book without audio.
+`music/in_progress_items` lists the books listening continues in, the most recently listened to
+first, from each library's Continue Listening as Audiobookshelf's own apps show it; the web UI's
+home has them as its first shelf. Books play through ffmpeg, which must be
 installed; without it the books can be browsed but not played.
 
 - **One item.** A book is one item in the queue, however many files it has. Its files play one

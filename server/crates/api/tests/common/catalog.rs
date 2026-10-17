@@ -238,6 +238,9 @@ impl Catalog for FakeCatalog {
     fn audiobook_count<'a>(&'a self) -> BoxFuture<'a, CatalogResult<usize>> {
         Box::pin(async { Ok(1) })
     }
+    fn in_progress<'a>(&'a self, limit: usize) -> BoxFuture<'a, CatalogResult<Vec<Audiobook>>> {
+        Box::pin(async move { Ok(vec![audiobook()].into_iter().take(limit).collect()) })
+    }
     fn progress(&self, id: &str, progress: Progress) {
         self.progress
             .lock()

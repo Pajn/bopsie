@@ -541,6 +541,7 @@ async fn info_and_the_command_list_need_no_auth() {
             "music/audiobooks/count",
             "music/audiobooks/get",
             "music/audiobooks/library_items",
+            "music/in_progress_items",
             "music/item_by_uri",
             "music/playlists/count",
             "music/playlists/get",

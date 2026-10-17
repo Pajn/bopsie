@@ -1,8 +1,10 @@
 //! Audiobookshelf's books as a catalog: browsed and searched as the server has them, its
 //! authors as artists, and its covers through the library's image proxy.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use bopsie_audio::engine::Input;
 use bopsie_core::media::{
@@ -24,6 +26,13 @@ use crate::progress::{self, Sessions};
 /// The catalog's provider id, and its URIs' scheme.
 pub const AUDIOBOOKSHELF: &str = "audiobookshelf";
 
+/// How long which libraries hold audiobooks is kept before the server is asked again.
+const LIBRARIES_KEPT: Duration = Duration::from_secs(600);
+
+/// The server's filter for items with no audio files: `tracks.` and `none` in base64, encoded
+/// for a URL.
+const NO_AUDIO: &str = "tracks.bm9uZQ%3D%3D";
+
 pub struct AudiobookshelfCatalog {
     account: Account,
     library: Library,
@@ -33,6 +42,8 @@ pub struct AudiobookshelfCatalog {
     sessions: Sessions,
     /// Where listening progress goes to be kept on the server.
     progress: mpsc::UnboundedSender<(String, Progress)>,
+    /// The libraries that hold audiobooks, the server they are of, and when they were asked.
+    libraries: Mutex<Option<(String, Instant, Vec<String>)>>,
 }
 
 impl From<AccountError> for CatalogError {
@@ -178,6 +189,12 @@ pub fn audiobook(item: &Value) -> Option<Audiobook> {
     })
 }
 
+/// Whether a library item has audio to play: an ebook has none.
+fn has_audio(item: &Value) -> bool {
+    let media = &item["media"];
+    media["numAudioFiles"].as_u64() != Some(0) && media["duration"].as_f64() != Some(0.0)
+}
+
 fn seconds_to_ms(seconds: &Value) -> u64 {
     (seconds.as_f64().unwrap_or(0.0).max(0.0) * 1_000.0).round() as u64
 }
@@ -209,19 +226,44 @@ impl AudiobookshelfCatalog {
             ffmpeg,
             runtime: Handle::current(),
             sessions,
+            libraries: Mutex::default(),
         }
     }
 
-    /// The server's libraries of books, by id.
+    /// The server's libraries of audiobooks, by id: its libraries of books most of whose items
+    /// have audio. A library of ebooks is a library of books too, with none.
     async fn book_libraries(&self) -> CatalogResult<Vec<String>> {
+        let server = self.account.status().url.unwrap_or_default();
+        if let Some((of, at, libraries)) = &*self.libraries.lock().unwrap()
+            && *of == server
+            && at.elapsed() < LIBRARIES_KEPT
+        {
+            return Ok(libraries.clone());
+        }
         let answer = self.account.get("/api/libraries").await?;
-        Ok(answer["libraries"]
+        let mut libraries = Vec::new();
+        for library in answer["libraries"]
             .as_array()
             .into_iter()
             .flatten()
             .filter(|library| library["mediaType"] == "book")
-            .filter_map(|library| library["id"].as_str().map(str::to_owned))
-            .collect())
+            .filter_map(|library| library["id"].as_str())
+        {
+            let total = |answer: Value| answer["total"].as_u64().unwrap_or(0);
+            let all = total(self.page(library, 1, 0).await?);
+            let silent = total(
+                self.account
+                    .get(&format!(
+                        "/api/libraries/{library}/items?limit=1&filter={NO_AUDIO}"
+                    ))
+                    .await?,
+            );
+            if silent * 2 < all {
+                libraries.push(library.to_owned());
+            }
+        }
+        *self.libraries.lock().unwrap() = Some((server, Instant::now(), libraries.clone()));
+        Ok(libraries)
     }
 
     /// Lets the image proxy serve the images `items` name.
@@ -239,7 +281,7 @@ impl AudiobookshelfCatalog {
     async fn books(&self, items: &[Value]) -> Vec<Audiobook> {
         let books: Vec<Audiobook> = items
             .iter()
-            .filter(|item| item["mediaType"] == "book")
+            .filter(|item| item["mediaType"] == "book" && has_audio(item))
             .filter_map(audiobook)
             .collect();
         self.remember(books.iter().map(|book| &book.fields)).await;
@@ -448,6 +490,57 @@ impl Catalog for AudiobookshelfCatalog {
                     .unwrap_or(0) as usize;
             }
             Ok(count)
+        })
+    }
+
+    fn in_progress<'a>(&'a self, limit: usize) -> BoxFuture<'a, CatalogResult<Vec<Audiobook>>> {
+        Box::pin(async move {
+            if limit == 0 {
+                return Ok(Vec::new());
+            }
+            // Where listening is in each book, and when it was last listened to.
+            let me = self.account.get("/api/me").await?;
+            let progress: HashMap<&str, &Value> = me["mediaProgress"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|progress| progress["episodeId"].is_null())
+                .filter_map(|progress| Some((progress["libraryItemId"].as_str()?, progress)))
+                .collect();
+            // Each library's continue listening, as the server's own apps show it: without
+            // what was finished or hidden from it.
+            let mut started: Vec<(u64, Value)> = Vec::new();
+            for library in self.book_libraries().await? {
+                let shelves = self
+                    .account
+                    .get(&format!(
+                        "/api/libraries/{library}/personalized?limit={limit}"
+                    ))
+                    .await?;
+                let shelf = shelves
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|shelf| shelf["id"] == "continue-listening");
+                for item in shelf
+                    .and_then(|shelf| shelf["entities"].as_array())
+                    .into_iter()
+                    .flatten()
+                {
+                    let Some(&listened) = item["id"].as_str().and_then(|id| progress.get(id))
+                    else {
+                        continue;
+                    };
+                    let mut item = item.clone();
+                    item["mediaProgress"] = listened.clone();
+                    started.push((listened["lastUpdate"].as_u64().unwrap_or(0), item));
+                }
+            }
+            started.sort_by_key(|(last, _)| std::cmp::Reverse(*last));
+            let items: Vec<Value> = started.into_iter().map(|(_, item)| item).collect();
+            let mut books = self.books(&items).await;
+            books.truncate(limit);
+            Ok(books)
         })
     }
 

@@ -161,6 +161,34 @@ impl Command for AudiobookCount {
     }
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct InProgressArgs {
+    /// At most this many; 10 when left out.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+pub struct InProgressItems;
+impl Command for InProgressItems {
+    const NAME: &'static str = "music/in_progress_items";
+    const ACCESS: Access = Access::Scope(Scope::LibraryRead);
+    const SUMMARY: &'static str = "The audiobooks listening has started and not finished, the most recently listened to first, as the sources keep it, such as Audiobookshelf's continue listening.";
+    type Args = InProgressArgs;
+    type Output = Vec<Value>;
+
+    async fn handle(ctx: Context, args: InProgressArgs) -> Result<Vec<Value>> {
+        let limit = args.limit.unwrap_or(10) as usize;
+        let mut books = Vec::new();
+        for catalog in available_catalogs(&ctx) {
+            if books.len() >= limit {
+                break;
+            }
+            books.extend(catalog.in_progress(limit - books.len()).await?);
+        }
+        values(books)
+    }
+}
+
 pub(crate) fn to_value(item: impl Serialize) -> Result<Value> {
     serde_json::to_value(item).map_err(|error| {
         tracing::error!(%error, "serializing a media item");
