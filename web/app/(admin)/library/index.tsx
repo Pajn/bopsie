@@ -46,6 +46,7 @@ const ORDERS = [
   { value: 'sort_name', label: 'Name' },
   { value: 'timestamp_added_desc', label: 'Recently added' },
   { value: 'year_desc', label: 'Newest' },
+  { value: 'play_count_desc', label: 'Most played' },
 ] as const;
 type Order = (typeof ORDERS)[number]['value'];
 

@@ -271,5 +271,29 @@ pub const MIGRATIONS: Migrations = Migrations {
         UPDATE provider_mappings SET stamp = NULL
         WHERE media_type = 'track' AND provider_domain = 'filesystem_local';
     ",
+        "
+        -- How often each item was played, and when last, in Unix seconds: a track once heard,
+        -- with its album and artists, and a playlist when it is played.
+        CREATE TABLE plays (
+            media_type TEXT NOT NULL,
+            item_id INTEGER NOT NULL,
+            play_count INTEGER NOT NULL,
+            last_played INTEGER NOT NULL,
+            PRIMARY KEY (media_type, item_id)
+        ) STRICT, WITHOUT ROWID;
+
+        CREATE TRIGGER artists_plays AFTER DELETE ON artists BEGIN
+            DELETE FROM plays WHERE media_type = 'artist' AND item_id = old.id;
+        END;
+        CREATE TRIGGER albums_plays AFTER DELETE ON albums BEGIN
+            DELETE FROM plays WHERE media_type = 'album' AND item_id = old.id;
+        END;
+        CREATE TRIGGER tracks_plays AFTER DELETE ON tracks BEGIN
+            DELETE FROM plays WHERE media_type = 'track' AND item_id = old.id;
+        END;
+        CREATE TRIGGER playlists_plays AFTER DELETE ON playlists BEGIN
+            DELETE FROM plays WHERE media_type = 'playlist' AND item_id = old.id;
+        END;
+    ",
     ],
 };

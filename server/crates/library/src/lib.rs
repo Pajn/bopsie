@@ -515,6 +515,50 @@ impl Library {
         }
     }
 
+    /// Counts a play of each of the library's items `uris` name, now; any other URI, such as a
+    /// catalog's, is passed over. It does not wait for the database.
+    pub fn played<'a>(&self, uris: impl IntoIterator<Item = &'a str>) {
+        let items: Vec<(MediaType, i64)> = uris
+            .into_iter()
+            .filter_map(parse_library_uri)
+            .filter(|(media_type, _)| query::stored(*media_type))
+            .collect();
+        if items.is_empty() {
+            return;
+        }
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        // The job is queued as it is called; its outcome is only logged.
+        let call = self.db.call(move |conn| {
+            let mut statement = conn.prepare_cached(
+                "INSERT INTO plays (media_type, item_id, play_count, last_played)
+                 VALUES (?1, ?2, 1, ?3)
+                 ON CONFLICT (media_type, item_id)
+                 DO UPDATE SET play_count = play_count + 1, last_played = ?3",
+            )?;
+            for (media_type, id) in items {
+                statement.execute(rusqlite::params![media_type.as_str(), id, now])?;
+            }
+            Ok(())
+        });
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                if let Err(error) = call.await {
+                    tracing::warn!(%error, "cannot count a play");
+                }
+            });
+        }
+    }
+
+    /// Tells the clients an item a catalog serves changed, as `item`, such as an audiobook
+    /// listening moved on in, so that they show it again.
+    pub fn announce_updated(&self, uri: String, item: serde_json::Value) {
+        self.events.publish(Event {
+            event: EventType::MediaItemUpdated,
+            object_id: Some(uri),
+            data: item,
+        });
+    }
+
     /// Makes images a catalog names by `(provider, path)` servable by the image proxy, under
     /// the proxy ids [`scan::proxy_id`] gives them.
     pub async fn remember_images(&self, images: Vec<(String, String)>) -> Result<()> {

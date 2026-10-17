@@ -156,6 +156,15 @@ impl Command for PlayMedia {
                 "Nothing to play",
             ));
         }
+        // A playlist counts as played when it is played; tracks, with their albums and
+        // artists, once they are heard.
+        let asked = uris(&args.media);
+        ctx.api.library.played(
+            asked
+                .iter()
+                .map(String::as_str)
+                .filter(|uri| uri.starts_with("library://playlist/")),
+        );
         let start_at = args
             .start_item
             .as_ref()

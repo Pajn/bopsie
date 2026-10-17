@@ -45,13 +45,39 @@ pub fn stored(media_type: MediaType) -> bool {
 }
 
 /// The SQL ordering for Music Assistant's `order_by` keys, with the id as a tiebreak. Keys
-/// that do not apply to the media type fall back to `sort_name`.
+/// that do not apply to the media type fall back to `sort_name`. By how often or how lately
+/// an item was played, the items played alike, as those never played, are newest first.
 pub fn order_clause(media_type: MediaType, order_by: Option<&str>) -> String {
     let key = order_by.unwrap_or("sort_name");
     let (key, descending) = match key.strip_suffix("_desc") {
         Some(key) => (key, true),
         None => (key, false),
     };
+    let direction = if descending { "DESC" } else { "ASC" };
+    let plays = |column: &str| {
+        format!(
+            "COALESCE((SELECT {column} FROM plays WHERE plays.media_type = '{}' \
+             AND plays.item_id = {}.id), 0)",
+            media_type.as_str(),
+            table(media_type)
+        )
+    };
+    match key {
+        "play_count" => {
+            return format!(
+                "{} {direction}, {} {direction}, date_added DESC, id DESC",
+                plays("play_count"),
+                plays("last_played")
+            );
+        }
+        "last_played" => {
+            return format!(
+                "{} {direction}, date_added DESC, id DESC",
+                plays("last_played")
+            );
+        }
+        _ => {}
+    }
     let column = match (key, media_type) {
         ("random", _) => return "RANDOM()".to_owned(),
         ("name", _) => "name COLLATE NOCASE",
@@ -60,7 +86,6 @@ pub fn order_clause(media_type: MediaType, order_by: Option<&str>) -> String {
         ("duration", MediaType::Track) => "duration",
         _ => "sort_name",
     };
-    let direction = if descending { "DESC" } else { "ASC" };
     format!("{column} {direction}, id {direction}")
 }
 
@@ -747,6 +772,30 @@ pub fn search(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_most_played_come_first_and_those_played_alike_newest_first() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE playlists (id INTEGER PRIMARY KEY, date_added INTEGER NOT NULL);
+             CREATE TABLE plays (media_type TEXT, item_id INTEGER, play_count INTEGER,
+                                 last_played INTEGER);
+             INSERT INTO playlists VALUES (1, 100), (2, 200), (3, 300), (4, 400);
+             -- 2 and 3 played twice, 3 lately; 1 once; 4, the newest, never.
+             INSERT INTO plays VALUES ('playlist', 2, 2, 50), ('playlist', 3, 2, 60),
+                                      ('playlist', 1, 1, 90), ('album', 4, 9, 99);",
+        )
+        .unwrap();
+        let order = |key: &str| {
+            let sql = format!(
+                "SELECT id FROM playlists ORDER BY {}",
+                order_clause(MediaType::Playlist, Some(key))
+            );
+            ids(&conn, &sql, []).unwrap()
+        };
+        assert_eq!(order("play_count_desc"), [3, 2, 1, 4]);
+        assert_eq!(order("last_played_desc"), [1, 3, 2, 4]);
+    }
 
     #[test]
     fn orderings() {

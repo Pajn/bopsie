@@ -104,6 +104,10 @@ struct Reported {
     at: Instant,
 }
 
+/// How long an item plays before its play counts; half of it, for an item shorter than twice
+/// that.
+const PLAY_COUNTS_AFTER: Duration = Duration::from_secs(30);
+
 /// How far a position may move from where playing for the time between reports takes it
 /// before it counts as a seek.
 const SEEK_SLACK: Duration = Duration::from_secs(3);
@@ -218,6 +222,8 @@ struct Inner {
     progress_to: OnceLock<Library>,
     /// What was last reported of each queue's item.
     reported: Mutex<HashMap<String, Reported>>,
+    /// The item of each queue whose play was counted last, by queue item id.
+    counted: Mutex<HashMap<String, String>>,
     /// How fast each audiobook last played, by URI, for it to play so again.
     speeds: Mutex<HashMap<String, f32>>,
     /// When each queue with a sleep timer pauses.
@@ -352,6 +358,7 @@ impl Playback {
                 last_calibration: Mutex::default(),
                 progress_to: OnceLock::new(),
                 reported: Mutex::default(),
+                counted: Mutex::default(),
                 speeds: Mutex::default(),
                 sleeps: Mutex::default(),
                 restored: Mutex::default(),
@@ -1422,6 +1429,49 @@ impl Playback {
         }
     }
 
+    /// Counts a play of each queue's current item once it has played long enough, with its
+    /// album and artists, in the library's play history.
+    fn count_plays(&self) {
+        let Some(library) = self.inner.progress_to.get() else {
+            return;
+        };
+        let now = clock::now();
+        let heard: Vec<(String, String, Vec<String>)> = self
+            .inner
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, entry)| !entry.session.buffering())
+            .filter_map(|(id, entry)| {
+                let queue = entry.session.snapshot();
+                if queue.state != PlaybackState::Playing {
+                    return None;
+                }
+                let item = queue.current()?;
+                let enough =
+                    PLAY_COUNTS_AFTER.min(Duration::from_secs(u64::from(item.track.duration)) / 2);
+                if entry.session.position(now) < enough {
+                    return None;
+                }
+                let track = &item.track;
+                let uris = std::iter::once(track.fields.uri.clone())
+                    .chain(track.album.iter().map(|album| album.uri.clone()))
+                    .chain(track.artists.iter().map(|artist| artist.uri.clone()))
+                    .collect();
+                Some((id.clone(), item.queue_item_id.clone(), uris))
+            })
+            .collect();
+        let mut counted = self.inner.counted.lock().unwrap();
+        for (queue_id, item_id, uris) in heard {
+            if counted.get(&queue_id) == Some(&item_id) {
+                continue;
+            }
+            library.played(uris.iter().map(String::as_str));
+            counted.insert(queue_id, item_id);
+        }
+    }
+
     /// Pauses `queue_id`'s group `after` from now, or at the end of what plays: the chapter of
     /// a book, else the item. `None` for both cancels it.
     pub fn sleep(
@@ -1535,6 +1585,7 @@ impl Playback {
 
     fn tick(&self) {
         self.report_progress();
+        self.count_plays();
         self.sleep_due();
         let playing: Vec<(String, f64)> = self
             .inner

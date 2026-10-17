@@ -41,8 +41,8 @@ const bookCaption = (item: Item) => {
 
 /**
  * Where the web UI opens, as the app's home: the audiobooks listening continues in, what came
- * into the library lately, its playlists and artists, and albums picked at random to
- * rediscover, each a shelf that scrolls sideways.
+ * into the library lately, the playlists and artists played most, and albums picked at random
+ * to rediscover, each a shelf that scrolls sideways.
  */
 export default function HomeScreen() {
   const { connection, account } = useConnection();
@@ -52,8 +52,9 @@ export default function HomeScreen() {
     queryFn: () => inProgressItems(connection, SHELF),
   });
   const added = useShelf('albums', 'timestamp_added_desc');
-  const playlists = useShelf('playlists', 'timestamp_added_desc');
-  const artists = useShelf('artists', 'timestamp_added_desc');
+  // The most played first; never played, the newest.
+  const playlists = useShelf('playlists', 'play_count_desc');
+  const artists = useShelf('artists', 'play_count_desc');
   const random = useShelf('albums', 'random', round);
   const error = added.error ?? listening.error;
 
@@ -61,7 +62,11 @@ export default function HomeScreen() {
     <Page title={greeting(new Date().getHours())} wide actions={<TargetPicker />}>
       <InlineError message={error ? describeError(error) : null} />
       <Shelf title="Continue listening" items={listening.data} loading={listening.isPending}>
-        <ItemShelf items={listening.data ?? []} caption={bookCaption} />
+        <ItemShelf
+          items={listening.data ?? []}
+          caption={bookCaption}
+          loading={listening.isPending}
+        />
       </Shelf>
       <Shelf title="Recently added" items={added.data} loading={added.isPending}>
         <ItemShelf items={added.data ?? []} loading={added.isPending} />

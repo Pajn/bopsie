@@ -8,6 +8,7 @@ export interface SortOption {
 
 const BY_NAME: SortOption = { key: 'sort_name', label: 'Name' };
 const RECENTLY_ADDED: SortOption = { key: 'timestamp_added_desc', label: 'Recently added' };
+const MOST_PLAYED: SortOption = { key: 'play_count_desc', label: 'Most played' };
 
 /** The orders a kind can be listed in, the default first. */
 export function sortOptions(kind: LibraryKind): SortOption[] {
@@ -17,8 +18,9 @@ export function sortOptions(kind: LibraryKind): SortOption[] {
         RECENTLY_ADDED,
         { key: 'year_desc', label: 'Newest' },
         { key: 'year', label: 'Oldest' },
+        MOST_PLAYED,
       ]
-    : [BY_NAME, RECENTLY_ADDED];
+    : [BY_NAME, RECENTLY_ADDED, MOST_PLAYED];
 }
 
 /** The chosen order, or the default when nothing, or something no longer offered, was chosen. */

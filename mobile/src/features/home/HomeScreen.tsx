@@ -26,8 +26,9 @@ function useShelf<T>(kind: Exclude<LibraryKind, 'tracks'>, orderBy: string, roun
 }
 
 /**
- * Where the app opens: what came into the library lately, its playlists and artists, and a
- * handful of albums picked at random to rediscover, each a shelf that scrolls sideways.
+ * Where the app opens: what came into the library lately, the playlists and artists played
+ * most, and a handful of albums picked at random to rediscover, each a shelf that scrolls
+ * sideways.
  */
 export function HomeScreen() {
   const { theme } = useUnistyles();
@@ -36,8 +37,9 @@ export function HomeScreen() {
   const [round, setRound] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const added = useShelf<Album>('albums', 'timestamp_added_desc');
-  const playlists = useShelf<Playlist>('playlists', 'timestamp_added_desc');
-  const artists = useShelf<Artist>('artists', 'timestamp_added_desc');
+  // The most played first; never played, the newest.
+  const playlists = useShelf<Playlist>('playlists', 'play_count_desc');
+  const artists = useShelf<Artist>('artists', 'play_count_desc');
   const random = useShelf<Album>('albums', 'random', round);
   mark('home-render');
   if (added.data) mark('home-shelves');
