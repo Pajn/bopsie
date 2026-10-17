@@ -277,3 +277,62 @@ async fn a_book_starts_where_listening_left_off_and_its_progress_is_reported() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
+
+#[tokio::test]
+async fn next_and_previous_move_by_chapter_within_a_book() {
+    let (server, token) = start_set_up_with(10).await;
+    let dir = tempfile::tempdir().unwrap();
+    FakeCatalog::add_to(&server.api.library, dir.path());
+    let _kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while client
+        .result("players/all", json!({}))
+        .await
+        .as_array()
+        .unwrap()
+        .is_empty()
+    {
+        assert!(tokio::time::Instant::now() < deadline, "no player");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client
+        .result(
+            "player_queues/play_media",
+            json!({"queue_id": "kitchen", "media": "fake://audiobook/fb1", "option": "replace"}),
+        )
+        .await;
+    let queue = async |client: &mut common::Client| {
+        client
+            .result("player_queues/get", json!({"queue_id": "kitchen"}))
+            .await
+    };
+    // Heard from where it was left, 1 s into the first chapter.
+    loop {
+        let q = queue(&mut client).await;
+        if q["state"] == "playing" && q["buffering"] == false {
+            assert_eq!(q["current_chapter"], 0);
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never played: {q}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client
+        .result("player_queues/pause", json!({"queue_id": "kitchen"}))
+        .await;
+    client
+        .result("player_queues/next", json!({"queue_id": "kitchen"}))
+        .await;
+    let q = queue(&mut client).await;
+    assert_eq!(q["current_chapter"], 1, "{q}");
+    assert_eq!(q["elapsed_time"], 2.0);
+    assert_eq!(q["items"], 1, "the same book");
+    // Within 3 s of the chapter's start, previous goes to the chapter before.
+    client
+        .result("player_queues/previous", json!({"queue_id": "kitchen"}))
+        .await;
+    let q = queue(&mut client).await;
+    assert_eq!(q["current_chapter"], 0, "{q}");
+    assert_eq!(q["elapsed_time"], 0.0);
+}

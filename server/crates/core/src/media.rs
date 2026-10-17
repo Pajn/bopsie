@@ -261,6 +261,24 @@ pub fn chapter_at(chapters: &[Chapter], ms: u64) -> Option<usize> {
     chapters.iter().rposition(|chapter| chapter.start_ms <= ms)
 }
 
+/// Where next or previous moves to in a book at `ms` with `chapters`, as Audiobookshelf's apps
+/// move: the start of the chapter after the one playing; the start of the chapter playing once
+/// it has played 3 seconds, else of the one before. `None` past the last chapter or before the
+/// first, for the item after or before.
+pub fn chapter_skip(chapters: &[Chapter], ms: u64, next: bool) -> Option<u64> {
+    if next {
+        let after = chapter_at(chapters, ms).map_or(0, |index| index + 1);
+        return chapters.get(after).map(|chapter| chapter.start_ms);
+    }
+    let index = chapter_at(chapters, ms)?;
+    let start = chapters[index].start_ms;
+    if ms >= start + 3_000 {
+        Some(start)
+    } else {
+        index.checked_sub(1).map(|before| chapters[before].start_ms)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Audiobook {
     #[serde(flatten)]
@@ -361,6 +379,16 @@ mod tests {
         assert_eq!(chapter_at(&chapters, 60_000), Some(1));
         assert_eq!(chapter_at(&chapters, 4_000_000), Some(2));
         assert_eq!(chapter_at(&[], 10), None);
+        // Next: the start of the chapter after the one playing.
+        assert_eq!(chapter_skip(&chapters, 10_000, true), Some(60_000));
+        assert_eq!(chapter_skip(&chapters, 59_500, true), Some(60_000));
+        assert_eq!(chapter_skip(&chapters, 60_000, true), Some(125_500));
+        assert_eq!(chapter_skip(&chapters, 130_000, true), None);
+        // Previous: the chapter's start after 3 s of it, else the one before.
+        assert_eq!(chapter_skip(&chapters, 70_000, false), Some(60_000));
+        assert_eq!(chapter_skip(&chapters, 61_000, false), Some(0));
+        assert_eq!(chapter_skip(&chapters, 1_000, false), None);
+        assert_eq!(chapter_skip(&chapters, 5_000, false), Some(0));
         // As Music Assistant has it: seconds.
         assert_eq!(
             serde_json::to_value(&chapters[2]).unwrap(),

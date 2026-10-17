@@ -1656,10 +1656,25 @@ impl Playback {
                 }
             }
             QueueCommand::Stop => session.stop(),
-            QueueCommand::Next => self.begin(&leader, |q, _| ((), q.next_track()))?,
-            QueueCommand::Previous => {
-                let elapsed = session.position(clock::now()).as_secs_f64();
-                self.begin(&leader, move |q, _| ((), q.previous_track(elapsed)))?;
+            QueueCommand::Next | QueueCommand::Previous => {
+                let next = command == QueueCommand::Next;
+                let at = session.position(clock::now());
+                // Within a book, by chapter.
+                let chapter = session
+                    .snapshot()
+                    .current()
+                    .and_then(|item| item.track.fields.metadata.chapters.clone())
+                    .and_then(|chapters| {
+                        bopsie_core::media::chapter_skip(&chapters, at.as_millis() as u64, next)
+                    });
+                match chapter {
+                    Some(start) => session.seek(Duration::from_millis(start)),
+                    None if next => self.begin(&leader, |q, _| ((), q.next_track()))?,
+                    None => {
+                        let elapsed = at.as_secs_f64();
+                        self.begin(&leader, move |q, _| ((), q.previous_track(elapsed)))?;
+                    }
+                }
             }
             QueueCommand::Seek(seconds) => {
                 session.seek(Duration::from_secs_f64(seconds.max(0.0)));
@@ -2331,6 +2346,16 @@ impl Playback {
         // Bopsie's own: meant to be playing, but nothing heard yet, so its elapsed time stands
         // still. Music Assistant's states have no such state.
         value["buffering"] = json!(entry.session.buffering());
+        // Bopsie's own: the chapter of the current book playing, by index.
+        value["current_chapter"] = json!(
+            queue
+                .current()
+                .and_then(|item| item.track.fields.metadata.chapters.as_deref())
+                .and_then(|chapters| bopsie_core::media::chapter_at(
+                    chapters,
+                    entry.session.position(clock::now()).as_millis() as u64
+                ))
+        );
         if let Some(applied) = queue
             .current()
             .and_then(|item| entry.session.normalised(&item.queue_item_id))
