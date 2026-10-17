@@ -474,3 +474,53 @@ async fn a_queue_is_buffering_until_it_is_heard_and_its_time_stands_still_meanwh
     assert_eq!(next["buffering"], true);
     assert_eq!(next["elapsed_time"], 0.0);
 }
+
+/// When the speaker's latest output plays its first frame.
+fn first_frame(speaker: &Speaker) -> i64 {
+    speaker
+        .timelines
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .instant_of(0)
+}
+
+#[tokio::test]
+async fn airplay_speakers_wait_their_offset_only_beside_other_protocols() {
+    let (server, token) = start_set_up_with(10).await;
+    server.api.playback.set_mixed_airplay_ms(300).await.unwrap();
+    let kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let bedroom = Speaker::register(&server.players, "bedroom", "airplay", &[CD], None);
+    let phone = Speaker::register(&server.players, "phone", "sendspin", &[CD], None);
+    let mut client = signed_in(&server, &token).await;
+    until(
+        &mut client,
+        "players/get",
+        json!({"player_id": "kitchen"}),
+        |p| p["can_group_with"] == json!(["bedroom", "phone"]),
+    )
+    .await;
+
+    // AirPlay alone: on PTP, as they are.
+    client
+        .result(
+            "players/cmd/group",
+            json!({"player_id": "bedroom", "target_player": "kitchen"}),
+        )
+        .await;
+    play_album(&mut client, "kitchen").await;
+    eventually(|| kitchen.frames() > 0 && bedroom.frames() > 0).await;
+    assert_eq!(first_frame(&kitchen), first_frame(&bedroom));
+
+    // Beside Sendspin, both AirPlay speakers wait the offset.
+    client
+        .result(
+            "players/cmd/group",
+            json!({"player_id": "phone", "target_player": "kitchen"}),
+        )
+        .await;
+    eventually(|| phone.frames() > 0).await;
+    assert_eq!(first_frame(&kitchen), first_frame(&phone) + 300_000);
+    assert_eq!(first_frame(&bedroom), first_frame(&phone) + 300_000);
+}

@@ -27,7 +27,9 @@ use bopsie_core::{Error, ErrorCode, Result};
 use bopsie_library::Library;
 use bopsie_players::devices::PROTOCOLS;
 use bopsie_players::planner::{self, Plan, Policy, Strategy};
-use bopsie_players::{Change, Controls, Device, Devices, Member, NowPlaying, Remote, Repeat};
+use bopsie_players::{
+    Change, Controls, Device, Devices, Endpoint, Member, NowPlaying, Remote, Repeat,
+};
 use bopsie_sources::{Control, Happened, Source, SourceEvent, Sources};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -52,6 +54,11 @@ const SAVE_EVERY: Duration = Duration::from_secs(1);
 const SETTLING: Duration = Duration::from_secs(15);
 /// How long a device that left its native group has to bring back a protocol it withdrew.
 const WITHDRAWN_RETURN: Duration = Duration::from_secs(30);
+/// The setting [`Playback::mixed_airplay_ms`] is kept under.
+const MIXED_AIRPLAY_MS: &str = "playback.mixed_airplay_ms";
+/// The provider whose speakers keep in step on PTP.
+pub const AIRPLAY: &str = "airplay";
+
 /// How often a playing queue's position is saved.
 const POSITION_EVERY: Duration = Duration::from_secs(10);
 
@@ -104,6 +111,9 @@ struct Inner {
     absent: Mutex<BTreeMap<String, Instant>>,
     /// Where what outlasts a restart is kept, once [`Playback::persist`] is called.
     db: OnceLock<Database>,
+    /// How much later AirPlay speakers play in a group that mixes protocols, in ms: they keep
+    /// in step with each other on PTP, and as a whole with the others by this.
+    mixed_airplay_ms: std::sync::atomic::AtomicI32,
     /// Queues from an earlier run for devices not here yet.
     restored: Mutex<BTreeMap<String, Queue>>,
     /// Groups from an earlier run, by member, waiting for their devices.
@@ -230,6 +240,7 @@ impl Playback {
                 crashes: Mutex::default(),
                 absent: Mutex::default(),
                 db: OnceLock::new(),
+                mixed_airplay_ms: Default::default(),
                 restored: Mutex::default(),
                 saved_groups: Mutex::default(),
                 saved_volumes: Mutex::default(),
@@ -656,6 +667,12 @@ impl Playback {
     /// now, and keeps what changes from now on. Nothing plays on its own: queues come back
     /// idle where they were.
     pub async fn persist(&self, db: Database, library: Library) -> Result<()> {
+        let mixed: Option<String> = db
+            .call(|conn| Ok(bopsie_core::db::setting(conn, MIXED_AIRPLAY_MS)?))
+            .await?;
+        if let Some(ms) = mixed.and_then(|ms| ms.parse().ok()) {
+            self.inner.mixed_airplay_ms.store(ms, Ordering::Relaxed);
+        }
         let saved = store::load(&db).await?;
         let mut found: HashMap<String, Option<(Track, Playable)>> = HashMap::new();
         for queue in saved.queues.values() {
@@ -940,9 +957,21 @@ impl Playback {
             self.plan_for(leader, &leading.members, Some(running.strategy))?
         };
         // The stream plays on when every device it carries is carried as it was, though the
-        // group may now mix protocols to carry this one.
+        // group may now mix protocols to carry this one; unless that moves its AirPlay
+        // speakers by their offset beside other protocols.
+        let mixing = (running.strategy == Strategy::Mixed) != (plan.strategy == Strategy::Mixed);
+        let moves_airplay = mixing
+            && self.mixed_airplay_ms() != 0
+            && running.streamed().any(|carrier| {
+                self.device(&carrier.device).is_ok_and(|device| {
+                    device
+                        .member(&carrier.endpoint)
+                        .is_some_and(|member| member.endpoint.state().provider == AIRPLAY)
+                })
+            });
         let same_stream = running.sample_rate == plan.sample_rate
             && running.channels == plan.channels
+            && !moves_airplay
             && running
                 .carriers
                 .iter()
@@ -952,6 +981,7 @@ impl Playback {
                 && let Some(member) = self.device(device)?.member(&carrier.endpoint)
             {
                 self.enforce_cap(device);
+                let timeline = self.carrier_timeline(&plan, &member.endpoint, timeline);
                 leading.session.add_sink(
                     device.to_owned(),
                     member.endpoint.output(carrier.format, timeline),
@@ -1305,6 +1335,7 @@ impl Playback {
             .filter_map(|carrier| {
                 let device = self.inner.devices.get(&carrier.device)?;
                 let member = device.member(&carrier.endpoint)?;
+                let timeline = self.carrier_timeline(&plan, &member.endpoint, timeline);
                 Some((
                     carrier.device.clone(),
                     member.endpoint.output(carrier.format, timeline),
@@ -1984,6 +2015,43 @@ impl Playback {
     /// on the group's timeline, for a phone to hear; see [`calibration`]. What the group
     /// played is paused, and stays paused. Returns once the chirps are scheduled, before they
     /// play.
+    /// How much later AirPlay speakers play in a group that mixes protocols, in ms.
+    pub fn mixed_airplay_ms(&self) -> i32 {
+        self.inner.mixed_airplay_ms.load(Ordering::Relaxed)
+    }
+
+    /// Sets how much later AirPlay speakers play in a group that mixes protocols, from the next
+    /// play, and keeps it.
+    pub async fn set_mixed_airplay_ms(&self, ms: i32) -> Result<()> {
+        self.inner.mixed_airplay_ms.store(ms, Ordering::Relaxed);
+        if let Some(db) = self.inner.db.get() {
+            db.call(move |conn| {
+                Ok(bopsie_core::db::set_setting(
+                    conn,
+                    MIXED_AIRPLAY_MS,
+                    Some(&ms.to_string()),
+                )?)
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// The timeline an endpoint carrying for `plan` plays: AirPlay's later by
+    /// [`Playback::mixed_airplay_ms`] when the plan mixes protocols.
+    fn carrier_timeline(
+        &self,
+        plan: &Plan,
+        endpoint: &Arc<dyn Endpoint>,
+        timeline: Timeline,
+    ) -> Timeline {
+        if plan.strategy == Strategy::Mixed && endpoint.state().provider == AIRPLAY {
+            timeline.delayed(self.mixed_airplay_ms())
+        } else {
+            timeline
+        }
+    }
+
     pub async fn calibrate(&self, id: &str) -> Result<Calibration> {
         let leader = self.leader_of(id).ok_or_else(|| not_found(id))?;
         let entry = self.entry(&leader)?;
@@ -2044,7 +2112,10 @@ impl Playback {
                     at: start + calibration::offset(round, index, count),
                 });
             }
-            let sink = member.endpoint.output(format, timeline);
+            let sink = member.endpoint.output(
+                format,
+                self.carrier_timeline(&plan, &member.endpoint, timeline),
+            );
             writers.push(tokio::task::spawn_blocking(move || {
                 play_calibration(sink, index, count, ends_at);
             }));

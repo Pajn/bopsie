@@ -96,7 +96,10 @@ speakers. A speaker that sounds ahead of or behind the rest is moved by its `syn
 quirk; see [`config.example.toml`](config.example.toml). Bopsie on Android sets it by ear: with
 `admin/calibration/start` each speaker the group streams to plays a chirp in turn, on the group's
 timeline, and `admin/calibration/apply` takes how late the phone heard each one and makes the
-early speakers wait for the latest. Calibrating pauses the group.
+early speakers wait for the latest. Calibrating pauses the group. AirPlay speakers keep in step
+with each other on PTP, so beside other protocols they move together: calibrating a group that
+mixes them sets one offset all AirPlay speakers wait in such groups, and leaves their own
+`sync_adjust_ms` alone. A group of AirPlay speakers alone plays without it.
 
 A speaker's own controls act on the group it plays in, as the app would: pause pressed on
 one speaker pauses all of them, and play, next, previous and its volume buttons work the same

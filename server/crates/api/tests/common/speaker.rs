@@ -51,6 +51,8 @@ pub struct Speaker {
     pub prepared_at: Mutex<Option<std::time::Instant>>,
     /// How long it takes to get ready to play.
     pub prepare_takes: Mutex<Duration>,
+    /// The timeline each output it was asked for plays.
+    pub timelines: Mutex<Vec<Timeline>>,
 }
 
 /// What the next write to a speaker's output does wrong.
@@ -88,6 +90,7 @@ impl Speaker {
             woken_at: Mutex::default(),
             prepared_at: Mutex::default(),
             prepare_takes: Mutex::default(),
+            timelines: Mutex::default(),
         });
         players.register(speaker.clone());
         speaker
@@ -193,8 +196,9 @@ impl Endpoint for Speaker {
             .resolve_quirks(&self.id, &state, &Default::default());
         state
     }
-    fn output(&self, format: OutputFormat, _timeline: Timeline) -> Box<dyn Sink> {
+    fn output(&self, format: OutputFormat, timeline: Timeline) -> Box<dyn Sink> {
         self.outputs.fetch_add(1, Ordering::SeqCst);
+        self.timelines.lock().unwrap().push(timeline);
         Box::new(Counting {
             format,
             trouble: self.trouble.clone(),

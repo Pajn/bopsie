@@ -20,6 +20,14 @@ impl Timeline {
         self.rate
     }
 
+    /// The same frames, each playing `ms` later.
+    pub fn delayed(&self, ms: i32) -> Self {
+        Self {
+            rate: self.rate,
+            anchor: self.anchor + Micros::from(ms) * 1_000,
+        }
+    }
+
     /// When `frame` plays: the first whole microsecond at or after it starts, so that
     /// [`Timeline::frame_at`] maps the instant back to the same frame.
     pub fn instant_of(&self, frame: u64) -> Micros {

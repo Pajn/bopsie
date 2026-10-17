@@ -118,6 +118,25 @@ async fn a_group_is_calibrated_from_what_a_phone_heard() {
     assert_eq!(applied[1]["previous_ms"], 25);
     assert_eq!(applied[1]["sync_adjust_ms"], 25);
 
+    // Heard ahead of the phone, the AirPlay speaker is made to wait: as the offset AirPlay
+    // speakers share beside other protocols, not as its own adjustment.
+    let applied = client
+        .result(
+            "admin/calibration/apply",
+            json!({"delays_ms": {"kitchen": 10.0, "phone": 40.0}}),
+        )
+        .await;
+    assert_eq!(
+        applied,
+        json!([
+            {"endpoint_id": "kitchen", "previous_ms": 0, "sync_adjust_ms": 5},
+            {"endpoint_id": "phone", "previous_ms": 25, "sync_adjust_ms": 0},
+        ])
+    );
+    assert_eq!(server.api.playback.mixed_airplay_ms(), 5);
+    let kitchen_settings = server.players.saved_endpoint("kitchen");
+    assert_eq!(kitchen_settings.quirks.sync_adjust_ms, None);
+
     let refused: Value = client
         .send(
             "admin/calibration/apply",

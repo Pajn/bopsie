@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use bopsie_core::{Error, ErrorCode, Result};
 use bopsie_players::settings::SavedEndpoint;
 use bopsie_queues::calibration;
+use bopsie_queues::playback::AIRPLAY;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -100,6 +101,9 @@ pub struct CalibrationApplyArgs {
     pub dry_run: bool,
 }
 
+/// What a calibration sets for an endpoint. In a group that mixes protocols, every AirPlay
+/// speaker reports the offset AirPlay speakers share beside other protocols, rather than its
+/// own `sync_adjust_ms`, which it leaves as it was.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Adjustment {
     pub endpoint_id: String,
@@ -113,7 +117,7 @@ pub struct CalibrationApply;
 impl Command for CalibrationApply {
     const NAME: &'static str = "admin/calibration/apply";
     const ACCESS: Access = Access::Scope(Scope::Admin);
-    const SUMMARY: &'static str = "Set each endpoint's sync_adjust_ms from when a calibration's chirps were heard, so that they play in step.";
+    const SUMMARY: &'static str = "Set each endpoint's sync_adjust_ms from when a calibration's chirps were heard, so that they play in step; beside other protocols, AirPlay speakers share one offset instead.";
     type Args = CalibrationApplyArgs;
     type Output = Vec<Adjustment>;
 
@@ -123,7 +127,8 @@ impl Command for CalibrationApply {
                 "A calibration needs what was heard of at least two speakers",
             ));
         }
-        let devices = ctx.api.playback.devices();
+        let playback = &ctx.api.playback;
+        let devices = playback.devices();
         let players = devices.players();
         let mut measured = Vec::new();
         for (id, delay) in &args.delays_ms {
@@ -136,24 +141,53 @@ impl Command for CalibrationApply {
             if !delay.is_finite() {
                 return Err(Error::invalid_data(format!("No delay for {id}")));
             }
-            let current = endpoint.state().quirks.quirks.sync_adjust_ms.unwrap_or(0);
-            measured.push((id.clone(), *delay, current));
+            let state = endpoint.state();
+            let own = state.quirks.quirks.sync_adjust_ms.unwrap_or(0);
+            measured.push((id.clone(), *delay, own, state.provider == AIRPLAY));
         }
+        // AirPlay speakers keep in step with each other on PTP; beside other protocols they
+        // move together, by the offset they played with on top of their own adjustments.
+        let mixed = measured.iter().any(|m| m.3) && measured.iter().any(|m| !m.3);
+        let offset = playback.mixed_airplay_ms();
+        let played: Vec<(String, f64, i32)> = measured
+            .iter()
+            .map(|(id, delay, own, airplay)| {
+                let shared = if mixed && *airplay { offset } else { 0 };
+                (id.clone(), *delay, own + shared)
+            })
+            .collect();
+        let adjusted = calibration::adjustments(&played);
+        let new_offset = mixed.then(|| {
+            let mut wanted: Vec<i32> = adjusted
+                .iter()
+                .zip(&measured)
+                .filter(|(_, m)| m.3)
+                .map(|((_, adjust), (_, _, own, _))| adjust - own)
+                .collect();
+            wanted.sort_unstable();
+            wanted[wanted.len() / 2]
+        });
         let mut out = Vec::new();
-        for ((id, adjust), (_, _, previous)) in calibration::adjustments(&measured)
-            .into_iter()
-            .zip(&measured)
-        {
-            if !args.dry_run {
-                let mut saved: SavedEndpoint = players.saved_endpoint(&id);
-                saved.quirks.sync_adjust_ms = Some(adjust);
-                players.save_endpoint(&id, saved).await?;
-            }
+        for ((id, adjust), (_, _, own, airplay)) in adjusted.into_iter().zip(&measured) {
+            let (previous, set) = match new_offset {
+                Some(new_offset) if *airplay => (offset, new_offset),
+                _ => {
+                    if !args.dry_run {
+                        let mut saved: SavedEndpoint = players.saved_endpoint(&id);
+                        saved.quirks.sync_adjust_ms = Some(adjust);
+                        players.save_endpoint(&id, saved).await?;
+                    }
+                    (*own, adjust)
+                }
+            };
             out.push(Adjustment {
                 endpoint_id: id,
-                previous_ms: *previous,
-                sync_adjust_ms: adjust,
+                previous_ms: previous,
+                sync_adjust_ms: set,
             });
+        }
+        if let (Some(new_offset), false) = (new_offset, args.dry_run) {
+            playback.set_mixed_airplay_ms(new_offset).await?;
         }
         if !args.dry_run {
             tracing::info!(?out, "calibrated");

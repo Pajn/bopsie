@@ -57,6 +57,8 @@ Each line says what to do, what to hear, and what the log shows when it went rig
    Then calibrate the group from Bopsie's Account tab, standing where you listen: each speaker
    chirps three times, every one is heard, and saving makes the early ones wait. Play again: no
    echo. Calibrate again: each speaker's adjustment stays within a couple of milliseconds.
+   Then group the AirPlay speakers alone: they play in step, without the AirPlay offset the
+   calibration set.
 10. **Transfer.** Move the queue from one speaker to the other. It continues on the new one from
     where it was, and the old one stops.
 
