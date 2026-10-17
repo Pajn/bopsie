@@ -3,16 +3,17 @@
 mod common;
 
 use bopsie_core::db::Database;
-use bopsie_core::events::EventBus;
+use bopsie_core::events::{EventBus, EventType};
 use bopsie_core::media::{MediaItem, MediaType};
 use bopsie_library::Library;
-use bopsie_library::catalog::Catalog;
+use bopsie_library::catalog::{Catalog, Progress};
 use bopsie_sources_audiobookshelf::{Account, AccountError, AudiobookshelfCatalog};
 
 use common::PASSWORD;
 
 struct Fixture {
     db: Database,
+    events: EventBus,
     account: Account,
     catalog: AudiobookshelfCatalog,
     library: Library,
@@ -25,9 +26,10 @@ async fn fixture() -> Fixture {
     let (url, stand) = common::start().await;
     let dir = tempfile::tempdir().unwrap();
     let db = Database::open_in_memory(&[bopsie_library::MIGRATIONS]).unwrap();
+    let events = EventBus::default();
     let library = Library::new(
         db.clone(),
-        EventBus::default(),
+        events.clone(),
         Vec::new(),
         dir.path().join("artwork"),
     );
@@ -35,6 +37,7 @@ async fn fixture() -> Fixture {
     let catalog = AudiobookshelfCatalog::new(account.clone(), library.clone(), None);
     Fixture {
         db,
+        events,
         account,
         catalog,
         library,
@@ -297,4 +300,63 @@ async fn listening_continues_in_the_book_listened_to_last() {
     assert_eq!(started[1].fully_played, Some(false));
     assert_eq!(f.catalog.in_progress(1).await.unwrap().len(), 1);
     assert!(f.catalog.in_progress(0).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn continue_listening_is_kept_and_asked_again_when_listening_moves_on() {
+    let f = fixture().await.signed_in().await;
+    let asked = |f: &Fixture| {
+        f.stand
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|r| *r == "GET /api/me")
+            .count()
+    };
+    let names = |books: Vec<bopsie_core::media::Audiobook>| -> Vec<String> {
+        books.into_iter().map(|b| b.fields.name).collect()
+    };
+    assert_eq!(
+        names(f.catalog.in_progress(10).await.unwrap()),
+        ["Snow Crash", "The Hobbit"]
+    );
+    // Kept: answered without asking the server again.
+    assert_eq!(
+        names(f.catalog.in_progress(1).await.unwrap()),
+        ["Snow Crash"]
+    );
+    assert_eq!(asked(&f), 1);
+
+    // The Hobbit is listened to, elsewhere, then paused here.
+    let mut events = f.events.subscribe();
+    f.stand.lock().unwrap().listened_last = Some("li_h".to_owned());
+    f.catalog.progress(
+        "li_h",
+        Progress::Paused(std::time::Duration::from_secs(700)),
+    );
+    // Until it is asked again, what was kept, at once.
+    assert_eq!(
+        names(f.catalog.in_progress(10).await.unwrap())[0],
+        "Snow Crash"
+    );
+    let announced = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.event == EventType::MediaItemUpdated {
+                return event;
+            }
+        }
+    })
+    .await
+    .expect("the clients are told");
+    assert_eq!(
+        announced.object_id.as_deref(),
+        Some("audiobookshelf://audiobook/li_h")
+    );
+    assert_eq!(
+        names(f.catalog.in_progress(10).await.unwrap()),
+        ["The Hobbit", "Snow Crash"]
+    );
+    assert_eq!(asked(&f), 2, "asked once more");
 }

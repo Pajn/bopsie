@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,21 +30,56 @@ pub const AUDIOBOOKSHELF: &str = "audiobookshelf";
 /// How long which libraries hold audiobooks is kept before the server is asked again.
 const LIBRARIES_KEPT: Duration = Duration::from_secs(600);
 
+/// How many books listening continues in are kept; a shelf asks for fewer.
+const CONTINUING_KEPT: usize = 24;
+/// How long the books listening continues in are answered as kept before they are asked again,
+/// in the background.
+const CONTINUING_FRESH: Duration = Duration::from_secs(60);
+/// How long after listening moves on they are asked again: time for the server to hear of it.
+const CONTINUING_AFTER_PROGRESS: Duration = Duration::from_secs(5);
+/// How long after a book starts they are asked again: after the first sync of where it is.
+const CONTINUING_AFTER_START: Duration = Duration::from_secs(25);
+
 /// The server's filter for items with no audio files: `tracks.` and `none` in base64, encoded
 /// for a URL.
 const NO_AUDIO: &str = "tracks.bm9uZQ%3D%3D";
 
 pub struct AudiobookshelfCatalog {
     account: Account,
-    library: Library,
     /// What plays books: they are fetched from the server through it.
     ffmpeg: Option<PathBuf>,
     runtime: Handle,
     sessions: Sessions,
     /// Where listening progress goes to be kept on the server.
     progress: mpsc::UnboundedSender<(String, Progress)>,
+    source: Arc<Source>,
+}
+
+/// What reads the server's books, shared with the catalog's work in the background.
+struct Source {
+    account: Account,
+    library: Library,
     /// The libraries that hold audiobooks, the server they are of, and when they were asked.
     libraries: Mutex<Option<(String, Instant, Vec<String>)>>,
+    /// The books listening continues in, as last asked.
+    continuing: Mutex<Option<Continuing>>,
+    /// A refresh of `continuing` runs.
+    refreshing: AtomicBool,
+    /// A refresh of `continuing` is wanted.
+    wanted: AtomicBool,
+    /// The book playback last said plays.
+    playing: Mutex<Option<String>>,
+    runtime: Handle,
+}
+
+/// The books listening continues in, kept to answer at once.
+struct Continuing {
+    /// The server and the user they are of.
+    of: (Option<String>, Option<String>),
+    at: Instant,
+    books: Vec<Audiobook>,
+    /// They are out of date: listening moved on since.
+    stale: bool,
 }
 
 impl From<AccountError> for CatalogError {
@@ -219,17 +255,32 @@ impl AudiobookshelfCatalog {
     /// Needs a Tokio runtime.
     pub fn new(account: Account, library: Library, ffmpeg: Option<PathBuf>) -> Self {
         let sessions = Sessions::default();
+        let source = Arc::new(Source {
+            account: account.clone(),
+            library: library.clone(),
+            libraries: Mutex::default(),
+            continuing: Mutex::default(),
+            refreshing: AtomicBool::default(),
+            wanted: AtomicBool::default(),
+            playing: Mutex::default(),
+            runtime: Handle::current(),
+        });
+        // Kept from the start, for the first to ask to be answered at once.
+        if account.signed_in() {
+            source.refresh_soon(Duration::ZERO);
+        }
         Self {
             progress: progress::start(account.clone(), sessions.clone()),
             account,
-            library,
             ffmpeg,
             runtime: Handle::current(),
             sessions,
-            libraries: Mutex::default(),
+            source,
         }
     }
+}
 
+impl Source {
     /// The server's libraries of audiobooks, by id: its libraries of books most of whose items
     /// have audio. A library of ebooks is a library of books too, with none.
     async fn book_libraries(&self) -> CatalogResult<Vec<String>> {
@@ -288,6 +339,144 @@ impl AudiobookshelfCatalog {
         books
     }
 
+    /// The books listening continues in, the most recently listened to first: at most
+    /// `limit`, from each library's continue listening.
+    async fn fetch_in_progress(&self, limit: usize) -> CatalogResult<Vec<Audiobook>> {
+        // Where listening is in each book, and when it was last listened to.
+        let me = self.account.get("/api/me").await?;
+        let progress: HashMap<&str, &Value> = me["mediaProgress"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|progress| progress["episodeId"].is_null())
+            .filter_map(|progress| Some((progress["libraryItemId"].as_str()?, progress)))
+            .collect();
+        // Each library's continue listening, as the server's own apps show it: without
+        // what was finished or hidden from it.
+        let mut started: Vec<(u64, Value)> = Vec::new();
+        for library in self.book_libraries().await? {
+            let shelves = self
+                .account
+                .get(&format!(
+                    "/api/libraries/{library}/personalized?limit={limit}"
+                ))
+                .await?;
+            let shelf = shelves
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|shelf| shelf["id"] == "continue-listening");
+            for item in shelf
+                .and_then(|shelf| shelf["entities"].as_array())
+                .into_iter()
+                .flatten()
+            {
+                let Some(&listened) = item["id"].as_str().and_then(|id| progress.get(id)) else {
+                    continue;
+                };
+                let mut item = item.clone();
+                item["mediaProgress"] = listened.clone();
+                started.push((listened["lastUpdate"].as_u64().unwrap_or(0), item));
+            }
+        }
+        started.sort_by_key(|(last, _)| std::cmp::Reverse(*last));
+        let items: Vec<Value> = started.into_iter().map(|(_, item)| item).collect();
+        let mut books = self.books(&items).await;
+        books.truncate(limit);
+        Ok(books)
+    }
+
+    /// Whom the books listening continues in are of: the server and the user signed in.
+    fn listener(&self) -> (Option<String>, Option<String>) {
+        let status = self.account.status();
+        (status.url, status.user)
+    }
+
+    /// The books listening continues in as kept for whoever is signed in now, and whether they
+    /// are to be asked again.
+    fn kept_continuing(&self) -> Option<(Vec<Audiobook>, bool)> {
+        let listener = self.listener();
+        let continuing = self.continuing.lock().unwrap();
+        let kept = continuing.as_ref().filter(|kept| kept.of == listener)?;
+        Some((
+            kept.books.clone(),
+            kept.stale || kept.at.elapsed() >= CONTINUING_FRESH,
+        ))
+    }
+
+    /// Asks the server for the books listening continues in and keeps them. When they changed
+    /// from those kept, the clients are told, to show them again.
+    async fn refresh_continuing(&self) -> CatalogResult<Vec<Audiobook>> {
+        let of = self.listener();
+        let books = self.fetch_in_progress(CONTINUING_KEPT).await?;
+        let before = self.continuing.lock().unwrap().replace(Continuing {
+            of: of.clone(),
+            at: Instant::now(),
+            books: books.clone(),
+            stale: false,
+        });
+        let changed = before.is_some_and(|before| before.of == of && before.books != books);
+        if changed && let Some(first) = books.first() {
+            match serde_json::to_value(first) {
+                Ok(item) => self
+                    .library
+                    .announce_updated(first.fields.uri.clone(), item),
+                Err(error) => tracing::warn!(%error, "cannot announce an audiobook"),
+            }
+        }
+        Ok(books)
+    }
+
+    /// Asks again for the books listening continues in, `after` from now, in the background:
+    /// once, however often it is wanted meanwhile, and once more if it is wanted while asking.
+    fn refresh_soon(self: &Arc<Self>, after: Duration) {
+        self.wanted.store(true, Ordering::SeqCst);
+        if self.refreshing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let source = self.clone();
+        self.runtime.spawn(async move {
+            tokio::time::sleep(after).await;
+            while source.wanted.swap(false, Ordering::SeqCst) {
+                if let Err(error) = source.refresh_continuing().await {
+                    tracing::debug!(%error, "cannot ask Audiobookshelf what listening continues in");
+                }
+            }
+            source.refreshing.store(false, Ordering::SeqCst);
+            // Wanted between the last ask and letting go: asked for again.
+            if source.wanted.load(Ordering::SeqCst) {
+                source.refresh_soon(Duration::ZERO);
+            }
+        });
+    }
+
+    /// Playback told how far into book `id` listening is: the books listening continues in
+    /// are asked again once the server has heard, when it changes what they are.
+    fn listening_moved(self: &Arc<Self>, id: &str, progress: &Progress) {
+        let after = match progress {
+            // Every second while it plays: only a book that was not playing moves it first,
+            // once the server has its first sync.
+            Progress::Playing(_) => {
+                let mut playing = self.playing.lock().unwrap();
+                if playing.as_deref() == Some(id) {
+                    return;
+                }
+                *playing = Some(id.to_owned());
+                CONTINUING_AFTER_START
+            }
+            Progress::Paused(_) | Progress::Seeked(_) | Progress::Ended | Progress::Stopped(_) => {
+                if !matches!(progress, Progress::Seeked(_)) {
+                    *self.playing.lock().unwrap() = None;
+                }
+                CONTINUING_AFTER_PROGRESS
+            }
+        };
+        if let Some(kept) = self.continuing.lock().unwrap().as_mut() {
+            kept.stale = true;
+        }
+        self.refresh_soon(after);
+    }
+
     /// A page of one library's books, by title.
     async fn page(&self, library: &str, limit: usize, page: usize) -> CatalogResult<Value> {
         Ok(self
@@ -327,7 +516,7 @@ impl Catalog for AudiobookshelfCatalog {
                 return Ok(Vec::new());
             }
             let mut found = Vec::new();
-            for library in self.book_libraries().await? {
+            for library in self.source.book_libraries().await? {
                 let answer = self
                     .account
                     .get(&format!(
@@ -343,7 +532,8 @@ impl Catalog for AudiobookshelfCatalog {
                         .map(|hit| hit["libraryItem"].clone())
                         .collect();
                     found.extend(
-                        self.books(&items)
+                        self.source
+                            .books(&items)
                             .await
                             .into_iter()
                             .map(|book| MediaItem::Audiobook(Box::new(book))),
@@ -355,7 +545,9 @@ impl Catalog for AudiobookshelfCatalog {
                         .flatten()
                         .filter_map(author)
                         .collect();
-                    self.remember(authors.iter().map(|a| &a.fields)).await;
+                    self.source
+                        .remember(authors.iter().map(|a| &a.fields))
+                        .await;
                     found.extend(authors.into_iter().map(|a| MediaItem::Artist(Box::new(a))));
                 }
             }
@@ -377,6 +569,7 @@ impl Catalog for AudiobookshelfCatalog {
                         .get(&format!("/api/items/{id}?expanded=1&include=progress"))
                         .await?;
                     let book = self
+                        .source
                         .books(std::slice::from_ref(&item))
                         .await
                         .pop()
@@ -387,7 +580,7 @@ impl Catalog for AudiobookshelfCatalog {
                     let value = self.account.get(&format!("/api/authors/{id}")).await?;
                     let artist = author(&value)
                         .ok_or_else(|| CatalogError::NotFound(format!("author {id}")))?;
-                    self.remember([&artist.fields]).await;
+                    self.source.remember([&artist.fields]).await;
                     Ok(MediaItem::Artist(Box::new(artist)))
                 }
                 _ => Err(CatalogError::NotFound(format!(
@@ -432,6 +625,7 @@ impl Catalog for AudiobookshelfCatalog {
     }
 
     fn progress(&self, id: &str, progress: Progress) {
+        self.source.listening_moved(id, &progress);
         let _ = self.progress.send((id.to_owned(), progress));
     }
 
@@ -444,11 +638,11 @@ impl Catalog for AudiobookshelfCatalog {
             let mut books = Vec::new();
             let mut skip = offset;
             let mut left = limit;
-            for library in self.book_libraries().await? {
+            for library in self.source.book_libraries().await? {
                 if left == 0 {
                     break;
                 }
-                let total = self.page(&library, 1, 0).await?["total"]
+                let total = self.source.page(&library, 1, 0).await?["total"]
                     .as_u64()
                     .unwrap_or(0) as usize;
                 if skip >= total {
@@ -463,7 +657,7 @@ impl Catalog for AudiobookshelfCatalog {
                 } else {
                     (skip + left, 0, skip)
                 };
-                let answer = self.page(&library, size, page).await?;
+                let answer = self.source.page(&library, size, page).await?;
                 let items: Vec<Value> = answer["results"]
                     .as_array()
                     .cloned()
@@ -473,7 +667,7 @@ impl Catalog for AudiobookshelfCatalog {
                     .take(left)
                     .collect();
                 skip = 0;
-                let page = self.books(&items).await;
+                let page = self.source.books(&items).await;
                 left = left.saturating_sub(page.len());
                 books.extend(page);
             }
@@ -484,8 +678,8 @@ impl Catalog for AudiobookshelfCatalog {
     fn audiobook_count<'a>(&'a self) -> BoxFuture<'a, CatalogResult<usize>> {
         Box::pin(async move {
             let mut count = 0;
-            for library in self.book_libraries().await? {
-                count += self.page(&library, 1, 0).await?["total"]
+            for library in self.source.book_libraries().await? {
+                count += self.source.page(&library, 1, 0).await?["total"]
                     .as_u64()
                     .unwrap_or(0) as usize;
             }
@@ -498,49 +692,20 @@ impl Catalog for AudiobookshelfCatalog {
             if limit == 0 {
                 return Ok(Vec::new());
             }
-            // Where listening is in each book, and when it was last listened to.
-            let me = self.account.get("/api/me").await?;
-            let progress: HashMap<&str, &Value> = me["mediaProgress"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|progress| progress["episodeId"].is_null())
-                .filter_map(|progress| Some((progress["libraryItemId"].as_str()?, progress)))
-                .collect();
-            // Each library's continue listening, as the server's own apps show it: without
-            // what was finished or hidden from it.
-            let mut started: Vec<(u64, Value)> = Vec::new();
-            for library in self.book_libraries().await? {
-                let shelves = self
-                    .account
-                    .get(&format!(
-                        "/api/libraries/{library}/personalized?limit={limit}"
-                    ))
-                    .await?;
-                let shelf = shelves
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|shelf| shelf["id"] == "continue-listening");
-                for item in shelf
-                    .and_then(|shelf| shelf["entities"].as_array())
-                    .into_iter()
-                    .flatten()
-                {
-                    let Some(&listened) = item["id"].as_str().and_then(|id| progress.get(id))
-                    else {
-                        continue;
-                    };
-                    let mut item = item.clone();
-                    item["mediaProgress"] = listened.clone();
-                    started.push((listened["lastUpdate"].as_u64().unwrap_or(0), item));
-                }
+            if limit > CONTINUING_KEPT {
+                return self.source.fetch_in_progress(limit).await;
             }
-            started.sort_by_key(|(last, _)| std::cmp::Reverse(*last));
-            let items: Vec<Value> = started.into_iter().map(|(_, item)| item).collect();
-            let mut books = self.books(&items).await;
-            books.truncate(limit);
-            Ok(books)
+            // Kept, it answers at once, and is asked again in the background when it is old.
+            let books = match self.source.kept_continuing() {
+                Some((books, old)) => {
+                    if old {
+                        self.source.refresh_soon(Duration::ZERO);
+                    }
+                    books
+                }
+                None => self.source.refresh_continuing().await?,
+            };
+            Ok(books.into_iter().take(limit).collect())
         })
     }
 
@@ -557,7 +722,7 @@ impl Catalog for AudiobookshelfCatalog {
                 .as_array()
                 .cloned()
                 .unwrap_or_default();
-            Ok(self.books(&items).await)
+            Ok(self.source.books(&items).await)
         })
     }
 

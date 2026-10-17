@@ -38,6 +38,8 @@ pub struct Stand {
     /// What it was told of listening: `sync <session>`, `close <session>` or
     /// `progress <book>`, with the body.
     pub reports: Vec<(String, Value)>,
+    /// The book listened to last, ahead of the others; Snow Crash unless said.
+    pub listened_last: Option<String>,
 }
 
 pub type Shared = Arc<Mutex<Stand>>;
@@ -94,7 +96,7 @@ pub fn ebooks() -> Vec<Value> {
 
 /// Where listening is in each book, as `/api/me` lists it: Snow Crash listened to last, The
 /// Hobbit before it, Anathem finished, and an ebook read.
-pub fn media_progress() -> Value {
+pub fn media_progress(listened_last: Option<&str>) -> Value {
     let progress = |id: &str, at: f64, finished: bool, last: u64| {
         json!({
             "id": format!("prog-{id}"), "libraryItemId": id, "episodeId": null,
@@ -102,9 +104,16 @@ pub fn media_progress() -> Value {
             "lastUpdate": last,
         })
     };
+    let last = |id: &str, at: u64| {
+        if listened_last == Some(id) {
+            1_700_000_900_000
+        } else {
+            at
+        }
+    };
     json!([
-        progress("li_h", 600.25, false, 1_700_000_100_000),
-        progress("li_s", 90.5, false, 1_700_000_200_000),
+        progress("li_h", 600.25, false, last("li_h", 1_700_000_100_000)),
+        progress("li_s", 90.5, false, last("li_s", 1_700_000_200_000)),
         progress("li_a", 3_600.0, true, 1_700_000_300_000),
         progress("li_e2", 0.0, false, 1_700_000_400_000),
         {"id": "prog-ep", "libraryItemId": "pod-x", "episodeId": "ep1", "currentTime": 5.0,
@@ -447,7 +456,8 @@ async fn me(State(stand): State<Shared>, headers: HeaderMap) -> Response {
     if !authorized(&stand, &headers) {
         return unauthorized();
     }
-    Json(json!({"id": "user1", "username": "reader", "mediaProgress": media_progress()}))
+    let last = stand.lock().unwrap().listened_last.clone();
+    Json(json!({"id": "user1", "username": "reader", "mediaProgress": media_progress(last.as_deref())}))
         .into_response()
 }
 
