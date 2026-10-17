@@ -13,6 +13,7 @@ import { ToastProvider } from '@/ui/Toast';
 const ICON = require('../../assets/mark.png');
 
 const PAGES: ReadonlyArray<{ href: string; title: string; icon: IconName }> = [
+  { href: '/home', title: 'Home', icon: 'home' },
   { href: '/players', title: 'Players', icon: 'speaker' },
   { href: '/queues', title: 'Queues', icon: 'list' },
   { href: '/sync', title: 'Sync', icon: 'sliders' },

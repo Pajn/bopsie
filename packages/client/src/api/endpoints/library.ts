@@ -140,6 +140,13 @@ export const searchAudiobooks = async (connection: MaConnection, query: string, 
     )
   ).audiobooks;
 
+/**
+ * The audiobooks listening has started and not finished, the most recently listened to first,
+ * as the sources keep it: Audiobookshelf's continue listening.
+ */
+export const inProgressItems = (connection: MaConnection, limit = 12) =>
+  connection.command('music/in_progress_items', { limit }, { schema: z.array(audiobook) });
+
 export const getAudiobook = (connection: MaConnection, ref: ItemRef) =>
   connection.command('music/audiobooks/get', refArgs(ref), { schema: audiobook });
 

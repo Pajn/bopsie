@@ -1,7 +1,7 @@
 import { imageUrl } from '@bopsie/client/api/images';
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image, Pressable, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Icon } from '@/ui/Icon';
@@ -23,10 +23,13 @@ function Tile({
   item,
   caption,
   narrow,
+  width,
 }: {
   item: Item;
   caption: (item: Item) => string;
   narrow: boolean;
+  /** A fixed width, as on a shelf, in place of a share of the grid's. */
+  width?: number;
 }) {
   const { account } = useConnection();
   const { theme } = useUnistyles();
@@ -35,7 +38,7 @@ function Tile({
   const round = item.media_type === 'artist';
   return (
     <View
-      style={styles.cell(narrow)}
+      style={width ? { width } : styles.cell(narrow)}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
@@ -111,7 +114,41 @@ export function ItemGrid({
   );
 }
 
+/** How wide a shelf's tiles are. */
+const SHELF_TILE = 176;
+
+/**
+ * Items as a shelf: one row of tiles that scrolls sideways, with stand-ins while it loads.
+ * `caption` is the line under each name, as on a grid.
+ */
+export function ItemShelf({
+  items,
+  caption = subtitle,
+  loading = false,
+}: {
+  items: Item[];
+  caption?: (item: Item) => string;
+  loading?: boolean;
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.shelf}>
+      {items.map((item) => (
+        <Tile key={item.uri} item={item} caption={caption} narrow={false} width={SHELF_TILE} />
+      ))}
+      {loading
+        ? ['a', 'b', 'c', 'd', 'e'].map((key) => (
+            <View key={key} style={[styles.tile(false), { width: SHELF_TILE }]}>
+              <Skeleton />
+              <Skeleton width="70%" height={12} radius={4} />
+            </View>
+          ))
+        : null}
+    </ScrollView>
+  );
+}
+
 const styles = StyleSheet.create((theme) => ({
+  shelf: { marginHorizontal: -theme.spacing.sm },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

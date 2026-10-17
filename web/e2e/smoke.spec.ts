@@ -10,6 +10,9 @@ async function signIn(page: Page) {
   await page.getByLabel('Username').fill(USERNAME);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
+  // Home first, with what came into the library lately.
+  await expect(page.getByText('Recently added')).toBeVisible();
+  await page.goto('/players');
   await expect(page.getByText('Every speaker the server knows')).toBeVisible();
 }
 
