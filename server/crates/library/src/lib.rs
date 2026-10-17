@@ -480,9 +480,37 @@ impl Library {
             .find(|p| p.instance_id() == image.provider)
             .cloned()
         else {
-            return Ok(None);
+            return match self.catalogs.get(&image.provider) {
+                Some(catalog) => Ok(catalog.image(&image.path).await.ok().flatten()),
+                None => Ok(None),
+            };
         };
         Ok(blocking(move || provider.image(&image.path)).await?.ok())
+    }
+
+    /// Makes images a catalog names by `(provider, path)` servable by the image proxy, under
+    /// the proxy ids [`scan::proxy_id`] gives them.
+    pub async fn remember_images(&self, images: Vec<(String, String)>) -> Result<()> {
+        if images.is_empty() {
+            return Ok(());
+        }
+        self.db
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                for (provider, path) in &images {
+                    scan::store_image(
+                        &tx,
+                        Some(&ImageRef {
+                            provider: provider.clone(),
+                            path: path.clone(),
+                        }),
+                    )?;
+                }
+                tx.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(Error::from)
     }
 
     /// Brings the library up to date with every provider, then publishes what changed.

@@ -88,6 +88,15 @@ async fn start_full(seconds: u32, web: Web, spotify: bool) -> Server {
     let playback = Playback::start(devices, events.clone(), PlaybackConfig::default());
     let sources = Sources::default();
     playback.follow_sources(sources.clone());
+    let audiobookshelf = bopsie_sources_audiobookshelf::Account::open(db.clone())
+        .await
+        .unwrap();
+    library.catalogs().add(Arc::new(
+        bopsie_sources_audiobookshelf::AudiobookshelfCatalog::new(
+            audiobookshelf.clone(),
+            library.clone(),
+        ),
+    ));
     let services = Services {
         library,
         events,
@@ -110,6 +119,7 @@ async fn start_full(seconds: u32, web: Web, spotify: bool) -> Server {
         } else {
             None
         },
+        audiobookshelf: Some(audiobookshelf),
         airplay: None,
         linkplay: None,
         web,

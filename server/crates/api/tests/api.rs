@@ -483,6 +483,9 @@ async fn info_and_the_command_list_need_no_auth() {
     assert_eq!(
         names,
         [
+            "admin/audiobookshelf/login",
+            "admin/audiobookshelf/sign_out",
+            "admin/audiobookshelf/status",
             "admin/calibration/apply",
             "admin/calibration/start",
             "admin/devices",
@@ -530,6 +533,7 @@ async fn info_and_the_command_list_need_no_auth() {
             "music/albums/get",
             "music/albums/library_items",
             "music/artists/artist_albums",
+            "music/artists/artist_audiobooks",
             "music/artists/artist_tracks",
             "music/artists/count",
             "music/artists/get",

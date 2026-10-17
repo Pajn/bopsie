@@ -20,6 +20,7 @@ bopsie-players-sendspin.workspace = true
 bopsie-queues.workspace = true
 bopsie-sources.workspace = true
 bopsie-sources-spotify.workspace = true
+bopsie-sources-audiobookshelf.workspace = true
 bopsie-api.workspace = true
 axum.workspace = true
 clap.workspace = true

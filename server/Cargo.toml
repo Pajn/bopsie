@@ -14,6 +14,7 @@ members = [
     "crates/queues",
     "crates/sources",
     "crates/sources/spotify",
+    "crates/sources/audiobookshelf",
     "crates/api",
     "crates/server",
     "crates/fixtures",
@@ -38,6 +39,7 @@ bopsie-players-cast = { path = "crates/players/cast" }
 bopsie-queues = { path = "crates/queues" }
 bopsie-sources = { path = "crates/sources" }
 bopsie-sources-spotify = { path = "crates/sources/spotify" }
+bopsie-sources-audiobookshelf = { path = "crates/sources/audiobookshelf" }
 bopsie-api = { path = "crates/api" }
 bopsie-fixtures = { path = "crates/fixtures" }
 

@@ -379,6 +379,7 @@ dependencies = [
  "bopsie-providers-filesystem",
  "bopsie-queues",
  "bopsie-sources",
+ "bopsie-sources-audiobookshelf",
  "bopsie-sources-spotify",
  "futures",
  "image",
@@ -642,6 +643,7 @@ dependencies = [
  "bopsie-providers-filesystem",
  "bopsie-queues",
  "bopsie-sources",
+ "bopsie-sources-audiobookshelf",
  "bopsie-sources-spotify",
  "clap",
  "rustls 0.23.46",
@@ -656,6 +658,25 @@ version = "0.1.0"
 dependencies = [
  "bopsie-audio",
  "tokio",
+]
+
+[[package]]
+name = "bopsie-sources-audiobookshelf"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bopsie-audio",
+ "bopsie-core",
+ "bopsie-library",
+ "futures",
+ "reqwest 0.13.5",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

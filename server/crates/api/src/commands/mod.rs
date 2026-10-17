@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod airplay;
+pub mod audiobookshelf;
 pub mod auth;
 pub mod calibration;
 pub mod music;
@@ -44,6 +45,7 @@ pub fn registry() -> Registry {
         .add::<music::GetTrack>()
         .add::<music::GetPlaylist>()
         .add::<music::GetAudiobook>()
+        .add::<music::ArtistAudiobooks>()
         .add::<music::AlbumTracks>()
         .add::<music::ArtistAlbums>()
         .add::<music::ArtistTracks>()
@@ -106,6 +108,9 @@ pub fn registry() -> Registry {
         .add::<spotify::Login>()
         .add::<spotify::PairStart>()
         .add::<spotify::PairCancel>()
-        .add::<spotify::SignOut>();
+        .add::<spotify::SignOut>()
+        .add::<audiobookshelf::Status>()
+        .add::<audiobookshelf::Login>()
+        .add::<audiobookshelf::SignOut>();
     registry
 }

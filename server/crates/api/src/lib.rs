@@ -46,6 +46,8 @@ pub struct Services {
     pub sources: Sources,
     /// The Spotify account, unless the config file turns Spotify off.
     pub spotify: Option<SpotifyAccount>,
+    /// The Audiobookshelf sign-in.
+    pub audiobookshelf: Option<bopsie_sources_audiobookshelf::Account>,
     /// AirPlay, when `cliairplay` is installed.
     pub airplay: Option<AirplayProvider>,
     /// LinkPlay, unless the config file turns it off.
@@ -66,6 +68,7 @@ pub struct Api {
     pub playback: Playback,
     pub sources: Sources,
     pub spotify: Option<SpotifyAccount>,
+    pub audiobookshelf: Option<bopsie_sources_audiobookshelf::Account>,
     pub airplay: Option<AirplayProvider>,
     pub linkplay: Option<LinkplayProvider>,
     /// The Sendspin server role, which `/sendspin` and the direct listener hand clients to.
@@ -110,6 +113,7 @@ impl Api {
             playback: services.playback,
             sources: services.sources,
             spotify: services.spotify,
+            audiobookshelf: services.audiobookshelf,
             airplay: services.airplay,
             linkplay: services.linkplay,
             sendspin,
@@ -152,6 +156,7 @@ pub(crate) mod tests {
             ),
             sources: Sources::default(),
             spotify: None,
+            audiobookshelf: None,
             events,
             players,
             airplay: None,

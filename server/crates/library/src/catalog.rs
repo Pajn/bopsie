@@ -70,6 +70,19 @@ pub trait Catalog: Send + Sync {
     fn audiobook_count<'a>(&'a self) -> BoxFuture<'a, CatalogResult<usize>> {
         Box::pin(async { Ok(0) })
     }
+    /// The audiobooks artist `id` wrote.
+    fn artist_audiobooks<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> BoxFuture<'a, CatalogResult<Vec<Audiobook>>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+    /// The bytes of an image it named by `path` with no URL of its own, as one its server
+    /// serves only to those signed in to it. The library's image proxy serves it, once
+    /// [`crate::Library::remember_images`] knows it.
+    fn image<'a>(&'a self, _path: &'a str) -> BoxFuture<'a, CatalogResult<Option<Vec<u8>>>> {
+        Box::pin(async { Ok(None) })
+    }
     /// The URL of the largest image of each of `ids`'s artists the catalog has one of, by id.
     fn artist_images<'a>(
         &'a self,

@@ -311,6 +311,26 @@ impl Command for ArtistTracks {
     }
 }
 
+pub struct ArtistAudiobooks;
+impl Command for ArtistAudiobooks {
+    const NAME: &'static str = "music/artists/artist_audiobooks";
+    const ACCESS: Access = Access::Scope(Scope::LibraryRead);
+    const SUMMARY: &'static str = "The audiobooks an author wrote, from the source that serves them. This server's own addition.";
+    type Args = ItemArgs;
+    type Output = Vec<Value>;
+
+    async fn handle(ctx: Context, args: ItemArgs) -> Result<Vec<Value>> {
+        match args.target(&ctx, MediaType::Artist)? {
+            // The library stores no audiobooks.
+            Target::Library(id) => {
+                require(&ctx, MediaType::Artist, id).await?;
+                Ok(Vec::new())
+            }
+            Target::Catalog(catalog, id) => values(catalog.artist_audiobooks(id).await?),
+        }
+    }
+}
+
 pub struct PlaylistTracks;
 impl Command for PlaylistTracks {
     const NAME: &'static str = "music/playlists/playlist_tracks";
