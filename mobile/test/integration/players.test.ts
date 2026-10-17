@@ -10,7 +10,7 @@ import {
   queueCommand,
   transferQueue,
 } from '@bopsie/client/api/endpoints/players';
-import { activeLeaderId, describeOutputs } from '@/features/outputs/outputs';
+import { activeLeaderId, describeOutputs } from '@bopsie/client/outputs/outputs';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
 import { albumUri, connect, describeServer } from './server';
 

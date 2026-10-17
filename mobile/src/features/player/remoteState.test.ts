@@ -1,5 +1,5 @@
 import { playerQueue, player as playerSchema } from '@bopsie/client/api/schemas/player';
-import type { ActiveGroup } from '@/features/outputs/outputs';
+import type { ActiveGroup } from '@bopsie/client/outputs/outputs';
 import type { RemoteNowPlaying } from '@/player/Player';
 import { asHeard } from './nowPlaying';
 import { changed, remoteNowPlaying } from './remoteState';

@@ -1,6 +1,16 @@
 import { listPlayers } from '@bopsie/client/api/endpoints/players';
 import type { Player } from '@bopsie/client/api/schemas/player';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
+import { activeLeaderId } from '@bopsie/client/outputs/outputs';
+import {
+  addPending,
+  applyPending,
+  dropPending,
+  joiningOrLeaving,
+  type Pending,
+  type PlayerChanges,
+  settlePending,
+} from '@bopsie/client/outputs/pending';
 import { useQuery } from '@tanstack/react-query';
 import {
   createContext,
@@ -14,16 +24,6 @@ import {
 } from 'react';
 import { sqliteKeyValueStore } from '@/auth/platformStores';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { activeLeaderId } from './outputs';
-import {
-  addPending,
-  applyPending,
-  dropPending,
-  joiningOrLeaving,
-  type Pending,
-  type PlayerChanges,
-  settlePending,
-} from './pending';
 
 interface ActiveGroupValue {
   /** Every player on the server, kept current by events, with changes not yet confirmed. */

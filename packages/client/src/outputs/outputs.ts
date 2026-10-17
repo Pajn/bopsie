@@ -1,4 +1,4 @@
-import type { Player } from '@bopsie/client/api/schemas/player';
+import type { Player } from '../api/schemas/player';
 
 /** Player types that render audio. Displays, visualizers, lights and sources do not. */
 const PLAYBACK_TYPES = new Set(['player', 'stereo_pair', 'group']);

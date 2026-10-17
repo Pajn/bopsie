@@ -1,5 +1,5 @@
 import { imageUrl } from '@bopsie/client/api/images';
-import type { ActiveGroup } from '@/features/outputs/outputs';
+import type { ActiveGroup } from '@bopsie/client/outputs/outputs';
 import type { RemoteNowPlaying } from '@/player/Player';
 import { advancing } from '@/player/progress';
 import { describeItem, type HeardQueue } from './nowPlaying';

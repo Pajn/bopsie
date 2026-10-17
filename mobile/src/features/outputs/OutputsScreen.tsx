@@ -1,4 +1,5 @@
 import type { WithImages } from '@bopsie/client/api/schemas/media';
+import type { ActiveGroup, OtherOutput } from '@bopsie/client/outputs/outputs';
 import Slider from '@react-native-community/slider';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
@@ -18,7 +19,6 @@ import { Collapsible, Fold, useOpenProgress } from '@/ui/Collapsible';
 import { Icon, type IconName } from '@/ui/Icon';
 import { Text } from '@/ui/primitives';
 import { useActiveGroup } from './ActiveGroupProvider';
-import type { ActiveGroup, OtherOutput } from './outputs';
 import { useOutputActions, useOutputs } from './useOutputs';
 
 const UNDO_MS = 6000;
