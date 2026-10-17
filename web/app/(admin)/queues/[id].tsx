@@ -15,6 +15,7 @@ import { usePlayers } from '@/data/admin';
 import { useQueue, useQueueItems } from '@/data/queues';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
+import { Credits } from '@/features/library/Credits';
 import { describeItem, itemArtwork } from '@/features/queues/items';
 import { describeError } from '@/lib/errors';
 import { duration, elapsedNow } from '@/lib/time';
@@ -55,7 +56,9 @@ function NowPlaying({ id, queue, run }: { id: string; queue: PlayerQueue; run: R
           <Text variant="heading" numberOfLines={2}>
             {described?.title ?? 'Nothing loaded'}
           </Text>
-          {described?.subtitle ? (
+          {item?.media_item ? (
+            <Credits track={item.media_item} />
+          ) : described?.subtitle ? (
             <Text muted numberOfLines={1}>
               {described.subtitle}
             </Text>
@@ -208,7 +211,9 @@ function ItemRow({
           <Text numberOfLines={1} style={isCurrent && styles.currentTitle}>
             {title}
           </Text>
-          {subtitle ? (
+          {item.media_item ? (
+            <Credits track={item.media_item} variant="caption" />
+          ) : subtitle ? (
             <Text variant="caption" muted numberOfLines={1}>
               {subtitle}
             </Text>

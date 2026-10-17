@@ -8,6 +8,7 @@ import { duration } from '@/lib/time';
 import { Artwork } from '@/ui/Artwork';
 import { Text } from '@/ui/primitives';
 import type { Item } from './ItemRow';
+import { itemHref } from './links';
 import { PlayActions } from './PlayButtons';
 
 const KIND = { album: 'Album', artist: 'Artist', playlist: 'Playlist', track: 'Track' } as const;
@@ -19,11 +20,7 @@ function Artists({ item }: { item: Item }) {
   return (
     <View style={styles.artists}>
       {artists.map((artist, i) => (
-        <Link
-          key={`${artist.provider}-${artist.item_id}`}
-          href={`/library/artist/${encodeURIComponent(artist.provider)}/${encodeURIComponent(artist.item_id)}`}
-          asChild
-        >
+        <Link key={`${artist.provider}-${artist.item_id}`} href={itemHref(artist) as never} asChild>
           <Pressable accessibilityRole="link">
             <Text style={styles.artist}>
               {artist.name}
