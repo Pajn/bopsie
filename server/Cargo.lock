@@ -667,6 +667,7 @@ dependencies = [
  "axum",
  "bopsie-audio",
  "bopsie-core",
+ "bopsie-fixtures",
  "bopsie-library",
  "futures",
  "reqwest 0.13.5",

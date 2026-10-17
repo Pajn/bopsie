@@ -1,6 +1,9 @@
 //! Audiobookshelf's books as a catalog: browsed and searched as the server has them, its
 //! authors as artists, and its covers through the library's image proxy.
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use bopsie_audio::engine::Input;
 use bopsie_core::media::{
     Album, Artist, Audiobook, Chapter, Image, ItemFields, ItemMapping, MediaItem, MediaType,
@@ -11,8 +14,10 @@ use bopsie_library::catalog::{self, Catalog, CatalogError, CatalogResult};
 use bopsie_library::scan::proxy_id;
 use futures::future::BoxFuture;
 use serde_json::Value;
+use tokio::runtime::Handle;
 
 use crate::account::{Account, AccountError};
+use crate::media::BookMedia;
 
 /// The catalog's provider id, and its URIs' scheme.
 pub const AUDIOBOOKSHELF: &str = "audiobookshelf";
@@ -20,6 +25,9 @@ pub const AUDIOBOOKSHELF: &str = "audiobookshelf";
 pub struct AudiobookshelfCatalog {
     account: Account,
     library: Library,
+    /// What plays books: they are fetched from the server through it.
+    ffmpeg: Option<PathBuf>,
+    runtime: Handle,
 }
 
 impl From<AccountError> for CatalogError {
@@ -185,8 +193,15 @@ pub fn author(value: &Value) -> Option<Artist> {
 }
 
 impl AudiobookshelfCatalog {
-    pub fn new(account: Account, library: Library) -> Self {
-        Self { account, library }
+    /// The catalog of `account`'s server; books play through `ffmpeg`, and without it do not.
+    /// Needs a Tokio runtime.
+    pub fn new(account: Account, library: Library, ffmpeg: Option<PathBuf>) -> Self {
+        Self {
+            account,
+            library,
+            ffmpeg,
+            runtime: Handle::current(),
+        }
     }
 
     /// The server's libraries of books, by id.
@@ -349,8 +364,20 @@ impl Catalog for AudiobookshelfCatalog {
         Box::pin(async { Ok(Vec::new()) })
     }
 
-    fn media(&self, _id: &str) -> Option<Input> {
-        None
+    fn media(&self, id: &str) -> Option<Input> {
+        let Some(ffmpeg) = &self.ffmpeg else {
+            tracing::warn!(
+                book = id,
+                "Audiobookshelf's books play through ffmpeg, which is not installed"
+            );
+            return None;
+        };
+        Some(Input::Open(Arc::new(BookMedia::new(
+            self.account.clone(),
+            id.to_owned(),
+            ffmpeg.clone(),
+            self.runtime.clone(),
+        ))))
     }
 
     fn audiobooks<'a>(

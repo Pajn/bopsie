@@ -29,6 +29,10 @@ pub struct Stand {
     pub refuse_refresh: bool,
     /// Every request, as `METHOD path`.
     pub requests: Vec<String>,
+    /// The files of the book it plays, `li_h`: their path, and how long each plays.
+    pub files: Vec<(std::path::PathBuf, f64)>,
+    /// Sessions it opened, by id.
+    pub sessions: u32,
 }
 
 pub type Shared = Arc<Mutex<Stand>>;
@@ -188,6 +192,90 @@ async fn item(State(stand): State<Shared>, headers: HeaderMap, Path(id): Path<St
     Json(book).into_response()
 }
 
+async fn play(State(stand): State<Shared>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    log(&stand, format!("POST /api/items/{id}/play"));
+    if !authorized(&stand, &headers) {
+        return unauthorized();
+    }
+    let mut stand = stand.lock().unwrap();
+    stand.sessions += 1;
+    let mut offset = 0.0;
+    // Listed out of order, as nothing promises they come in it.
+    let mut tracks: Vec<Value> = stand
+        .files
+        .iter()
+        .enumerate()
+        .map(|(index, (_, seconds))| {
+            let track = json!({
+                "index": index + 1,
+                "startOffset": offset,
+                "duration": seconds,
+                "mimeType": "audio/wav",
+                "contentUrl": format!("/s/item/{id}/{}.wav", index + 1),
+            });
+            offset += seconds;
+            track
+        })
+        .collect();
+    tracks.reverse();
+    Json(json!({
+        "id": format!("ses{}", stand.sessions),
+        "libraryItemId": id,
+        "duration": offset,
+        "currentTime": 0,
+        "audioTracks": tracks,
+        "chapters": [],
+    }))
+    .into_response()
+}
+
+/// A book's file, in part when a range is asked for, as the real server serves files.
+async fn file(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path((id, name)): Path<(String, String)>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    log(&stand, format!("GET /s/item/{id}/{name}"));
+    let stand = stand.lock().unwrap();
+    if query.get("token") != Some(&stand.access) {
+        return unauthorized();
+    }
+    let index: usize = name.trim_end_matches(".wav").parse().unwrap();
+    let bytes = std::fs::read(&stand.files[index - 1].0).unwrap();
+    let total = bytes.len();
+    let range = headers
+        .get("range")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("bytes="))
+        .and_then(|v| {
+            let (start, end) = v.split_once('-')?;
+            let start: usize = start.parse().ok()?;
+            let end: usize = end.parse().unwrap_or(total - 1).min(total - 1);
+            (start <= end).then_some((start, end))
+        });
+    match range {
+        Some((start, end)) => (
+            StatusCode::PARTIAL_CONTENT,
+            [
+                ("content-type", "audio/wav".to_owned()),
+                ("accept-ranges", "bytes".to_owned()),
+                ("content-range", format!("bytes {start}-{end}/{total}")),
+            ],
+            bytes[start..=end].to_vec(),
+        )
+            .into_response(),
+        None => (
+            [
+                ("content-type", "audio/wav".to_owned()),
+                ("accept-ranges", "bytes".to_owned()),
+            ],
+            bytes,
+        )
+            .into_response(),
+    }
+}
+
 async fn cover(State(stand): State<Shared>, Path(id): Path<String>) -> Response {
     log(&stand, format!("GET /api/items/{id}/cover"));
     (StatusCode::OK, format!("cover of {id}")).into_response()
@@ -266,6 +354,8 @@ pub async fn start() -> (String, Shared) {
         .route("/api/libraries/{id}/search", get(search))
         .route("/api/items/{id}", get(item))
         .route("/api/items/{id}/cover", get(cover))
+        .route("/api/items/{id}/play", post(play))
+        .route("/s/item/{id}/{name}", get(file))
         .route("/api/authors/{id}", get(author))
         .with_state(stand.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

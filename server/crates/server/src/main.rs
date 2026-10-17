@@ -147,20 +147,21 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
             .catalogs()
             .add(Arc::new(SpotifyCatalog::new(account.clone())));
     }
-    // Audiobookshelf's books, once it is signed in to from the web UI.
-    let audiobookshelf = bopsie_sources_audiobookshelf::Account::open(db.clone()).await?;
-    library.catalogs().add(Arc::new(
-        bopsie_sources_audiobookshelf::AudiobookshelfCatalog::new(
-            audiobookshelf.clone(),
-            library.clone(),
-        ),
-    ));
     let ffmpeg = find_ffmpeg(config.audio.ffmpeg.as_deref());
     let ffmpeg_found = ffmpeg.is_some();
     match &ffmpeg {
         Some(path) => tracing::info!(path = %path.display(), "using ffmpeg"),
         None => tracing::info!("ffmpeg not found; MP4 audio plays without gapless trimming"),
     }
+    // Audiobookshelf's books, once it is signed in to from the web UI.
+    let audiobookshelf = bopsie_sources_audiobookshelf::Account::open(db.clone()).await?;
+    library.catalogs().add(Arc::new(
+        bopsie_sources_audiobookshelf::AudiobookshelfCatalog::new(
+            audiobookshelf.clone(),
+            library.clone(),
+            ffmpeg.clone(),
+        ),
+    ));
     let players = Players::new(config.players.clone());
     players.load(db.clone()).await?;
     let devices = Devices::new(players.clone(), db.clone()).await?;

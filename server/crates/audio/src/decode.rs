@@ -234,6 +234,8 @@ pub struct FfmpegDecoder {
     ffmpeg: PathBuf,
     path: PathBuf,
     format: PcmFormat,
+    /// A stream, such as a URL, that seeks by jumping rather than decoding up to the position.
+    stream: bool,
     child: Child,
     stdout: BufReader<ChildStdout>,
 }
@@ -244,11 +246,34 @@ const FFMPEG_CHUNK: usize = 4096 * 4;
 impl FfmpegDecoder {
     /// Decodes `path` with `ffmpeg`, converted to `format`.
     pub fn open(ffmpeg: &Path, path: &Path, format: PcmFormat) -> Result<Self, DecodeError> {
-        let (child, stdout) = Self::spawn(ffmpeg, path, format, 0)?;
+        let (child, stdout) = Self::spawn(ffmpeg, path, format, 0, false)?;
         Ok(Self {
             ffmpeg: ffmpeg.to_owned(),
             path: path.to_owned(),
             format,
+            stream: false,
+            child,
+            stdout,
+        })
+    }
+
+    /// Decodes the stream at `url`, such as a file a server serves, from `start_frame`,
+    /// converted to `format`. It seeks by jumping to the position, to within a packet, rather
+    /// than by reading everything before it, which for a long file over a network would take
+    /// minutes.
+    pub fn open_stream(
+        ffmpeg: &Path,
+        url: &str,
+        format: PcmFormat,
+        start_frame: u64,
+    ) -> Result<Self, DecodeError> {
+        let path = PathBuf::from(url);
+        let (child, stdout) = Self::spawn(ffmpeg, &path, format, start_frame, true)?;
+        Ok(Self {
+            ffmpeg: ffmpeg.to_owned(),
+            path,
+            format,
+            stream: true,
             child,
             stdout,
         })
@@ -259,14 +284,19 @@ impl FfmpegDecoder {
         path: &Path,
         format: PcmFormat,
         start_frame: u64,
+        stream: bool,
     ) -> Result<(Child, BufReader<ChildStdout>), DecodeError> {
         let mut command = Command::new(ffmpeg);
         command.args(["-nostdin", "-hide_banner", "-loglevel", "error"]);
+        let seconds = format!("{:.9}", start_frame as f64 / f64::from(format.sample_rate));
+        if stream && start_frame > 0 {
+            // Before -i, ffmpeg jumps to the position in the input.
+            command.args(["-ss", &seconds]);
+        }
         command.arg("-i").arg(path);
-        if start_frame > 0 {
+        if !stream && start_frame > 0 {
             // After -i, ffmpeg decodes and discards up to the position: exact, not keyframe.
-            let seconds = start_frame as f64 / f64::from(format.sample_rate);
-            command.args(["-ss", &format!("{seconds:.9}")]);
+            command.args(["-ss", &seconds]);
         }
         command.args([
             "-map",
@@ -328,7 +358,8 @@ impl Decoder for FfmpegDecoder {
     fn seek(&mut self, frame: u64) -> Result<u64, DecodeError> {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        let (child, stdout) = Self::spawn(&self.ffmpeg, &self.path, self.format, frame)?;
+        let (child, stdout) =
+            Self::spawn(&self.ffmpeg, &self.path, self.format, frame, self.stream)?;
         self.child = child;
         self.stdout = stdout;
         Ok(frame)

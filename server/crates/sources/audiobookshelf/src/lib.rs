@@ -4,6 +4,7 @@
 
 pub mod account;
 pub mod catalog;
+pub mod media;
 
 pub use account::{Account, AccountError, Status};
 pub use catalog::{AUDIOBOOKSHELF, AudiobookshelfCatalog};

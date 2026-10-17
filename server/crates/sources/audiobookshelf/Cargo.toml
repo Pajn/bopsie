@@ -19,6 +19,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
+bopsie-fixtures.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
 

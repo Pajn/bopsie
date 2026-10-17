@@ -32,7 +32,7 @@ async fn fixture() -> Fixture {
         dir.path().join("artwork"),
     );
     let account = Account::open(db.clone()).await.unwrap();
-    let catalog = AudiobookshelfCatalog::new(account.clone(), library.clone());
+    let catalog = AudiobookshelfCatalog::new(account.clone(), library.clone(), None);
     Fixture {
         db,
         account,
@@ -190,6 +190,7 @@ async fn books_page_with_their_authors_narrators_and_covers() {
         .add(std::sync::Arc::new(AudiobookshelfCatalog::new(
             f.account.clone(),
             f.library.clone(),
+            None,
         )));
     let bytes = f.library.image(cover.proxy_id.clone()).await.unwrap();
     assert_eq!(bytes.as_deref(), Some(&b"cover of li_h"[..]));

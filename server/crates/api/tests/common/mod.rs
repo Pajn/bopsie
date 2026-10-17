@@ -95,6 +95,7 @@ async fn start_full(seconds: u32, web: Web, spotify: bool) -> Server {
         bopsie_sources_audiobookshelf::AudiobookshelfCatalog::new(
             audiobookshelf.clone(),
             library.clone(),
+            bopsie_audio::decode::find_ffmpeg(None),
         ),
     ));
     let services = Services {
