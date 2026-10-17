@@ -17,6 +17,8 @@ time, and how they recover.
 - A Cast speaker, for the Cast checks; a WiiM is a LinkPlay and a Cast speaker in one. Turn a
   WiiM's standby off (Never) in the WiiM Home app first.
 - The Spotify app, signed in to a Premium account, for the Spotify Connect checks.
+- An Audiobookshelf server with a few books, one of them in several files, and an account on it,
+  for the audiobook checks. Audiobookshelf's own app shows the progress to compare.
 - The server's log at `info`, with `RUST_LOG=info,bopsie_players_airplay=debug` for the AirPlay
   checks, to read the lines quoted below.
 
@@ -204,3 +206,21 @@ Each line says what to do, what to hear, and what the log shows when it went rig
     `prefer_album_loudness` true. Shuffle it: false, and the gain changes from track to track.
 54. **Even.** A loud album and a quiet one, back to back, sound about as loud; so do a file and
     a Spotify track in one queue, and Spotify Connect beside them.
+
+### Audiobooks
+
+55. **Signing in.** On the web UI's server page, sign in on the Audiobookshelf card. It names the
+    account. Log: `signed in to Audiobookshelf`. The library's Audiobooks tab lists the books, with
+    covers, authors and narrators; search finds a book by its title and by its author.
+56. **Resuming.** Play a book started in Audiobookshelf's app: it starts where the app left off.
+    Pause after a minute: within a few seconds the app shows the new position.
+57. **Chapters.** Next plays the next chapter; previous, after a few seconds of a chapter,
+    restarts it. Seek across the boundary between two files of a book: it plays on without a gap.
+58. **Speed.** In a group of AirPlay speakers and a Sendspin phone, set the book's speed to 1.5×:
+    it carries on within a second from the same place, sounds as high as before, and stays in
+    step on every speaker. Play the book again later: it plays at 1.5×.
+59. **Sleep timer.** Set the sleep timer to the end of the chapter: the group pauses at the start
+    of the next chapter. Log: `the sleep timer pauses`.
+60. **Finished.** Play the last minute of a book to its end: Audiobookshelf marks it finished.
+61. **Signed out.** Sign out on the card: the Audiobooks tab is empty, and the card asks to sign
+    in again.

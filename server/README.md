@@ -232,6 +232,41 @@ page lists its ids, linked to MusicBrainz, and Refresh metadata looks it up agai
 
 Files are never written to. `[metadata]` turns each of these off.
 
+### Audiobooks from Audiobookshelf
+
+Audiobooks come from an [Audiobookshelf](https://www.audiobookshelf.org) server and play to any
+group, in sync, like music. The Audiobookshelf card on the web UI's server page signs in with the
+server's address, a username and a password. The password is sent to Audiobookshelf once and
+kept nowhere; the server keeps the access and refresh tokens Audiobookshelf gives back, in the
+database, and refreshes them as they expire. If Audiobookshelf refuses a refresh, the server
+signs out and the card asks to sign in again. Sign out forgets the tokens. There is nothing to
+set in the config file.
+
+The books are browsed live, not synced into the library: the library's Audiobooks tab, search,
+and an author's page ask Audiobookshelf as they are shown. An author is an artist of the
+Audiobookshelf source, so their page lists their books. Books play through ffmpeg, which must be
+installed; without it the books can be browsed but not played.
+
+- **One item.** A book is one item in the queue, however many files it has. Its files play one
+  after another as one stream, fetched as they play and never stored.
+- **Progress.** A book starts where listening left off, on any of Audiobookshelf's apps, unless
+  it was finished. While it plays, the server reports the position to Audiobookshelf every 20
+  seconds, and at once on a pause or a seek, through a playback session named Bopsie. It closes
+  the session when the book is stopped or replaced, and Audiobookshelf marks the book finished at
+  its end.
+- **Chapters.** Next and previous move by chapter within a book. Previous goes back to the start
+  of the chapter playing once 3 seconds of it have played, and to the chapter before otherwise.
+  The queue reports the `current_chapter`.
+- **Speed.** `player_queues/set_playback_speed` plays a book at 0.5 to 3 times its speed,
+  keeping its pitch, as Music Assistant's command does; the queue reports it as
+  `playback_speed`. The server stretches the audio before it reaches the speakers, so a group
+  stays in step. A book plays at the speed it last played at. Music always plays as it is.
+- **Sleep timer.** `player_queues/sleep` pauses the group after some minutes, or at the end of
+  the chapter, and works for music too. Playing or stopping cancels it. The queue reports when it
+  pauses as `sleep_at`, in Unix seconds, or `sleep_end_of_chapter`.
+
+Podcasts are not played yet.
+
 ### Volume normalisation
 
 Every track plays at the same loudness, -18 LUFS unless `target_lufs` under `[audio]` says
