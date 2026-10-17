@@ -1,4 +1,9 @@
-import { queueCommand, seek, setVolume } from '@bopsie/client/api/endpoints/players';
+import {
+  queueCommand,
+  seek,
+  setGroupVolume,
+  setVolume,
+} from '@bopsie/client/api/endpoints/players';
 import { Link } from 'expo-router';
 import { useEffect } from 'react';
 import { Pressable, View } from 'react-native';
@@ -7,12 +12,13 @@ import { useConnection } from '@/connection/ConnectionProvider';
 import { useQueue } from '@/data/queues';
 import { BookControls, playsABook } from '@/features/audiobooks/BookControls';
 import { usePlayTarget } from '@/features/library/target';
+import { PlayerPicker } from '@/features/outputs/PlayerPicker';
 import { describeItem, itemArtwork } from '@/features/queues/items';
 import { elapsedNow } from '@/lib/time';
 import { useNow } from '@/lib/useNow';
 import { Artwork } from '@/ui/Artwork';
 import { IconButton, SeekBar, VolumeSlider } from '@/ui/controls';
-import { Choice, Text } from '@/ui/primitives';
+import { Text } from '@/ui/primitives';
 import { useRun } from '@/ui/Toast';
 
 /** Whether a key press belongs to what has focus, as Space does to a field or a button. */
@@ -29,13 +35,13 @@ function typing(target: EventTarget | null): boolean {
 /**
  * What plays on the player the web controls, at the foot of every page: the same player the
  * library plays to, so picking one in either place picks it in both. Its artwork, what plays and
- * the transport; where there is room, where in it, the volume and the player to choose; on a
- * phone it is compact and opens the queue. Space plays and pauses, unless something else has
- * the key.
+ * the transport; where there is room, where in it and the volume; and the player, which opens
+ * the players sheet. On a phone it is compact and opens the queue. Space plays and pauses, unless
+ * something else has the key.
  */
 export function NowPlayingBar() {
   const { account, connection } = useConnection();
-  const { player, leaders, setPlayerId } = usePlayTarget();
+  const { player, setPlayerId } = usePlayTarget();
   const run = useRun();
   const now = useNow();
   const queueId = player ? (player.active_source ?? player.player_id) : '';
@@ -45,6 +51,8 @@ export function NowPlayingBar() {
   const playing = queue?.state === 'playing';
   const elapsed = queue ? elapsedNow(queue, now) : 0;
   const length = item?.duration ?? 0;
+  // A group's volume is the whole group's, as the players sheet's first slider is.
+  const grouped = (player?.group_members.length ?? 0) > 1;
   const command = (name: 'previous' | 'play_pause' | 'next') =>
     run(() => queueCommand(connection, queueId, name));
 
@@ -61,6 +69,7 @@ export function NowPlayingBar() {
 
   if (!player) return null;
   const queueHref = `/queues/${encodeURIComponent(queueId)}`;
+  const artwork = item ? itemArtwork(account.serverUrl, item, 80) : null;
   return (
     <View style={styles.bar} role="region" aria-label="Now playing">
       {/* A phone has no seek bar; a line along the top says how far in it is. */}
@@ -76,11 +85,7 @@ export function NowPlayingBar() {
         <Link href={queueHref as never} asChild>
           <Pressable accessibilityRole="link" accessibilityLabel={`${player.name}'s queue`}>
             <View style={styles.now}>
-              <Artwork
-                uri={item ? itemArtwork(account.serverUrl, item, 80) : null}
-                size={44}
-                placeholder="music"
-              />
+              <Artwork uri={artwork} size={44} placeholder="music" />
               <View style={styles.titles}>
                 <Text numberOfLines={1} style={styles.title}>
                   {described?.title ?? 'Nothing playing'}
@@ -138,27 +143,36 @@ export function NowPlayingBar() {
         ) : null}
         <View style={styles.volume}>
           <VolumeSlider
-            value={player.volume_level ?? null}
-            muted={player.volume_muted ?? null}
+            value={(grouped ? player.group_volume : player.volume_level) ?? null}
+            muted={grouped ? null : (player.volume_muted ?? null)}
             label={player.name}
-            onChange={(level) => run(() => setVolume(connection, player.player_id, level))}
-            onMute={(muted) =>
+            onChange={(level) =>
               run(() =>
-                connection.command('players/cmd/volume_mute', {
-                  player_id: player.player_id,
-                  muted,
-                }),
+                grouped
+                  ? setGroupVolume(connection, player.player_id, level)
+                  : setVolume(connection, player.player_id, level),
               )
             }
+            // Muting is a player's own, so a group's slider has no mute.
+            {...(!grouped && {
+              onMute: (muted: boolean) =>
+                run(() =>
+                  connection.command('players/cmd/volume_mute', {
+                    player_id: player.player_id,
+                    muted,
+                  }),
+                ),
+            })}
           />
         </View>
-        <Choice
-          title={player.name}
-          label={`Plays on ${player.name}`}
-          options={leaders.map((p) => ({ value: p.player_id, label: p.name }))}
-          onChoose={setPlayerId}
-        />
       </View>
+      <PlayerPicker
+        activeId={player.player_id}
+        choose={setPlayerId}
+        title={described?.title ?? null}
+        artwork={artwork}
+        canMove={(queue?.items ?? 0) > 0}
+      />
     </View>
   );
 }

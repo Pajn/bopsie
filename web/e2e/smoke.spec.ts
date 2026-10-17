@@ -125,6 +125,29 @@ test('groups one speaker with another, and takes it out again', async ({ page })
   ).toBeVisible();
 });
 
+test('the players sheet groups a speaker with the one controlled, and controls another', async ({
+  page,
+}) => {
+  await page.goto('/library');
+  await page
+    .getByRole('combobox', { name: 'Plays on' })
+    .first()
+    .selectOption({ label: KITCHEN.name });
+  await page.getByTestId('players-open').click();
+  const sheet = page.getByRole('dialog', { name: 'Players' });
+
+  await sheet.getByTestId(`output-${BEDROOM.id}`).click();
+  await sheet.getByRole('button', { name: 'Join this group' }).click();
+  const remove = sheet.getByRole('button', { name: `Remove ${BEDROOM.name} from the group` });
+  await expect(remove).toBeVisible({ timeout: 15_000 });
+  await remove.click();
+  await expect(remove).toBeHidden({ timeout: 15_000 });
+
+  await sheet.getByTestId(`output-${BEDROOM.id}`).click();
+  await sheet.getByRole('button', { name: 'Control this player' }).click();
+  await expect(page.getByTestId('players-open')).toHaveAccessibleName(`Players: ${BEDROOM.name}`);
+});
+
 test('opens an artist from their album', async ({ page }) => {
   await page.goto('/library');
   await page.getByRole('link', { name: 'First Album', exact: true }).click();
