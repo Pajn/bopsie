@@ -233,6 +233,8 @@ impl Queue {
                 self.index_in_buffer = None;
                 self.ended = false;
                 self.current_index = Some(0);
+                // Where what was replaced was paused is nothing to the new items.
+                self.resume_position = Duration::ZERO;
                 Effect::PlayFrom(0)
             }
             QueueOption::Next | QueueOption::ReplaceNext => {
@@ -261,6 +263,7 @@ impl Queue {
                 self.current_index = Some(index);
                 self.index_in_buffer = None;
                 self.ended = false;
+                self.resume_position = Duration::ZERO;
                 Effect::PlayFrom(index)
             }
             QueueOption::Add => {
@@ -281,6 +284,7 @@ impl Queue {
                     self.ended = false;
                     self.current_index = Some(length_before);
                     self.index_in_buffer = None;
+                    self.resume_position = Duration::ZERO;
                 }
                 self.ensure_current();
                 Effect::None
@@ -806,6 +810,37 @@ mod tests {
             (item.track.fields.name.as_str(), start),
             ("b", Duration::ZERO)
         );
+    }
+
+    #[test]
+    fn new_items_start_where_they_start_not_where_the_old_ones_were_paused() {
+        for option in [QueueOption::Replace, QueueOption::Play] {
+            let mut queue = playing("ab");
+            queue.pause(Duration::from_secs(163));
+            // A book, to start where listening left off.
+            let mut book = tracks("c");
+            book[0].1.start = Duration::from_secs(4_966);
+            assert!(matches!(
+                queue.enqueue(book, option, &mut rng()),
+                Effect::PlayFrom(_)
+            ));
+            let (item, start) = queue.hand_over_next().unwrap();
+            assert_eq!(
+                (item.track.fields.name.as_str(), start),
+                ("c", Duration::from_secs(4_966)),
+                "{option:?}"
+            );
+            // And a track from its beginning.
+            let mut queue = playing("ab");
+            queue.pause(Duration::from_secs(163));
+            queue.enqueue(tracks("d"), option, &mut rng());
+            let (item, start) = queue.hand_over_next().unwrap();
+            assert_eq!(
+                (item.track.fields.name.as_str(), start),
+                ("d", Duration::ZERO),
+                "{option:?}"
+            );
+        }
     }
 
     #[test]
