@@ -8,8 +8,9 @@ export function duration(seconds: number): string {
 }
 
 /**
- * Where a queue is now: its elapsed time moved on by the wall clock while it plays. While its
- * speakers get ready it is buffering, and the time stands still until it is heard.
+ * Where a queue is now: its elapsed time moved on by the wall clock while it plays, faster for
+ * a book played faster. While its speakers get ready it is buffering, and the time stands still
+ * until it is heard.
  */
 export function elapsedNow(
   queue: {
@@ -17,11 +18,13 @@ export function elapsedNow(
     elapsed_time_last_updated: number;
     state: string;
     buffering?: boolean;
+    playback_speed?: number;
   },
   nowMs: number = Date.now(),
 ): number {
   if (queue.state !== 'playing' || queue.buffering) return queue.elapsed_time;
-  return queue.elapsed_time + Math.max(0, nowMs / 1000 - queue.elapsed_time_last_updated);
+  const speed = queue.playback_speed ?? 1;
+  return queue.elapsed_time + speed * Math.max(0, nowMs / 1000 - queue.elapsed_time_last_updated);
 }
 
 /** How long something has run, in the two largest units: `45 s`, `12 min`, `3 h 5 min`, `2 d 4 h`. */

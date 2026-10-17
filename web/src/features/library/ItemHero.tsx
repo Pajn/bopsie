@@ -1,9 +1,10 @@
 import { imageUrl } from '@bopsie/client/api/images';
-import type { Album, Playlist, Track } from '@bopsie/client/api/schemas/media';
+import type { Album, Audiobook, Playlist, Track } from '@bopsie/client/api/schemas/media';
 import { Link } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
+import { bookProgress } from '@/features/audiobooks/model';
 import { duration } from '@/lib/time';
 import { Artwork } from '@/ui/Artwork';
 import { Text } from '@/ui/primitives';
@@ -11,11 +12,22 @@ import type { Item } from './ItemRow';
 import { itemHref } from './links';
 import { PlayActions } from './PlayButtons';
 
-const KIND = { album: 'Album', artist: 'Artist', playlist: 'Playlist', track: 'Track' } as const;
+const KIND = {
+  album: 'Album',
+  artist: 'Artist',
+  audiobook: 'Audiobook',
+  playlist: 'Playlist',
+  track: 'Track',
+} as const;
 
 /** Who made it, as links to their pages where the library has them. */
 function Artists({ item }: { item: Item }) {
-  const artists = 'artists' in item ? (item as Album | Track).artists : [];
+  const artists =
+    item.media_type === 'audiobook'
+      ? (item as Audiobook).authors
+      : 'artists' in item
+        ? (item as Album | Track).artists
+        : [];
   if (artists.length === 0) return null;
   return (
     <View style={styles.artists}>
@@ -42,6 +54,13 @@ function details(item: Item, tracks: Track[] | undefined): string {
     if (track.album?.name) parts.push(track.album.name);
     if (track.duration) parts.push(duration(track.duration));
   }
+  if (item.media_type === 'audiobook') {
+    const book = item as Audiobook;
+    if (book.narrators.length > 0) parts.push(`Read by ${book.narrators.join(', ')}`);
+    if (book.duration) parts.push(duration(book.duration));
+    const progress = bookProgress(book);
+    if (progress) parts.push(progress);
+  }
   if (item.media_type === 'playlist' && (item as Playlist).owner) {
     parts.push(`By ${(item as Playlist).owner}`);
   }
@@ -65,7 +84,15 @@ export function ItemHero({ item, tracks }: { item: Item; tracks?: Track[] | unde
         uri={imageUrl(account.serverUrl, item, 512)}
         size={wide ? 200 : 160}
         round={round}
-        placeholder={round ? 'user' : item.media_type === 'playlist' ? 'list' : 'disc'}
+        placeholder={
+          round
+            ? 'user'
+            : item.media_type === 'playlist'
+              ? 'list'
+              : item.media_type === 'audiobook'
+                ? 'book'
+                : 'disc'
+        }
       />
       <View style={styles.text}>
         <Text variant="label" muted>

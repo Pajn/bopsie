@@ -10,7 +10,13 @@ import { Skeleton } from '@/ui/Skeleton';
 import { type Item, itemHref, subtitle } from './ItemRow';
 import { PlayButtons } from './PlayButtons';
 
-const PLACEHOLDER = { artist: 'user', playlist: 'list', track: 'music', album: 'disc' } as const;
+const PLACEHOLDER = {
+  artist: 'user',
+  playlist: 'list',
+  track: 'music',
+  album: 'disc',
+  audiobook: 'book',
+} as const;
 
 /** An item as a tile: its artwork, its name and who made it, opening its page. */
 function Tile({

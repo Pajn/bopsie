@@ -15,6 +15,7 @@ import { usePlayers } from '@/data/admin';
 import { useQueue, useQueueItems } from '@/data/queues';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
+import { BookControls, playsABook, QueueChapters } from '@/features/audiobooks/BookControls';
 import { Credits } from '@/features/library/Credits';
 import { describeItem, itemArtwork } from '@/features/queues/items';
 import { describeError } from '@/lib/errors';
@@ -134,6 +135,7 @@ function NowPlaying({ id, queue, run }: { id: string; queue: PlayerQueue; run: R
           }}
         />
       </View>
+      <BookControls queueId={id} queue={queue} run={run} />
     </Card>
   );
 }
@@ -270,6 +272,11 @@ export default function QueueScreen() {
     >
       <InlineError message={loadError ? describeError(loadError) : null} />
       {q ? <NowPlaying id={id} queue={q} run={run} /> : null}
+      {q && playsABook(q) && (q.current_item?.media_item?.metadata.chapters.length ?? 0) > 0 ? (
+        <Card title="Chapters">
+          <QueueChapters queueId={id} queue={q} run={run} />
+        </Card>
+      ) : null}
       {queue.isPending ? (
         <Card>
           <SkeletonRows count={1} art={96} />

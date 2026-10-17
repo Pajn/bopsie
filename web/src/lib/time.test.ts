@@ -10,6 +10,8 @@ test('a playing queue moves on with the clock, a paused one does not', () => {
   const queue = { elapsed_time: 10, elapsed_time_last_updated: 1000, state: 'playing' };
   expect(elapsedNow(queue, 1_004_000)).toBe(14);
   expect(elapsedNow({ ...queue, state: 'paused' }, 1_004_000)).toBe(10);
+  // A book played at 1.5× moves on faster.
+  expect(elapsedNow({ ...queue, playback_speed: 1.5 }, 1_004_000)).toBe(16);
 });
 
 test('an uptime reads in its two largest units', () => {

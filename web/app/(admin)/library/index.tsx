@@ -1,4 +1,11 @@
-import { type LibraryKind, libraryCount, libraryItems } from '@bopsie/client/api/endpoints/library';
+import {
+  audiobookCount,
+  audiobooks,
+  type LibraryKind,
+  libraryCount,
+  libraryItems,
+  searchAudiobooks,
+} from '@bopsie/client/api/endpoints/library';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
@@ -17,13 +24,14 @@ import { SearchField, Tabs } from '@/ui/controls';
 import { Button, Card, Choice, InlineError, Page, Text } from '@/ui/primitives';
 import { SkeletonRows } from '@/ui/Skeleton';
 
-type Tab = LibraryKind | 'suggestions' | 'duplicates';
+type Tab = LibraryKind | 'audiobooks' | 'suggestions' | 'duplicates';
 
 const KINDS: ReadonlyArray<{ value: Tab; label: string }> = [
   { value: 'albums', label: 'Albums' },
   { value: 'artists', label: 'Artists' },
   { value: 'tracks', label: 'Tracks' },
   { value: 'playlists', label: 'Playlists' },
+  { value: 'audiobooks', label: 'Audiobooks' },
 ];
 
 const TOOLS: ReadonlyArray<{ value: Tab; label: string }> = [
@@ -75,7 +83,7 @@ export default function LibraryScreen() {
   const [tab, setTab] = useState<Tab>(
     [...KINDS, ...TOOLS].some((t) => t.value === linked) ? (linked as Tab) : 'albums',
   );
-  const browsing = tab !== 'suggestions' && tab !== 'duplicates';
+  const browsing = tab !== 'suggestions' && tab !== 'duplicates' && tab !== 'audiobooks';
   const kind: LibraryKind = browsing ? tab : 'albums';
   const [typed, setSearch] = useState('');
   const search = useDebounced(typed.trim());
@@ -106,7 +114,9 @@ export default function LibraryScreen() {
   return (
     <Page title="Library" wide>
       <Tabs tabs={KINDS} after={TOOLS} value={tab} onChange={setTab} />
-      {tab === 'suggestions' ? (
+      {tab === 'audiobooks' ? (
+        <Audiobooks />
+      ) : tab === 'suggestions' ? (
         <Suggestions />
       ) : tab === 'duplicates' ? (
         <DuplicateFiles />
@@ -176,6 +186,67 @@ export default function LibraryScreen() {
         </>
       )}
     </Page>
+  );
+}
+
+/**
+ * The audiobooks the sources serve, such as Audiobookshelf's, in their order, or those found by
+ * title or author. The library stores none, so they are paged from the source as they are shown.
+ */
+function Audiobooks() {
+  const { account, connection } = useConnection();
+  const [typed, setSearch] = useState('');
+  const search = useDebounced(typed.trim());
+  const books = useInfiniteQuery({
+    queryKey: queryKeys.libraryList(account.id, 'audiobooks', search),
+    queryFn: ({ pageParam }) =>
+      search
+        ? searchAudiobooks(connection, search)
+        : audiobooks(connection, { limit: PAGE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) =>
+      search || last.length < PAGE ? undefined : pages.reduce((n, page) => n + page.length, 0),
+  });
+  const all = books.data?.pages.flat() ?? [];
+  const total = useQuery({
+    queryKey: [...queryKeys.library(account.id), 'count', 'audiobooks'],
+    queryFn: () => audiobookCount(connection),
+  });
+  return (
+    <>
+      <View style={styles.toolbar}>
+        <SearchField label="Search audiobooks" value={typed} onChange={setSearch} />
+        <TargetPicker />
+      </View>
+      <Text variant="caption" muted>
+        {search
+          ? books.isSuccess
+            ? `${all.length} audiobooks match “${search}”`
+            : ' '
+          : total.data !== undefined
+            ? `${total.data.toLocaleString()} audiobooks`
+            : ' '}
+      </Text>
+      <InlineError message={books.error ? describeError(books.error) : null} />
+      {books.isSuccess && all.length === 0 ? (
+        <Text muted>
+          {search
+            ? `No audiobooks match “${search}”.`
+            : 'No audiobooks. Sign in to Audiobookshelf on the Server page to play its books.'}
+        </Text>
+      ) : null}
+      {books.isPending ? <ItemGrid items={[]} loading={10} /> : null}
+      <ItemGrid items={all} />
+      {books.hasNextPage ? (
+        <LoadMore
+          key={all.length}
+          loading={books.isFetchingNextPage}
+          onVisible={() => {
+            if (!books.isFetchingNextPage) void books.fetchNextPage();
+          }}
+        />
+      ) : null}
+    </>
   );
 }
 

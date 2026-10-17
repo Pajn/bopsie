@@ -1,14 +1,16 @@
 import {
   albumTracks,
   artistAlbums,
+  artistAudiobooks,
   artistTracks,
   getAlbum,
   getArtist,
+  getAudiobook,
   getPlaylist,
   getTrack,
   playlistTracks,
 } from '@bopsie/client/api/endpoints/library';
-import type { Album, Track } from '@bopsie/client/api/schemas/media';
+import type { Album, Audiobook, Track } from '@bopsie/client/api/schemas/media';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
@@ -18,6 +20,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
+import { ChapterList } from '@/features/audiobooks/BookControls';
 import { EditItem } from '@/features/library/EditItem';
 import { ItemGrid } from '@/features/library/ItemGrid';
 import { ItemHero } from '@/features/library/ItemHero';
@@ -53,23 +56,28 @@ export default function ItemScreen() {
     queryFn: (): Promise<Item> =>
       kind === 'album'
         ? getAlbum(connection, ref)
-        : kind === 'artist'
-          ? getArtist(connection, ref)
-          : kind === 'track'
-            ? getTrack(connection, ref)
-            : getPlaylist(connection, ref),
+        : kind === 'audiobook'
+          ? getAudiobook(connection, ref)
+          : kind === 'artist'
+            ? getArtist(connection, ref)
+            : kind === 'track'
+              ? getTrack(connection, ref)
+              : getPlaylist(connection, ref),
   });
   const contents = useQuery({
     queryKey: [...queryKeys.item(account.id, kind, id, provider), 'contents'],
-    queryFn: async (): Promise<{ albums: Item[]; tracks: Track[] }> => {
-      if (kind === 'track') return { albums: [], tracks: [] };
-      if (kind === 'album') return { albums: [], tracks: await albumTracks(connection, ref) };
-      if (kind === 'playlist') return { albums: [], tracks: await playlistTracks(connection, ref) };
-      const [albums, tracks] = await Promise.all([
+    queryFn: async (): Promise<{ albums: Item[]; tracks: Track[]; books: Item[] }> => {
+      const none = { albums: [], tracks: [], books: [] };
+      if (kind === 'track' || kind === 'audiobook') return none;
+      if (kind === 'album') return { ...none, tracks: await albumTracks(connection, ref) };
+      if (kind === 'playlist') return { ...none, tracks: await playlistTracks(connection, ref) };
+      // An author is an artist of the source that serves their books.
+      const [albums, tracks, books] = await Promise.all([
         artistAlbums(connection, ref),
         artistTracks(connection, ref),
+        artistAudiobooks(connection, ref),
       ]);
-      return { albums, tracks };
+      return { albums, tracks, books };
     },
   });
   const error = item.error ?? contents.error;
@@ -81,6 +89,9 @@ export default function ItemScreen() {
     (a, b) => ((b as Album).year ?? 0) - ((a as Album).year ?? 0),
   );
   const tracks = contents.data?.tracks ?? [];
+  const books = contents.data?.books ?? [];
+  const book = kind === 'audiobook' ? (data as Audiobook | undefined) : undefined;
+  const chapters = book?.metadata.chapters ?? [];
   const [allTracks, setAllTracks] = useState(false);
   const shownTracks = kind === 'artist' && !allTracks ? tracks.slice(0, ARTIST_TRACKS) : tracks;
 
@@ -107,6 +118,22 @@ export default function ItemScreen() {
       <InlineError message={error ? describeError(error) : null} />
       <View style={styles.columns}>
         <View style={styles.main}>
+          {book?.metadata.description ? (
+            <Card>
+              <Text>{book.metadata.description}</Text>
+            </Card>
+          ) : null}
+          {chapters.length > 0 && book ? (
+            <Card title={`${chapters.length} ${chapters.length === 1 ? 'chapter' : 'chapters'}`}>
+              <ChapterList chapters={chapters} bookSeconds={book.duration} />
+            </Card>
+          ) : null}
+          {books.length > 0 ? (
+            <View style={styles.section}>
+              <Text variant="heading">Audiobooks</Text>
+              <ItemGrid items={books} narrow />
+            </View>
+          ) : null}
           {albums.length > 0 ? (
             <View style={styles.section}>
               <Text variant="heading">Albums</Text>

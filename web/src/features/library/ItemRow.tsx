@@ -1,5 +1,5 @@
 import { imageUrl } from '@bopsie/client/api/images';
-import type { Album, Artist, Playlist, Track } from '@bopsie/client/api/schemas/media';
+import type { Album, Artist, Audiobook, Playlist, Track } from '@bopsie/client/api/schemas/media';
 import { Link } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Image, Pressable, View } from 'react-native';
@@ -7,7 +7,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { Text } from '@/ui/primitives';
 
-export type Item = Album | Artist | Playlist | Track;
+export type Item = Album | Artist | Audiobook | Playlist | Track;
 
 export function subtitle(item: Item): string {
   const names = (artists: Album['artists']) => artists.map((a) => a.name).join(', ');
@@ -19,6 +19,7 @@ export function subtitle(item: Item): string {
     const track = item as Track;
     return [names(track.artists), track.album?.name].filter(Boolean).join(' · ');
   }
+  if (item.media_type === 'audiobook') return names((item as Audiobook).authors);
   return '';
 }
 

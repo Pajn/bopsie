@@ -7,6 +7,7 @@ import { useConnection } from '@/connection/ConnectionProvider';
 import { useServer } from '@/data/admin';
 import JsonTree from '@/debug/JsonTree';
 import { useTreeColors } from '@/debug/treeColors';
+import { AudiobookshelfCard } from '@/features/audiobooks/AudiobookshelfCard';
 import { SpotifyCard } from '@/features/spotify/SpotifyCard';
 import { describeError } from '@/lib/errors';
 import { uptime } from '@/lib/time';
@@ -100,6 +101,7 @@ export default function ServerScreen() {
       <SpotifyCard
         outcome={spotifyError ? `Logging in to Spotify failed: ${spotifyError}` : null}
       />
+      <AudiobookshelfCard />
       {view ? (
         <Disclosure title="Config" hint="As the server read it">
           <JsonTree value={JSON.parse(JSON.stringify(view.config))} colors={colors} />

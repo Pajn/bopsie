@@ -4,6 +4,7 @@ import {
   adminServerInfo,
   adminSync,
 } from '@bopsie/client/api/endpoints/admin';
+import { getAudiobookshelfStatus } from '@bopsie/client/api/endpoints/audiobookshelf';
 import { listPlayers } from '@bopsie/client/api/endpoints/players';
 import { getSpotifyStatus } from '@bopsie/client/api/endpoints/spotify';
 import { queryKeys } from '@bopsie/client/connection/queryKeys';
@@ -56,6 +57,15 @@ export function useSpotify() {
   return useQuery({
     queryKey: queryKeys.admin(account.id, 'spotify'),
     queryFn: () => getSpotifyStatus(connection),
+    refetchInterval: POLL_MS,
+  });
+}
+
+export function useAudiobookshelf() {
+  const { account, connection } = useConnection();
+  return useQuery({
+    queryKey: queryKeys.admin(account.id, 'audiobookshelf'),
+    queryFn: () => getAudiobookshelfStatus(connection),
     refetchInterval: POLL_MS,
   });
 }

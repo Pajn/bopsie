@@ -1,6 +1,14 @@
 import * as z from 'zod/mini';
 import type { MaConnection } from '../client';
-import { album, artist, musicProvider, playlist, searchResults, track } from '../schemas/media';
+import {
+  album,
+  artist,
+  audiobook,
+  musicProvider,
+  playlist,
+  searchResults,
+  track,
+} from '../schemas/media';
 
 export type LibraryKind = 'artists' | 'albums' | 'tracks' | 'playlists';
 
@@ -107,6 +115,39 @@ export const search = (connection: MaConnection, query: string, limit = 25, prov
     },
     { schema: searchResults },
   );
+
+/**
+ * A page of the audiobooks the sources serve, such as Audiobookshelf's, in their order. A short
+ * page is the last.
+ */
+export const audiobooks = (connection: MaConnection, { limit, offset }: PageOptions) =>
+  connection.command(
+    'music/audiobooks/library_items',
+    { limit, offset },
+    { schema: z.array(audiobook) },
+  );
+
+export const audiobookCount = (connection: MaConnection) =>
+  connection.command('music/audiobooks/count', {}, { schema: z.number() });
+
+/** Audiobooks found by title or author. */
+export const searchAudiobooks = async (connection: MaConnection, query: string, limit = 50) =>
+  (
+    await connection.command(
+      'music/search',
+      { search_query: query, media_types: ['audiobook'], limit },
+      { schema: searchResults },
+    )
+  ).audiobooks;
+
+export const getAudiobook = (connection: MaConnection, ref: ItemRef) =>
+  connection.command('music/audiobooks/get', refArgs(ref), { schema: audiobook });
+
+/** An author's books, from the source that serves them. */
+export const artistAudiobooks = (connection: MaConnection, ref: ItemRef) =>
+  connection.command('music/artists/artist_audiobooks', refArgs(ref), {
+    schema: z.array(audiobook),
+  });
 
 /** The music providers: the library's sources, and catalogs such as Spotify. */
 export const listProviders = (connection: MaConnection) =>

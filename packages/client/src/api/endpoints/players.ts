@@ -150,6 +150,24 @@ export const setShuffle = (connection: MaConnection, queueId: string, enabled: b
 export const setRepeat = (connection: MaConnection, queueId: string, mode: RepeatMode) =>
   connection.command<void>('player_queues/repeat', { queue_id: queueId, repeat_mode: mode });
 
+/** How fast an audiobook plays, from 0.5 to 3, keeping its pitch; it plays so the next time too. */
+export const setPlaybackSpeed = (connection: MaConnection, queueId: string, speed: number) =>
+  connection.command<void>('player_queues/set_playback_speed', { queue_id: queueId, speed });
+
+/**
+ * Pauses the group in `minutes`, or at the end of the chapter playing; `null` cancels the
+ * timer. Playing again cancels it too.
+ */
+export const setSleepTimer = (
+  connection: MaConnection,
+  queueId: string,
+  timer: { minutes: number } | 'end_of_chapter' | null,
+) =>
+  connection.command<void>('player_queues/sleep', {
+    queue_id: queueId,
+    ...(timer === 'end_of_chapter' ? { end_of_chapter: true } : (timer ?? {})),
+  });
+
 /** Absolute position in seconds. */
 export const seek = (connection: MaConnection, queueId: string, seconds: number) =>
   connection.command<void>('player_queues/seek', {

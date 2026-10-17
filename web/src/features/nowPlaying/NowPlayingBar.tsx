@@ -5,6 +5,7 @@ import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
 import { useQueue } from '@/data/queues';
+import { BookControls, playsABook } from '@/features/audiobooks/BookControls';
 import { usePlayTarget } from '@/features/library/target';
 import { describeItem, itemArtwork } from '@/features/queues/items';
 import { elapsedNow } from '@/lib/time';
@@ -131,6 +132,10 @@ export function NowPlayingBar() {
         ) : null}
       </View>
       <View style={[styles.end, styles.wide]}>
+        {/* A book's speed and sleep timer; the queue page has them for anything. */}
+        {queue && playsABook(queue) ? (
+          <BookControls queueId={queueId} queue={queue} run={run} />
+        ) : null}
         <View style={styles.volume}>
           <VolumeSlider
             value={player.volume_level ?? null}

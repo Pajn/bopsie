@@ -11,9 +11,25 @@ export const image = z.looseObject({
 });
 export type MediaImage = z.infer<typeof image>;
 
+/** `MediaItemChapter`: a chapter of an audiobook, its times in seconds into the book. */
+export const chapter = z.looseObject({
+  position: z.number(),
+  name: stringOr(''),
+  start: z.number(),
+  end: z.nullish(z.number()),
+});
+export type Chapter = z.infer<typeof chapter>;
+
 const metadata = z.pipe(
-  z.nullish(z.looseObject({ images: arrayOr(image) })),
-  z.transform((value) => value ?? { images: [] }),
+  z.nullish(
+    z.looseObject({
+      images: arrayOr(image),
+      description: z.nullish(z.string()),
+      /** An audiobook's, as a book in a queue carries them too. */
+      chapters: arrayOr(chapter),
+    }),
+  ),
+  z.transform((value) => value ?? { images: [], description: null, chapters: [] }),
 );
 
 /** `ItemMapping`: a light reference to a media item, as used inside other items. */
@@ -78,11 +94,27 @@ export const playlist = z.looseObject({
 });
 export type Playlist = z.infer<typeof playlist>;
 
+/** `Audiobook`, from a source such as Audiobookshelf; the library stores none. */
+export const audiobook = z.looseObject({
+  ...mediaItemFields,
+  /** As artists of the source that serves the book, each leading to their other books. */
+  authors: arrayOr(itemMapping),
+  narrators: arrayOr(z.string()),
+  publisher: z.nullish(z.string()),
+  /** Seconds. */
+  duration: numberOr(0),
+  fully_played: z.nullish(z.boolean()),
+  /** Where listening left off; null when it was never started. */
+  resume_position_ms: z.nullish(z.number()),
+});
+export type Audiobook = z.infer<typeof audiobook>;
+
 export const searchResults = z.looseObject({
   artists: arrayOr(artist),
   albums: arrayOr(album),
   tracks: arrayOr(track),
   playlists: arrayOr(playlist),
+  audiobooks: arrayOr(audiobook),
 });
 export type SearchResults = z.infer<typeof searchResults>;
 

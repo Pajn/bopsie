@@ -122,5 +122,13 @@ export const playerQueue = z.looseObject({
   buffering: booleanOr(false),
   current_item: z.nullish(queueItem),
   next_item: z.nullish(queueItem),
+  /** How fast the current item plays: an audiobook's can be other than 1. */
+  playback_speed: numberOr(1),
+  /** Bopsie's own: the chapter of the current book playing, by index into its chapters. */
+  current_chapter: z.nullish(z.number()),
+  /** Bopsie's own: when the sleep timer pauses the queue, in Unix seconds. */
+  sleep_at: z.nullish(z.number()),
+  /** Bopsie's own: the sleep timer pauses the queue at the end of the chapter. */
+  sleep_end_of_chapter: booleanOr(false),
 });
 export type PlayerQueue = z.infer<typeof playerQueue>;
