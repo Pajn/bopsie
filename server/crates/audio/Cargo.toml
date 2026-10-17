@@ -14,6 +14,7 @@ symphonia.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+wsola.workspace = true
 
 [dev-dependencies]
 bopsie-fixtures.workspace = true

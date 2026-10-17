@@ -106,7 +106,7 @@ fn playlist() -> Playlist {
     }
 }
 
-/// The book: 4 s, in two chapters of 2 s.
+/// The book: 30 s, in a chapter of 2 s and one of 28 s.
 pub fn audiobook() -> Audiobook {
     let mut fields = fields(MediaType::Audiobook, "fb1", "The Fake Book");
     fields.metadata.chapters = Some(vec![
@@ -120,7 +120,7 @@ pub fn audiobook() -> Audiobook {
             position: 1,
             name: "End".to_owned(),
             start_ms: 2_000,
-            end_ms: Some(4_000),
+            end_ms: Some(30_000),
         },
     ]);
     Audiobook {
@@ -128,7 +128,7 @@ pub fn audiobook() -> Audiobook {
         publisher: None,
         authors: vec![mapping(MediaType::Artist, "fr1", "Fake Artist")],
         narrators: vec!["Fake Narrator".to_owned()],
-        duration: 4,
+        duration: 30,
         fully_played: Some(false),
         resume_position_ms: Some(1_000),
     }
@@ -144,8 +144,9 @@ impl FakeCatalog {
             .chain(["fb1".to_owned()]);
         for id in ids {
             let path = dir.join(format!("{id}.wav"));
-            bopsie_fixtures::write_wav(&path, 44_100, 2, &bopsie_fixtures::noise(3, 44_100 * 4))
-                .unwrap();
+            let seconds = if id == "fb1" { 30 } else { 2 };
+            let samples = bopsie_fixtures::noise(3, 44_100 * 2 * seconds);
+            bopsie_fixtures::write_wav(&path, 44_100, 2, &samples).unwrap();
         }
         let progress = Reports::default();
         library.catalogs().add(Arc::new(Self {

@@ -179,6 +179,7 @@ fn session_with(fake: &Fake, samples: &[i16], prepare: bool) -> (engine::EngineH
             start: Duration::ZERO,
             loudness: None,
             normalise: None,
+            rate: 1.0,
         }]
         .into(),
     );

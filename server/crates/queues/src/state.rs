@@ -61,6 +61,8 @@ pub struct QueueItem {
     /// Where it starts the first time it plays from its beginning, as an audiobook does where
     /// listening left off; once it started, from its beginning.
     pub start: Duration,
+    /// How fast it plays, keeping its pitch: 1.0 as it is.
+    pub rate: f32,
 }
 
 /// What the player must do after an operation.
@@ -169,6 +171,7 @@ impl Queue {
                     input: playable.input,
                     loudness: playable.loudness,
                     start: playable.start,
+                    rate: 1.0,
                 }
             })
             .collect()

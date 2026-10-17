@@ -134,6 +134,7 @@ fn session(
             start: Duration::ZERO,
             loudness: None,
             normalise: None,
+            rate: 1.0,
         }]
         .into(),
     );

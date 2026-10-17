@@ -336,3 +336,91 @@ async fn next_and_previous_move_by_chapter_within_a_book() {
     assert_eq!(q["current_chapter"], 0, "{q}");
     assert_eq!(q["elapsed_time"], 0.0);
 }
+
+#[tokio::test]
+async fn a_book_plays_faster_and_as_fast_again_the_next_time() {
+    let (server, token) = start_set_up_with(10).await;
+    let dir = tempfile::tempdir().unwrap();
+    FakeCatalog::add_to(&server.api.library, dir.path());
+    let _kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while client
+        .result("players/all", json!({}))
+        .await
+        .as_array()
+        .unwrap()
+        .is_empty()
+    {
+        assert!(tokio::time::Instant::now() < deadline, "no player");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let play_book =
+        json!({"queue_id": "kitchen", "media": "fake://audiobook/fb1", "option": "replace"});
+    client
+        .result("player_queues/play_media", play_book.clone())
+        .await;
+    let queue = async |client: &mut common::Client| {
+        client
+            .result("player_queues/get", json!({"queue_id": "kitchen"}))
+            .await
+    };
+    loop {
+        let q = queue(&mut client).await;
+        if q["state"] == "playing" && q["buffering"] == false {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never played: {q}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client
+        .result(
+            "player_queues/set_playback_speed",
+            json!({"queue_id": "kitchen", "speed": 1.5}),
+        )
+        .await;
+    let q = queue(&mut client).await;
+    assert_eq!(q["playback_speed"], 1.5);
+    // Its time runs at 1.5×, once heard again.
+    let heard = loop {
+        let q = queue(&mut client).await;
+        if q["state"] == "playing" && q["buffering"] == false {
+            break q["elapsed_time"].as_f64().unwrap();
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "never played again: {q}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let later = queue(&mut client).await["elapsed_time"].as_f64().unwrap();
+    let moved = later - heard;
+    assert!((0.75..1.2).contains(&moved), "moved {moved} s in 0.6 s");
+
+    let refused = client
+        .send(
+            "player_queues/set_playback_speed",
+            json!({"queue_id": "kitchen", "speed": 4.0}),
+        )
+        .await;
+    assert!(refused["error_code"].is_number(), "{refused}");
+    // Queued again, it plays as fast as it last did.
+    client.result("player_queues/play_media", play_book).await;
+    assert_eq!(queue(&mut client).await["playback_speed"], 1.5);
+    // A track has no speed of its own.
+    client
+        .result(
+            "player_queues/play_media",
+            json!({"queue_id": "kitchen", "media": "fake://album/fa1", "option": "replace"}),
+        )
+        .await;
+    let refused = client
+        .send(
+            "player_queues/set_playback_speed",
+            json!({"queue_id": "kitchen", "speed": 1.5}),
+        )
+        .await;
+    assert!(refused["error_code"].is_number(), "{refused}");
+}

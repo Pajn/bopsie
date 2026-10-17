@@ -242,6 +242,32 @@ impl Command for Seek {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct PlaybackSpeedArgs {
+    pub queue_id: String,
+    /// How fast, from 0.5 to 3.0: 1.0 as it is.
+    pub speed: f32,
+    /// The item; the current one when left out.
+    #[serde(default)]
+    pub queue_item_id: Option<String>,
+}
+
+pub struct PlaybackSpeed;
+impl Command for PlaybackSpeed {
+    const NAME: &'static str = "player_queues/set_playback_speed";
+    const ACCESS: Access = Access::Scope(Scope::QueuesControl);
+    const SUMMARY: &'static str = "Play an audiobook faster or slower, keeping its pitch: from now on, and the next time it plays.";
+    type Args = PlaybackSpeedArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: PlaybackSpeedArgs) -> Result<()> {
+        ctx.api
+            .playback
+            .set_playback_speed(&args.queue_id, args.speed, args.queue_item_id.as_deref())
+            .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct SkipArgs {
     pub queue_id: String,
     /// Seconds forward, or back when negative. Defaults to 10.

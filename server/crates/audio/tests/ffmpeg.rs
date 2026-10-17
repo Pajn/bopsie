@@ -103,6 +103,7 @@ fn mp4_tracks_play_gaplessly_through_ffmpeg() {
         start: Duration::ZERO,
         loudness: None,
         normalise: None,
+        rate: 1.0,
     });
     let settings = Settings {
         format: SESSION,

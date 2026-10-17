@@ -17,6 +17,7 @@ use bopsie_audio::PcmFormat;
 use bopsie_audio::engine::{Input, LIVE_AHEAD, Playable, QUEUE_AHEAD};
 use bopsie_audio::engine::{Realtime, Settings};
 use bopsie_audio::sink::Sink;
+use bopsie_audio::stretch::{MAX_RATE, MIN_RATE};
 use bopsie_audio::timeline::{Micros, Timeline};
 use bopsie_core::backoff::{self, Backoff};
 use bopsie_core::clock;
@@ -57,6 +58,8 @@ const SETTLING: Duration = Duration::from_secs(15);
 const WITHDRAWN_RETURN: Duration = Duration::from_secs(30);
 /// The setting [`Playback::mixed_airplay_ms`] is kept under.
 const MIXED_AIRPLAY_MS: &str = "playback.mixed_airplay_ms";
+/// The setting how fast each audiobook last played is kept under.
+const SPEEDS: &str = "playback.speeds";
 /// The setting [`Playback::last_calibration`] is kept under.
 const LAST_CALIBRATION: &str = "playback.last_calibration";
 /// The provider whose speakers keep in step on PTP.
@@ -67,6 +70,8 @@ pub const AIRPLAY: &str = "airplay";
 struct Reported {
     uri: String,
     playing: bool,
+    /// How fast it plays.
+    rate: f64,
     /// The queue played it to its end.
     ended: bool,
     position: Duration,
@@ -108,7 +113,7 @@ fn progress_between(before: Option<&Reported>, now: Option<&Reported>) -> Vec<(S
     // Where it would be had nothing moved it.
     let expected = before.map(|b| {
         if b.playing {
-            b.position + now.at.saturating_duration_since(b.at)
+            b.position + now.at.saturating_duration_since(b.at).mul_f64(b.rate)
         } else {
             b.position
         }
@@ -188,6 +193,8 @@ struct Inner {
     progress_to: OnceLock<Library>,
     /// What was last reported of each queue's item.
     reported: Mutex<HashMap<String, Reported>>,
+    /// How fast each audiobook last played, by URI, for it to play so again.
+    speeds: Mutex<HashMap<String, f32>>,
     /// Queues from an earlier run for devices not here yet.
     restored: Mutex<BTreeMap<String, Queue>>,
     /// Groups from an earlier run, by member, waiting for their devices.
@@ -318,6 +325,7 @@ impl Playback {
                 last_calibration: Mutex::default(),
                 progress_to: OnceLock::new(),
                 reported: Mutex::default(),
+                speeds: Mutex::default(),
                 restored: Mutex::default(),
                 saved_groups: Mutex::default(),
                 saved_volumes: Mutex::default(),
@@ -753,6 +761,12 @@ impl Playback {
         let last: Option<String> = db
             .call(|conn| Ok(bopsie_core::db::setting(conn, LAST_CALIBRATION)?))
             .await?;
+        let speeds: Option<String> = db
+            .call(|conn| Ok(bopsie_core::db::setting(conn, SPEEDS)?))
+            .await?;
+        if let Some(speeds) = speeds.and_then(|speeds| serde_json::from_str(&speeds).ok()) {
+            *self.inner.speeds.lock().unwrap() = speeds;
+        }
         *self.inner.last_calibration.lock().unwrap() =
             last.and_then(|last| serde_json::from_str(&last).ok());
         let saved = store::load(&db).await?;
@@ -1348,6 +1362,9 @@ impl Playback {
             .lock()
             .unwrap()
             .iter()
+            // Starting, it is not yet where it will be heard from: nothing to say until it is,
+            // lest a book be reported back at its beginning.
+            .filter(|(_, entry)| !entry.session.buffering())
             .map(|(id, entry)| {
                 let queue = entry.session.snapshot();
                 let book = queue.current().filter(|item| {
@@ -1355,7 +1372,8 @@ impl Playback {
                 });
                 let reported = book.map(|item| Reported {
                     uri: item.track.fields.uri.clone(),
-                    playing: queue.state == PlaybackState::Playing && !entry.session.buffering(),
+                    rate: f64::from(item.rate),
+                    playing: queue.state == PlaybackState::Playing,
                     ended: queue.ended,
                     position: entry.session.position(now),
                     duration: Duration::from_secs(u64::from(item.track.duration)),
@@ -1614,8 +1632,15 @@ impl Playback {
         option: QueueOption,
         start_at: Option<usize>,
     ) -> Result<()> {
+        let speeds = self.inner.speeds.lock().unwrap().clone();
         let enqueue = move |queue: &mut Queue, rng: &mut StdRng| {
             let effect = queue.enqueue(tracks, option, rng);
+            // A book plays as fast as it last did.
+            for item in &mut queue.items {
+                if let Some(&speed) = speeds.get(&item.track.fields.uri) {
+                    item.rate = speed;
+                }
+            }
             match (effect, start_at) {
                 (Effect::PlayFrom(first), Some(offset)) if offset > 0 => {
                     ((), queue.play_index(first + offset))
@@ -1628,6 +1653,69 @@ impl Playback {
         } else {
             self.update(queue_id, enqueue)
         }
+    }
+
+    /// Plays audiobook `queue_item_id` of `queue_id`'s queue, or its current item, at `speed`,
+    /// keeping its pitch, and plays the book so from now on. A playing item carries on from
+    /// where it is at once.
+    pub async fn set_playback_speed(
+        &self,
+        queue_id: &str,
+        speed: f32,
+        queue_item_id: Option<&str>,
+    ) -> Result<()> {
+        if !(MIN_RATE..=MAX_RATE).contains(&speed) {
+            return Err(bopsie_core::Error::invalid_data(format!(
+                "Playback speed must be between {MIN_RATE} and {MAX_RATE}, got {speed}"
+            )));
+        }
+        let leader = self
+            .leader_of(queue_id)
+            .ok_or_else(|| not_found(queue_id))?;
+        let session = self.entry(&leader)?.session;
+        let (uri, current, playing) = {
+            let mut found = None;
+            session.update(|queue| {
+                let index = match queue_item_id {
+                    Some(id) => queue.index_of(id),
+                    None => queue.current_index,
+                };
+                if let Some(index) = index
+                    && let Some(item) = queue.items.get_mut(index)
+                    && item.track.fields.media_type == bopsie_core::media::MediaType::Audiobook
+                {
+                    let changed = (item.rate - speed).abs() > 0.001;
+                    item.rate = speed;
+                    found = Some((
+                        item.track.fields.uri.clone(),
+                        Some(index) == queue.current_index && changed,
+                        queue.state == PlaybackState::Playing,
+                    ));
+                }
+                ((), Effect::None)
+            });
+            found.ok_or_else(|| {
+                bopsie_core::Error::new(
+                    bopsie_core::ErrorCode::InvalidCommand,
+                    "Playback speed is only for audiobooks",
+                )
+            })?
+        };
+        let speeds = {
+            let mut speeds = self.inner.speeds.lock().unwrap();
+            speeds.insert(uri, speed);
+            serde_json::to_string(&*speeds).unwrap_or_default()
+        };
+        if let Some(db) = self.inner.db.get() {
+            db.call(move |conn| Ok(bopsie_core::db::set_setting(conn, SPEEDS, Some(&speeds))?))
+                .await?;
+        }
+        if current && playing {
+            let position = session.position(clock::now());
+            self.begin(&leader, resume_at(position))?;
+        }
+        self.changed(&leader);
+        Ok(())
     }
 
     pub fn command(&self, queue_id: &str, command: QueueCommand) -> Result<()> {
@@ -2642,6 +2730,7 @@ mod tests {
         Reported {
             uri: uri.to_owned(),
             playing,
+            rate: 1.0,
             ended: false,
             position: Duration::from_secs(seconds),
             duration: Duration::from_secs(600),

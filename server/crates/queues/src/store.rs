@@ -93,6 +93,7 @@ impl SavedQueue {
                 loudness: playable.loudness,
                 // Where it was is kept with the queue.
                 start: Duration::ZERO,
+                rate: 1.0,
             });
         }
         if current.is_none() {

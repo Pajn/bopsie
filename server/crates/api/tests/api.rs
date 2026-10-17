@@ -566,6 +566,7 @@ async fn info_and_the_command_list_need_no_auth() {
             "player_queues/previous",
             "player_queues/repeat",
             "player_queues/seek",
+            "player_queues/set_playback_speed",
             "player_queues/shuffle",
             "player_queues/skip",
             "player_queues/stop",

@@ -11,6 +11,7 @@ pub mod loudness;
 pub mod pack;
 pub mod ring;
 pub mod sink;
+pub mod stretch;
 pub mod timeline;
 
 pub use format::{OutputFormat, PcmFormat};

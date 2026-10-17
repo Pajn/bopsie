@@ -29,6 +29,7 @@ use crate::loudness::{Loudness, Mode, Normalise};
 use crate::pack::pack;
 use crate::ring::Ring;
 use crate::sink::Sink;
+use crate::stretch::Stretch;
 use crate::timeline::{Micros, Timeline};
 
 /// How far beyond its lead a queue's session may run ahead of real time.
@@ -49,6 +50,8 @@ pub struct TrackRequest {
     pub loudness: Option<Loudness>,
     /// How to normalise it; `None` plays it as it is.
     pub normalise: Option<Normalise>,
+    /// How fast it plays, keeping its pitch: 1.0 as it is.
+    pub rate: f32,
 }
 
 /// The gain a track plays with, from normalisation.
@@ -355,6 +358,7 @@ struct Opened {
     start: Duration,
     loudness: Option<Loudness>,
     normalise: Option<Normalise>,
+    rate: f32,
 }
 
 struct Playing {
@@ -365,6 +369,20 @@ struct Playing {
     /// which it does by its first audio.
     factor: Option<f32>,
     normalise: Option<Normalise>,
+    /// Plays it faster or slower, when its rate is not 1.0.
+    stretch: Option<Stretch>,
+}
+
+impl Playing {
+    /// The rest of its audio, at its end.
+    fn finish(&mut self) -> Vec<f32> {
+        let mut samples = match &mut self.stretch {
+            Some(stretch) => self.converter.push(&stretch.finish()),
+            None => Vec::new(),
+        };
+        samples.extend(self.converter.finish());
+        samples
+    }
 }
 
 /// The gain `normalise` gives audio as loud as `loudness`.
@@ -628,6 +646,9 @@ impl Engine {
         match playing.decoder.seek(frame) {
             Ok(_) => {
                 playing.converter = Converter::new(native, self.settings.format);
+                if let Some(stretch) = &mut playing.stretch {
+                    stretch.reset();
+                }
                 let id = playing.id.clone();
                 self.each_sink("clear", |sink| sink.clear());
                 self.ring.clear();
@@ -659,6 +680,7 @@ impl Engine {
                         start: request.start,
                         loudness: request.loudness,
                         normalise: request.normalise,
+                        rate: request.rate,
                     });
                 }
                 Err(error) => self.emit(Event::TrackFailed {
@@ -715,6 +737,7 @@ impl Engine {
             decoder: opened.decoder,
             factor: settled.then(|| factor(normalised.as_ref())),
             normalise: opened.normalise,
+            stretch: Stretch::new(native, opened.rate),
         });
         self.prepared = self.open_next();
     }
@@ -750,16 +773,20 @@ impl Engine {
                         *sample *= factor;
                     }
                 }
+                let decoded = match &mut playing.stretch {
+                    Some(stretch) => stretch.push(&decoded),
+                    None => decoded,
+                };
                 (playing.converter.push(&decoded), false)
             }
             Ok(Read::Pending) => {
                 self.starved = true;
                 return;
             }
-            Ok(Read::End) => (playing.converter.finish(), true),
+            Ok(Read::End) => (playing.finish(), true),
             Err(error) => {
                 tracing::warn!(id = playing.id, %error, "decoding stopped early");
-                (playing.converter.finish(), true)
+                (playing.finish(), true)
             }
         };
         if std::mem::take(&mut self.starved) {

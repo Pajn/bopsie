@@ -192,6 +192,7 @@ fn play(
         start: Duration::ZERO,
         loudness: None,
         normalise: None,
+        rate: 1.0,
     }));
     let handle = engine::spawn(settings, Box::new(source), sinks);
     handle.send(Command::Restart {

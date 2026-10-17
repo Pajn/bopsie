@@ -26,6 +26,7 @@ fn request(id: &str, path: &Path) -> TrackRequest {
         start: Duration::ZERO,
         loudness: None,
         normalise: None,
+        rate: 1.0,
     }
 }
 
@@ -674,6 +675,7 @@ mod live {
                 start: Duration::ZERO,
                 loudness: None,
                 normalise: None,
+                rate: 1.0,
             }]
             .into(),
         );
@@ -833,6 +835,7 @@ fn normalised_tracks_are_scaled_and_others_are_not() {
             start: Duration::ZERO,
             loudness: None,
             normalise: to(-18.0, false),
+            rate: 1.0,
         },
     ];
     let (events, data) = play(dir.path(), tracks, &[16]);
@@ -920,6 +923,7 @@ fn a_streams_gain_is_settled_by_its_first_audio() {
             target_lufs: -18.0,
             album: false,
         }),
+        rate: 1.0,
     }];
     let (events, data) = play(dir.path(), tracks, &[16]);
     let first = i16::from_le_bytes([data[0][0], data[0][1]]);
@@ -932,5 +936,29 @@ fn a_streams_gain_is_settled_by_its_first_audio() {
     assert!(events.iter().any(|event| matches!(
         event,
         Event::Normalised { id, applied } if id == "streamed" && applied.mode == Mode::Track
+    )));
+}
+
+#[test]
+fn a_track_at_a_faster_rate_is_shorter_and_every_output_gets_the_same() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.wav");
+    write_wav(&path, 44_100, 2, &noise(7, 44_100 * 2 * 2)).unwrap();
+    let tracks = vec![TrackRequest {
+        rate: 1.5,
+        ..request("a", &path)
+    }];
+    let (events, data) = play(dir.path(), tracks, &[16, 16]);
+    assert!(data[0] == data[1], "the outputs differ");
+    let frames = data[0].len() / 4;
+    // 2 s at 1.5× is 1.33 s.
+    let expected = 44_100 * 2 * 2 / 3;
+    assert!(
+        (frames as i64 - expected as i64).abs() < 1_000,
+        "{frames} frames"
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Event::TrackEnded { at, .. } if *at as usize == frames
     )));
 }

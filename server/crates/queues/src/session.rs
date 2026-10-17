@@ -50,18 +50,41 @@ pub enum Notice {
 }
 
 /// Where playback is in the current item.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Position {
     /// How far into the item playback was at `since`.
     pub offset: Duration,
     /// When `offset` was audible, while playback advances.
     pub since: Option<Micros>,
+    /// How fast it advances: the item's playback rate.
+    pub rate: f64,
+}
+
+impl Default for Position {
+    fn default() -> Self {
+        Self {
+            offset: Duration::ZERO,
+            since: None,
+            rate: 1.0,
+        }
+    }
 }
 
 impl Position {
+    /// Resting at `offset`.
+    pub fn at_rest(offset: Duration) -> Self {
+        Self {
+            offset,
+            ..Self::default()
+        }
+    }
+
     pub fn at(&self, now: Micros) -> Duration {
         match self.since {
-            Some(since) => self.offset + Duration::from_micros((now - since).max(0) as u64),
+            Some(since) => {
+                let played = (now - since).max(0) as f64 * self.rate;
+                self.offset + Duration::from_micros(played.round() as u64)
+            }
             None => self.offset,
         }
     }
@@ -102,6 +125,7 @@ impl TrackSource for Source {
                     start: Duration::ZERO,
                     loudness: None,
                     normalise: None,
+                    rate: 1.0,
                 });
             }
         }
@@ -116,6 +140,7 @@ impl TrackSource for Source {
             start,
             loudness: item.loudness,
             normalise: None,
+            rate: item.rate,
         };
         let index = queue.index_in_buffer?;
         request.normalise = self.target.lock().unwrap().map(|target_lufs| Normalise {
@@ -160,10 +185,7 @@ impl QueueSession {
     /// A session for `queue`, resting where it says to resume, with no engine until one is
     /// attached.
     pub fn new(queue: Queue) -> Self {
-        let position = Position {
-            offset: queue.resume_position,
-            since: None,
-        };
+        let position = Position::at_rest(queue.resume_position);
         Self {
             queue: Arc::new(Mutex::new(queue)),
             live: Arc::default(),
@@ -338,10 +360,7 @@ impl QueueSession {
 
     /// Puts `queue` in place of an idle one, resting where it says to resume.
     pub fn replace(&self, queue: Queue) {
-        *self.position.lock().unwrap() = Position {
-            offset: queue.resume_position,
-            since: None,
-        };
+        *self.position.lock().unwrap() = Position::at_rest(queue.resume_position);
         *self.queue.lock().unwrap() = queue;
     }
 
@@ -396,10 +415,7 @@ impl QueueSession {
                 queue.state = PlaybackState::Playing;
                 // Where it will start, still until it is heard: what played before, or where
                 // a paused one was, is not where it is now.
-                *self.position.lock().unwrap() = Position {
-                    offset: queue.resume_position,
-                    since: None,
-                };
+                *self.position.lock().unwrap() = Position::at_rest(queue.resume_position);
             }
             Effect::Stop => queue.stopped(),
             Effect::Pause | Effect::None | Effect::NextChanged => {}
@@ -460,10 +476,7 @@ impl QueueSession {
             return;
         }
         self.queue.lock().unwrap().resume_position = position;
-        *self.position.lock().unwrap() = Position {
-            offset: position,
-            since: None,
-        };
+        *self.position.lock().unwrap() = Position::at_rest(position);
         let _ = self.notices.send(Notice::Seeked);
     }
 
@@ -562,13 +575,16 @@ async fn follow(
                     *session.position.lock().unwrap() = Position {
                         offset: start,
                         since: Some(since),
+                        rate: f64::from(queue.items[index].rate),
                     };
                     Notice::Started(index)
                 }),
                 Event::Seeked { position, .. } => {
-                    *session.position.lock().unwrap() = Position {
+                    let mut at = session.position.lock().unwrap();
+                    *at = Position {
                         offset: position,
                         since: Some(since),
+                        rate: at.rate,
                     };
                     Some(Notice::Seeked)
                 }

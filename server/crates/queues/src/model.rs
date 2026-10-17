@@ -138,7 +138,7 @@ pub fn queue(
         "ended": queue.ended,
         "elapsed_time": elapsed.as_secs_f64(),
         "elapsed_time_last_updated": unix_now(),
-        "playback_speed": 1,
+        "playback_speed": queue.current().map_or(1.0, |item| item.rate),
         "state": state_name(queue.state),
         "current_item": item(queue.current_index),
         "next_item": item(next_index),
