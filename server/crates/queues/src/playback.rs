@@ -65,6 +65,31 @@ const LAST_CALIBRATION: &str = "playback.last_calibration";
 /// The provider whose speakers keep in step on PTP.
 pub const AIRPLAY: &str = "airplay";
 
+/// A queue's sleep timer.
+#[derive(Debug, Clone, PartialEq)]
+struct Sleep {
+    until: SleepUntil,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SleepUntil {
+    /// On the server's clock.
+    At(Micros),
+    /// The end of the chapter `chapter` of item `item`, or of the item when it has none.
+    EndOf {
+        item: String,
+        chapter: Option<usize>,
+    },
+}
+
+/// When a queue's sleep timer pauses it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SleepAt {
+    /// Unix seconds.
+    Unix(f64),
+    EndOfChapter,
+}
+
 /// What was last reported of a queue's current audiobook.
 #[derive(Debug, Clone, PartialEq)]
 struct Reported {
@@ -195,6 +220,8 @@ struct Inner {
     reported: Mutex<HashMap<String, Reported>>,
     /// How fast each audiobook last played, by URI, for it to play so again.
     speeds: Mutex<HashMap<String, f32>>,
+    /// When each queue with a sleep timer pauses.
+    sleeps: Mutex<HashMap<String, Sleep>>,
     /// Queues from an earlier run for devices not here yet.
     restored: Mutex<BTreeMap<String, Queue>>,
     /// Groups from an earlier run, by member, waiting for their devices.
@@ -326,6 +353,7 @@ impl Playback {
                 progress_to: OnceLock::new(),
                 reported: Mutex::default(),
                 speeds: Mutex::default(),
+                sleeps: Mutex::default(),
                 restored: Mutex::default(),
                 saved_groups: Mutex::default(),
                 saved_volumes: Mutex::default(),
@@ -1394,8 +1422,120 @@ impl Playback {
         }
     }
 
+    /// Pauses `queue_id`'s group `after` from now, or at the end of what plays: the chapter of
+    /// a book, else the item. `None` for both cancels it.
+    pub fn sleep(
+        &self,
+        queue_id: &str,
+        after: Option<Duration>,
+        end_of_chapter: bool,
+    ) -> Result<()> {
+        let leader = self
+            .leader_of(queue_id)
+            .ok_or_else(|| not_found(queue_id))?;
+        let session = self.entry(&leader)?.session;
+        let until = if let Some(after) = after {
+            Some(SleepUntil::At(clock::now() + after.as_micros() as Micros))
+        } else if end_of_chapter {
+            let queue = session.snapshot();
+            let item = queue.current().ok_or_else(|| {
+                bopsie_core::Error::new(bopsie_core::ErrorCode::QueueEmpty, "Nothing plays")
+            })?;
+            let ms = session.position(clock::now()).as_millis() as u64;
+            let chapter = item
+                .track
+                .fields
+                .metadata
+                .chapters
+                .as_deref()
+                .and_then(|chapters| bopsie_core::media::chapter_at(chapters, ms));
+            Some(SleepUntil::EndOf {
+                item: item.queue_item_id.clone(),
+                chapter,
+            })
+        } else {
+            None
+        };
+        let mut sleeps = self.inner.sleeps.lock().unwrap();
+        match until {
+            Some(until) => {
+                sleeps.insert(leader.clone(), Sleep { until });
+            }
+            None => {
+                sleeps.remove(&leader);
+            }
+        }
+        drop(sleeps);
+        self.changed(&leader);
+        Ok(())
+    }
+
+    /// When `queue_id`'s group pauses, by its sleep timer: in Unix seconds, or at the end of
+    /// what plays.
+    pub fn sleep_at(&self, queue_id: &str) -> Option<SleepAt> {
+        let sleeps = self.inner.sleeps.lock().unwrap();
+        Some(match &sleeps.get(queue_id)?.until {
+            SleepUntil::At(at) => {
+                let seconds = (*at - clock::now()) as f64 / 1_000_000.0;
+                SleepAt::Unix(model::unix_now() + seconds.max(0.0))
+            }
+            SleepUntil::EndOf { .. } => SleepAt::EndOfChapter,
+        })
+    }
+
+    /// Pauses the groups whose sleep timer is due.
+    fn sleep_due(&self) {
+        let due: Vec<(String, Option<Duration>)> = {
+            let sleeps = self.inner.sleeps.lock().unwrap();
+            sleeps
+                .iter()
+                .filter_map(|(queue_id, sleep)| {
+                    let session = self.entry(queue_id).ok()?.session;
+                    let queue = session.snapshot();
+                    if queue.state != PlaybackState::Playing {
+                        return None;
+                    }
+                    match &sleep.until {
+                        SleepUntil::At(at) => {
+                            (clock::now() >= *at).then(|| (queue_id.clone(), None))
+                        }
+                        SleepUntil::EndOf { item, chapter } => {
+                            let current = queue.current()?;
+                            if current.queue_item_id != *item {
+                                // On to the next item: it pauses at its start.
+                                return Some((queue_id.clone(), Some(Duration::ZERO)));
+                            }
+                            let chapters = current.track.fields.metadata.chapters.as_deref()?;
+                            let ms = session.position(clock::now()).as_millis() as u64;
+                            let now = bopsie_core::media::chapter_at(chapters, ms);
+                            (now != *chapter).then(|| {
+                                let start = now
+                                    .and_then(|index| chapters.get(index))
+                                    .map(|next| Duration::from_millis(next.start_ms));
+                                (queue_id.clone(), start)
+                            })
+                        }
+                    }
+                })
+                .collect()
+        };
+        for (queue_id, start) in due {
+            self.inner.sleeps.lock().unwrap().remove(&queue_id);
+            tracing::info!(queue = queue_id, "the sleep timer pauses");
+            if let Err(error) = self.command(&queue_id, QueueCommand::Pause) {
+                tracing::warn!(queue = queue_id, %error, "the sleep timer cannot pause");
+                continue;
+            }
+            // At the start of what comes next, where it was heard into for a moment.
+            if let Some(start) = start {
+                let _ = self.command(&queue_id, QueueCommand::Seek(start.as_secs_f64()));
+            }
+        }
+    }
+
     fn tick(&self) {
         self.report_progress();
+        self.sleep_due();
         let playing: Vec<(String, f64)> = self
             .inner
             .entries
@@ -1649,6 +1789,9 @@ impl Playback {
             }
         };
         if matches!(option, QueueOption::Play | QueueOption::Replace) {
+            if let Some(leader) = self.leader_of(queue_id) {
+                self.inner.sleeps.lock().unwrap().remove(&leader);
+            }
             self.begin(queue_id, enqueue)
         } else {
             self.update(queue_id, enqueue)
@@ -1724,6 +1867,13 @@ impl Playback {
             .ok_or_else(|| not_found(queue_id))?;
         // Whatever the user asks for replaces playing on when the leader comes back.
         self.inner.absent.lock().unwrap().remove(&leader);
+        // Playing again, or stopping, cancels the sleep timer.
+        if matches!(
+            command,
+            QueueCommand::Play | QueueCommand::PlayPause | QueueCommand::Stop
+        ) {
+            self.inner.sleeps.lock().unwrap().remove(&leader);
+        }
         let session = self.entry(&leader)?.session;
         // While the group plays a source, its transport controls the source.
         if let Some(source) = self.live_of(&leader)
@@ -2434,6 +2584,14 @@ impl Playback {
         // Bopsie's own: meant to be playing, but nothing heard yet, so its elapsed time stands
         // still. Music Assistant's states have no such state.
         value["buffering"] = json!(entry.session.buffering());
+        // Bopsie's own: when the sleep timer pauses the queue.
+        let (sleep_at, sleep_end_of_chapter) = match self.sleep_at(queue_id) {
+            Some(SleepAt::Unix(at)) => (Some(at), false),
+            Some(SleepAt::EndOfChapter) => (None, true),
+            None => (None, false),
+        };
+        value["sleep_at"] = json!(sleep_at);
+        value["sleep_end_of_chapter"] = json!(sleep_end_of_chapter);
         // Bopsie's own: the chapter of the current book playing, by index.
         value["current_chapter"] = json!(
             queue

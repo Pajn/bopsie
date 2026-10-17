@@ -424,3 +424,105 @@ async fn a_book_plays_faster_and_as_fast_again_the_next_time() {
         .await;
     assert!(refused["error_code"].is_number(), "{refused}");
 }
+
+#[tokio::test]
+async fn the_sleep_timer_pauses_in_minutes_or_at_the_end_of_the_chapter() {
+    let (server, token) = start_set_up_with(10).await;
+    let dir = tempfile::tempdir().unwrap();
+    FakeCatalog::add_to(&server.api.library, dir.path());
+    let _kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while client
+        .result("players/all", json!({}))
+        .await
+        .as_array()
+        .unwrap()
+        .is_empty()
+    {
+        assert!(tokio::time::Instant::now() < deadline, "no player");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let play_book =
+        json!({"queue_id": "kitchen", "media": "fake://audiobook/fb1", "option": "replace"});
+    let queue = async |client: &mut common::Client| {
+        client
+            .result("player_queues/get", json!({"queue_id": "kitchen"}))
+            .await
+    };
+    let playing = async |client: &mut common::Client| loop {
+        let q = queue(client).await;
+        if q["state"] == "playing" && q["buffering"] == false {
+            return q;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never played: {q}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+
+    // At the end of the chapter: heard from 1 s, it pauses at 2 s, at the next chapter.
+    client
+        .result("player_queues/play_media", play_book.clone())
+        .await;
+    playing(&mut client).await;
+    client
+        .result(
+            "player_queues/sleep",
+            json!({"queue_id": "kitchen", "end_of_chapter": true}),
+        )
+        .await;
+    let q = queue(&mut client).await;
+    assert_eq!(q["sleep_end_of_chapter"], true, "{q}");
+    assert!(q["sleep_at"].is_null(), "{q}");
+    let q = loop {
+        let q = queue(&mut client).await;
+        if q["state"] == "paused" {
+            break q;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never paused: {q}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(q["current_chapter"], 1, "{q}");
+    assert_eq!(q["elapsed_time"], 2.0, "{q}");
+    assert_eq!(q["sleep_end_of_chapter"], false, "done with: {q}");
+
+    // In minutes, here a fraction of one; playing again cancels it.
+    client
+        .result("player_queues/play", json!({"queue_id": "kitchen"}))
+        .await;
+    playing(&mut client).await;
+    let sleep = json!({"queue_id": "kitchen", "minutes": 0.01});
+    client.result("player_queues/sleep", sleep.clone()).await;
+    let q = queue(&mut client).await;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let at = q["sleep_at"].as_f64().unwrap();
+    assert!((now..now + 1.0).contains(&at), "{at} against {now}");
+    client
+        .result("player_queues/play", json!({"queue_id": "kitchen"}))
+        .await;
+    assert!(queue(&mut client).await["sleep_at"].is_null());
+    client.result("player_queues/sleep", sleep).await;
+    loop {
+        let q = queue(&mut client).await;
+        if q["state"] == "paused" {
+            assert!(q["sleep_at"].is_null(), "{q}");
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "never paused: {q}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Nothing, to cancel; a time that is none is refused.
+    client
+        .result("player_queues/sleep", json!({"queue_id": "kitchen"}))
+        .await;
+    let refused = client
+        .send(
+            "player_queues/sleep",
+            json!({"queue_id": "kitchen", "minutes": 0}),
+        )
+        .await;
+    assert!(refused["error_code"].is_number(), "{refused}");
+}

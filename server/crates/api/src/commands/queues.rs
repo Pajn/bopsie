@@ -3,7 +3,7 @@
 use bopsie_audio::engine::Playable;
 
 use bopsie_core::media::Track;
-use bopsie_core::{Error, Result};
+use bopsie_core::{Error, ErrorCode, Result};
 use bopsie_queues::{QueueCommand, QueueOption, RepeatMode};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -264,6 +264,44 @@ impl Command for PlaybackSpeed {
             .playback
             .set_playback_speed(&args.queue_id, args.speed, args.queue_item_id.as_deref())
             .await
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SleepArgs {
+    pub queue_id: String,
+    /// Pause in this many minutes.
+    #[serde(default)]
+    pub minutes: Option<f64>,
+    /// Pause at the end of the chapter playing, or of the item when it has none.
+    #[serde(default)]
+    pub end_of_chapter: bool,
+}
+
+pub struct Sleep;
+impl Command for Sleep {
+    const NAME: &'static str = "player_queues/sleep";
+    const ACCESS: Access = Access::Scope(Scope::QueuesControl);
+    const SUMMARY: &'static str = "Pause the group in a number of minutes, or at the end of the chapter; with neither, cancel that. Playing again cancels it too.";
+    type Args = SleepArgs;
+    type Output = ();
+
+    async fn handle(ctx: Context, args: SleepArgs) -> Result<()> {
+        let after = match args.minutes {
+            Some(minutes) if minutes.is_finite() && minutes > 0.0 => {
+                Some(std::time::Duration::from_secs_f64(minutes * 60.0))
+            }
+            Some(_) => {
+                return Err(Error::new(
+                    ErrorCode::InvalidData,
+                    "minutes must be more than 0",
+                ));
+            }
+            None => None,
+        };
+        ctx.api
+            .playback
+            .sleep(&args.queue_id, after, args.end_of_chapter)
     }
 }
 

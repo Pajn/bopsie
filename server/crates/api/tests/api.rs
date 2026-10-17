@@ -569,6 +569,7 @@ async fn info_and_the_command_list_need_no_auth() {
             "player_queues/set_playback_speed",
             "player_queues/shuffle",
             "player_queues/skip",
+            "player_queues/sleep",
             "player_queues/stop",
             "player_queues/transfer",
             "players/all",

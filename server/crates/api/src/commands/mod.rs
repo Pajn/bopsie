@@ -76,6 +76,7 @@ pub fn registry() -> Registry {
         .add::<queues::Seek>()
         .add::<queues::Skip>()
         .add::<queues::PlaybackSpeed>()
+        .add::<queues::Sleep>()
         .add::<queues::Shuffle>()
         .add::<queues::Repeat>()
         .add::<queues::MoveItem>()
