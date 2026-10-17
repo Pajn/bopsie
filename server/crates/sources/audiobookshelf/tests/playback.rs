@@ -84,6 +84,7 @@ async fn a_books_files_play_as_one_stream_and_seek_into_the_right_one() {
         "li_h".to_owned(),
         ffmpeg,
         tokio::runtime::Handle::current(),
+        Default::default(),
     );
 
     let played = tokio::task::spawn_blocking(move || {

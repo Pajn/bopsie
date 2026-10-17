@@ -178,6 +178,7 @@ async fn run(args: Args, logs: Tail) -> Result<(), Box<dyn std::error::Error>> {
         },
     );
     playback.persist(db.clone(), library.clone()).await?;
+    playback.report_progress_to(library.clone());
     let sources = Sources::default();
     playback.follow_sources(sources.clone());
     let airplay = start_airplay(&config, players.clone(), db.clone()).await;

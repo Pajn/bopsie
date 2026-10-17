@@ -82,6 +82,9 @@ impl Input {
 pub struct Playable {
     pub input: Input,
     pub loudness: Option<Loudness>,
+    /// Where it starts when played from its beginning: where listening left off, for an
+    /// audiobook.
+    pub start: Duration,
 }
 
 impl From<PathBuf> for Playable {
@@ -95,6 +98,7 @@ impl From<Input> for Playable {
         Self {
             input,
             loudness: None,
+            start: Duration::ZERO,
         }
     }
 }

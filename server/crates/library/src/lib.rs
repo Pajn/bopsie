@@ -19,6 +19,7 @@ use bopsie_audio::loudness::Loudness;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bopsie_core::db::Database;
 use bopsie_core::events::{Event, EventBus, EventType};
@@ -332,6 +333,7 @@ impl Library {
                 Some(Playable {
                     input,
                     loudness: source.loudness,
+                    start: Duration::ZERO,
                 })
             })
         })
@@ -391,9 +393,24 @@ impl Library {
                 MediaType::Artist => catalog.artist_tracks(id).await?,
                 MediaType::Playlist => catalog.playlist_tracks(id).await?,
                 // A book plays as one item, as a track of its own media type; its chapters
-                // come with it, in its metadata.
+                // come with it, in its metadata. It starts where listening left off, unless it
+                // was finished.
                 MediaType::Audiobook => match catalog.item(MediaType::Audiobook, id).await? {
-                    MediaItem::Audiobook(book) => vec![book.as_track()],
+                    MediaItem::Audiobook(book) => {
+                        let start = match (book.fully_played, book.resume_position_ms) {
+                            (Some(true), _) | (_, None) => Duration::ZERO,
+                            (_, Some(ms)) => Duration::from_millis(ms),
+                        };
+                        let Some(input) = catalog.media(id) else {
+                            return Ok(Vec::new());
+                        };
+                        let playable = Playable {
+                            input,
+                            loudness: None,
+                            start,
+                        };
+                        return Ok(vec![(book.as_track(), playable)]);
+                    }
                     _ => return Err(not_found()),
                 },
             };
@@ -486,6 +503,16 @@ impl Library {
             };
         };
         Ok(blocking(move || provider.image(&image.path)).await?.ok())
+    }
+
+    /// Tells the catalog the item `uri` names how far into it listening is; nothing for an item
+    /// of the library's own.
+    pub fn report_progress(&self, uri: &str, progress: catalog::Progress) {
+        if let Some((scheme, _, id)) = catalog::parse_uri(uri)
+            && let Some(catalog) = self.catalogs.get(scheme)
+        {
+            catalog.progress(id, progress);
+        }
     }
 
     /// Makes images a catalog names by `(provider, path)` servable by the image proxy, under

@@ -25,6 +25,7 @@ use bopsie_core::events::{Event, EventBus, EventType};
 use bopsie_core::media::Track;
 use bopsie_core::{Error, ErrorCode, Result};
 use bopsie_library::Library;
+use bopsie_library::catalog::Progress;
 use bopsie_players::devices::PROTOCOLS;
 use bopsie_players::planner::{self, Plan, Policy, Strategy};
 use bopsie_players::{
@@ -60,6 +61,71 @@ const MIXED_AIRPLAY_MS: &str = "playback.mixed_airplay_ms";
 const LAST_CALIBRATION: &str = "playback.last_calibration";
 /// The provider whose speakers keep in step on PTP.
 pub const AIRPLAY: &str = "airplay";
+
+/// What was last reported of a queue's current audiobook.
+#[derive(Debug, Clone, PartialEq)]
+struct Reported {
+    uri: String,
+    playing: bool,
+    /// The queue played it to its end.
+    ended: bool,
+    position: Duration,
+    duration: Duration,
+    at: Instant,
+}
+
+/// How far a position may move from where playing for the time between reports takes it
+/// before it counts as a seek.
+const SEEK_SLACK: Duration = Duration::from_secs(3);
+/// How near its end an item left counts as played to its end.
+const END_SLACK: Duration = Duration::from_secs(5);
+
+/// What to report of a queue's audiobooks, from what was reported last and what is now: of one
+/// left, that it ended or was stopped; of the one now, that it plays, paused or moved.
+fn progress_between(before: Option<&Reported>, now: Option<&Reported>) -> Vec<(String, Progress)> {
+    let mut reports = Vec::new();
+    let same = matches!((before, now), (Some(b), Some(n)) if b.uri == n.uri);
+    if let Some(before) = before.filter(|_| !same)
+        && !before.ended
+    {
+        let progress = if before.position + END_SLACK >= before.duration {
+            Progress::Ended
+        } else {
+            Progress::Stopped(before.position)
+        };
+        reports.push((before.uri.clone(), progress));
+    }
+    let Some(now) = now else {
+        return reports;
+    };
+    let before = before.filter(|_| same);
+    if now.ended {
+        if !before.is_some_and(|b| b.ended) {
+            reports.push((now.uri.clone(), Progress::Ended));
+        }
+        return reports;
+    }
+    // Where it would be had nothing moved it.
+    let expected = before.map(|b| {
+        if b.playing {
+            b.position + now.at.saturating_duration_since(b.at)
+        } else {
+            b.position
+        }
+    });
+    let moved = expected.is_some_and(|expected| now.position.abs_diff(expected) > SEEK_SLACK);
+    let progress = if moved {
+        Progress::Seeked(now.position)
+    } else if now.playing {
+        Progress::Playing(now.position)
+    } else if before.is_none_or(|b| b.playing) {
+        Progress::Paused(now.position)
+    } else {
+        return reports;
+    };
+    reports.push((now.uri.clone(), progress));
+    reports
+}
 
 /// How often a playing queue's position is saved.
 const POSITION_EVERY: Duration = Duration::from_secs(10);
@@ -118,6 +184,10 @@ struct Inner {
     mixed_airplay_ms: std::sync::atomic::AtomicI32,
     /// What the last calibration set, as the API reports it.
     last_calibration: Mutex<Option<serde_json::Value>>,
+    /// Where listening progress in a catalog's items, such as audiobooks, is reported.
+    progress_to: OnceLock<Library>,
+    /// What was last reported of each queue's item.
+    reported: Mutex<HashMap<String, Reported>>,
     /// Queues from an earlier run for devices not here yet.
     restored: Mutex<BTreeMap<String, Queue>>,
     /// Groups from an earlier run, by member, waiting for their devices.
@@ -246,6 +316,8 @@ impl Playback {
                 db: OnceLock::new(),
                 mixed_airplay_ms: Default::default(),
                 last_calibration: Mutex::default(),
+                progress_to: OnceLock::new(),
+                reported: Mutex::default(),
                 restored: Mutex::default(),
                 saved_groups: Mutex::default(),
                 saved_volumes: Mutex::default(),
@@ -1257,7 +1329,55 @@ impl Playback {
         }
     }
 
+    /// Reports listening progress in a catalog's items, such as an Audiobookshelf book, to
+    /// `library`, which passes it to the catalog.
+    pub fn report_progress_to(&self, library: Library) {
+        let _ = self.inner.progress_to.set(library);
+    }
+
+    /// Tells the catalog of each queue's current audiobook how far into it listening is, and
+    /// of one the queue left, that it was left; from what changed since the last report.
+    fn report_progress(&self) {
+        let Some(library) = self.inner.progress_to.get() else {
+            return;
+        };
+        let now = clock::now();
+        let current: Vec<(String, Option<Reported>)> = self
+            .inner
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, entry)| {
+                let queue = entry.session.snapshot();
+                let book = queue.current().filter(|item| {
+                    item.track.fields.media_type == bopsie_core::media::MediaType::Audiobook
+                });
+                let reported = book.map(|item| Reported {
+                    uri: item.track.fields.uri.clone(),
+                    playing: queue.state == PlaybackState::Playing && !entry.session.buffering(),
+                    ended: queue.ended,
+                    position: entry.session.position(now),
+                    duration: Duration::from_secs(u64::from(item.track.duration)),
+                    at: Instant::now(),
+                });
+                (id.clone(), reported)
+            })
+            .collect();
+        let mut reported = self.inner.reported.lock().unwrap();
+        for (queue_id, now) in current {
+            let before = reported.remove(&queue_id);
+            for (uri, progress) in progress_between(before.as_ref(), now.as_ref()) {
+                library.report_progress(&uri, progress);
+            }
+            if let Some(now) = now {
+                reported.insert(queue_id, now);
+            }
+        }
+    }
+
     fn tick(&self) {
+        self.report_progress();
         let playing: Vec<(String, f64)> = self
             .inner
             .entries
@@ -2486,5 +2606,102 @@ fn now_playing(
         duration: u64::from(track.duration) * 1_000,
         position: position.as_millis() as u64,
         playing,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(uri: &str, playing: bool, seconds: u64, then: Instant) -> Reported {
+        Reported {
+            uri: uri.to_owned(),
+            playing,
+            ended: false,
+            position: Duration::from_secs(seconds),
+            duration: Duration::from_secs(600),
+            at: then,
+        }
+    }
+
+    fn secs(seconds: u64) -> Duration {
+        Duration::from_secs(seconds)
+    }
+
+    #[test]
+    fn progress_is_reported_from_what_changed() {
+        let t0 = Instant::now();
+        let t1 = t0 + secs(1);
+        let book = "audiobookshelf://audiobook/a";
+        // Starting, playing on, pausing, staying paused, playing again.
+        assert_eq!(
+            progress_between(None, Some(&at(book, true, 30, t0))),
+            [(book.to_owned(), Progress::Playing(secs(30)))]
+        );
+        assert_eq!(
+            progress_between(Some(&at(book, true, 30, t0)), Some(&at(book, true, 31, t1))),
+            [(book.to_owned(), Progress::Playing(secs(31)))]
+        );
+        assert_eq!(
+            progress_between(
+                Some(&at(book, true, 31, t0)),
+                Some(&at(book, false, 32, t1))
+            ),
+            [(book.to_owned(), Progress::Paused(secs(32)))]
+        );
+        assert_eq!(
+            progress_between(
+                Some(&at(book, false, 32, t0)),
+                Some(&at(book, false, 32, t1))
+            ),
+            []
+        );
+        // A jump is a seek, playing or paused.
+        assert_eq!(
+            progress_between(
+                Some(&at(book, true, 31, t0)),
+                Some(&at(book, true, 200, t1))
+            ),
+            [(book.to_owned(), Progress::Seeked(secs(200)))]
+        );
+        assert_eq!(
+            progress_between(
+                Some(&at(book, false, 32, t0)),
+                Some(&at(book, false, 10, t1))
+            ),
+            [(book.to_owned(), Progress::Seeked(secs(10)))]
+        );
+    }
+
+    #[test]
+    fn a_book_left_is_stopped_or_ended() {
+        let t0 = Instant::now();
+        let (a, b) = (
+            "audiobookshelf://audiobook/a",
+            "audiobookshelf://audiobook/b",
+        );
+        assert_eq!(
+            progress_between(Some(&at(a, true, 100, t0)), Some(&at(b, true, 0, t0))),
+            [
+                (a.to_owned(), Progress::Stopped(secs(100))),
+                (b.to_owned(), Progress::Playing(secs(0)))
+            ]
+        );
+        assert_eq!(
+            progress_between(Some(&at(a, true, 597, t0)), None),
+            [(a.to_owned(), Progress::Ended)]
+        );
+        // The queue played it to its end: ended, once.
+        let ended = Reported {
+            ended: true,
+            playing: false,
+            ..at(a, false, 600, t0)
+        };
+        assert_eq!(
+            progress_between(Some(&at(a, true, 599, t0)), Some(&ended)),
+            [(a.to_owned(), Progress::Ended)]
+        );
+        assert_eq!(progress_between(Some(&ended), Some(&ended)), []);
+        assert_eq!(progress_between(Some(&ended), None), []);
     }
 }

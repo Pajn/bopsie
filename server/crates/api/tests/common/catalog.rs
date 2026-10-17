@@ -2,7 +2,7 @@
 //! in two chapters by the same artist, each track and the book playing from a WAV file.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bopsie_audio::engine::Input;
 use bopsie_core::media::{
@@ -10,14 +10,18 @@ use bopsie_core::media::{
     Metadata, Playlist, Track, sort_name,
 };
 use bopsie_library::Library;
-use bopsie_library::catalog::{self, Catalog, CatalogError, CatalogResult};
+use bopsie_library::catalog::{self, Catalog, CatalogError, CatalogResult, Progress};
 use futures::future::BoxFuture;
 
 pub const FAKE: &str = "fake";
 
 pub struct FakeCatalog {
     files: PathBuf,
+    progress: Reports,
 }
+
+/// What playback reported of the catalog's items' progress.
+pub type Reports = Arc<Mutex<Vec<(String, Progress)>>>;
 
 fn fields(media_type: MediaType, id: &str, name: &str) -> ItemFields {
     ItemFields {
@@ -133,7 +137,7 @@ pub fn audiobook() -> Audiobook {
 impl FakeCatalog {
     /// Adds the catalog to `library`, its tracks and its book playing from WAV files written to
     /// `dir`.
-    pub fn add_to(library: &Library, dir: &Path) {
+    pub fn add_to(library: &Library, dir: &Path) -> Reports {
         let ids = tracks()
             .into_iter()
             .map(|track| track.fields.item_id)
@@ -143,9 +147,12 @@ impl FakeCatalog {
             bopsie_fixtures::write_wav(&path, 44_100, 2, &bopsie_fixtures::noise(3, 44_100 * 4))
                 .unwrap();
         }
+        let progress = Reports::default();
         library.catalogs().add(Arc::new(Self {
             files: dir.to_owned(),
+            progress: progress.clone(),
         }));
+        progress
     }
 }
 
@@ -229,5 +236,11 @@ impl Catalog for FakeCatalog {
     }
     fn audiobook_count<'a>(&'a self) -> BoxFuture<'a, CatalogResult<usize>> {
         Box::pin(async { Ok(1) })
+    }
+    fn progress(&self, id: &str, progress: Progress) {
+        self.progress
+            .lock()
+            .unwrap()
+            .push((id.to_owned(), progress));
     }
 }

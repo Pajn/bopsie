@@ -188,6 +188,11 @@ impl Account {
         self.request(Method::POST, path, Some(body)).await
     }
 
+    /// The JSON the server answers patching `path` with `body`.
+    pub async fn patch(&self, path: &str, body: Value) -> Result<Value, AccountError> {
+        self.request(Method::PATCH, path, Some(body)).await
+    }
+
     /// The bytes the server answers `path` with, such as a cover.
     pub async fn bytes(&self, path: &str) -> Result<Vec<u8>, AccountError> {
         let response = self.send(Method::GET, path, None).await?;

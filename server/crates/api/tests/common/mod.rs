@@ -86,6 +86,7 @@ async fn start_full(seconds: u32, web: Web, spotify: bool) -> Server {
     .await
     .unwrap();
     let playback = Playback::start(devices, events.clone(), PlaybackConfig::default());
+    playback.report_progress_to(library.clone());
     let sources = Sources::default();
     playback.follow_sources(sources.clone());
     let audiobookshelf = bopsie_sources_audiobookshelf::Account::open(db.clone())

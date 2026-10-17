@@ -10,14 +10,16 @@ use bopsie_core::media::{
     Metadata, Track, sort_name,
 };
 use bopsie_library::Library;
-use bopsie_library::catalog::{self, Catalog, CatalogError, CatalogResult};
+use bopsie_library::catalog::{self, Catalog, CatalogError, CatalogResult, Progress};
 use bopsie_library::scan::proxy_id;
 use futures::future::BoxFuture;
 use serde_json::Value;
 use tokio::runtime::Handle;
+use tokio::sync::mpsc;
 
 use crate::account::{Account, AccountError};
 use crate::media::BookMedia;
+use crate::progress::{self, Sessions};
 
 /// The catalog's provider id, and its URIs' scheme.
 pub const AUDIOBOOKSHELF: &str = "audiobookshelf";
@@ -28,6 +30,9 @@ pub struct AudiobookshelfCatalog {
     /// What plays books: they are fetched from the server through it.
     ffmpeg: Option<PathBuf>,
     runtime: Handle,
+    sessions: Sessions,
+    /// Where listening progress goes to be kept on the server.
+    progress: mpsc::UnboundedSender<(String, Progress)>,
 }
 
 impl From<AccountError> for CatalogError {
@@ -196,11 +201,14 @@ impl AudiobookshelfCatalog {
     /// The catalog of `account`'s server; books play through `ffmpeg`, and without it do not.
     /// Needs a Tokio runtime.
     pub fn new(account: Account, library: Library, ffmpeg: Option<PathBuf>) -> Self {
+        let sessions = Sessions::default();
         Self {
+            progress: progress::start(account.clone(), sessions.clone()),
             account,
             library,
             ffmpeg,
             runtime: Handle::current(),
+            sessions,
         }
     }
 
@@ -377,7 +385,12 @@ impl Catalog for AudiobookshelfCatalog {
             id.to_owned(),
             ffmpeg.clone(),
             self.runtime.clone(),
+            self.sessions.clone(),
         ))))
+    }
+
+    fn progress(&self, id: &str, progress: Progress) {
+        let _ = self.progress.send((id.to_owned(), progress));
     }
 
     fn audiobooks<'a>(

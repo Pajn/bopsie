@@ -33,6 +33,11 @@ pub struct Stand {
     pub files: Vec<(std::path::PathBuf, f64)>,
     /// Sessions it opened, by id.
     pub sessions: u32,
+    /// Sessions it forgot, as a restarted server does.
+    pub forgotten: Vec<String>,
+    /// What it was told of listening: `sync <session>`, `close <session>` or
+    /// `progress <book>`, with the body.
+    pub reports: Vec<(String, Value)>,
 }
 
 pub type Shared = Arc<Mutex<Stand>>;
@@ -276,6 +281,45 @@ async fn file(
     }
 }
 
+async fn session_report(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path((id, what)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&stand, &headers) {
+        return unauthorized();
+    }
+    let mut stand = stand.lock().unwrap();
+    let known = id
+        .strip_prefix("ses")
+        .and_then(|n| n.parse::<u32>().ok())
+        .is_some_and(|n| n <= stand.sessions)
+        && !stand.forgotten.contains(&id);
+    if !known {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
+    stand.reports.push((format!("{what} {id}"), body));
+    (StatusCode::OK, "OK").into_response()
+}
+
+async fn progress(
+    State(stand): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Response {
+    if !authorized(&stand, &headers) {
+        return unauthorized();
+    }
+    stand
+        .lock()
+        .unwrap()
+        .reports
+        .push((format!("progress {id}"), body));
+    (StatusCode::OK, "OK").into_response()
+}
+
 async fn cover(State(stand): State<Shared>, Path(id): Path<String>) -> Response {
     log(&stand, format!("GET /api/items/{id}/cover"));
     (StatusCode::OK, format!("cover of {id}")).into_response()
@@ -356,6 +400,8 @@ pub async fn start() -> (String, Shared) {
         .route("/api/items/{id}/cover", get(cover))
         .route("/api/items/{id}/play", post(play))
         .route("/s/item/{id}/{name}", get(file))
+        .route("/api/session/{id}/{what}", post(session_report))
+        .route("/api/me/progress/{id}", axum::routing::patch(progress))
         .route("/api/authors/{id}", get(author))
         .with_state(stand.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

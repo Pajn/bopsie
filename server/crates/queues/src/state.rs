@@ -58,6 +58,9 @@ pub struct QueueItem {
     pub input: Input,
     /// How loud it is there, when known before it opens.
     pub loudness: Option<Loudness>,
+    /// Where it starts the first time it plays from its beginning, as an audiobook does where
+    /// listening left off; once it started, from its beginning.
+    pub start: Duration,
 }
 
 /// What the player must do after an operation.
@@ -165,6 +168,7 @@ impl Queue {
                     track,
                     input: playable.input,
                     loudness: playable.loudness,
+                    start: playable.start,
                 }
             })
             .collect()
@@ -425,7 +429,10 @@ impl Queue {
             Some(buffered) => (self.next_index(buffered, false)?, Duration::ZERO),
         };
         self.index_in_buffer = Some(index);
-        Some((self.items.get(index)?, start))
+        let item = self.items.get(index)?;
+        // From its beginning, the first time: where it starts.
+        let start = if start.is_zero() { item.start } else { start };
+        Some((item, start))
     }
 
     /// Pauses at `position` in the current item.
@@ -460,6 +467,9 @@ impl Queue {
 
     /// The player started playing the item at `index`.
     pub fn started(&mut self, index: usize) {
+        if let Some(item) = self.items.get_mut(index) {
+            item.start = Duration::ZERO;
+        }
         self.current_index = Some(index);
         self.state = PlaybackState::Playing;
         self.ended = false;

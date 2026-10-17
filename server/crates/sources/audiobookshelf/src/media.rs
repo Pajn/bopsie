@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use tokio::runtime::Handle;
 
 use crate::account::Account;
+use crate::progress::Sessions;
 
 /// What the server is told can be played as it is: everything ffmpeg decodes.
 const SUPPORTED: &[&str] = &[
@@ -82,29 +83,41 @@ pub struct BookMedia {
     id: String,
     ffmpeg: PathBuf,
     runtime: Handle,
+    /// Where the session it opens is kept, for its progress to be synced through.
+    sessions: Sessions,
 }
 
 impl BookMedia {
-    pub fn new(account: Account, id: String, ffmpeg: PathBuf, runtime: Handle) -> Self {
+    pub fn new(
+        account: Account,
+        id: String,
+        ffmpeg: PathBuf,
+        runtime: Handle,
+        sessions: Sessions,
+    ) -> Self {
         Self {
             account,
             id,
             ffmpeg,
             runtime,
+            sessions,
         }
     }
 }
 
 impl Media for BookMedia {
     fn open(&self, format: PcmFormat) -> Result<Box<dyn Decoder>, DecodeError> {
-        let (account, id, ffmpeg, runtime) = (
+        let (account, id, ffmpeg, runtime, sessions) = (
             self.account.clone(),
             self.id.clone(),
             self.ffmpeg.clone(),
             self.runtime.clone(),
+            self.sessions.clone(),
         );
         Ok(Box::new(Buffered::start(format, move || {
             let session = runtime.block_on(start_session(&account, &id))?;
+            let seconds = session.files.iter().map(|file| file.seconds).sum();
+            sessions.opened(&id, &session.id, seconds);
             tracing::debug!(
                 book = id,
                 session = session.id,

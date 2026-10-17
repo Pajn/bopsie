@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use bopsie_library::catalog::Progress;
 use common::catalog::{FAKE, FakeCatalog};
 use common::speaker::*;
 use common::*;
@@ -211,4 +212,68 @@ async fn a_catalogs_audiobooks_list_search_and_play_as_one_item() {
         .result("players/get", json!({"player_id": "kitchen"}))
         .await;
     assert_eq!(player["current_media"]["media_type"], "audiobook");
+}
+
+#[tokio::test]
+async fn a_book_starts_where_listening_left_off_and_its_progress_is_reported() {
+    let (server, token) = start_set_up_with(10).await;
+    let dir = tempfile::tempdir().unwrap();
+    let reports = FakeCatalog::add_to(&server.api.library, dir.path());
+    let _kitchen = Speaker::register(&server.players, "kitchen", "airplay", &[CD], None);
+    let mut client = server.connect().await;
+    client.result("auth", json!({"token": token})).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while client
+        .result("players/all", json!({}))
+        .await
+        .as_array()
+        .unwrap()
+        .is_empty()
+    {
+        assert!(tokio::time::Instant::now() < deadline, "no player");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client
+        .result(
+            "player_queues/play_media",
+            json!({"queue_id": "kitchen", "media": "fake://audiobook/fb1", "option": "replace"}),
+        )
+        .await;
+    let reported = |what: fn(&Progress) -> bool| {
+        reports
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(id, progress)| id == "fb1" && what(progress))
+    };
+    // It was left 1 s in.
+    while !reported(|p| matches!(p, Progress::Playing(_))) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no progress reported"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let first = reports.lock().unwrap()[0].1;
+    let Progress::Playing(at) = first else {
+        panic!("{first:?}");
+    };
+    assert!(at >= Duration::from_millis(1_000), "started at {at:?}");
+    client
+        .result("player_queues/pause", json!({"queue_id": "kitchen"}))
+        .await;
+    while !reported(|p| matches!(p, Progress::Paused(_))) {
+        assert!(tokio::time::Instant::now() < deadline, "no pause reported");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client
+        .result("player_queues/clear", json!({"queue_id": "kitchen"}))
+        .await;
+    while !reported(|p| matches!(p, Progress::Stopped(_) | Progress::Ended)) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "leaving it not reported"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }

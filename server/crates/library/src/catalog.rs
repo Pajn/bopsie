@@ -3,6 +3,7 @@
 //! of its own, `<instance>://<type>/<id>`, and play through [`Catalog::media`].
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use bopsie_audio::engine::Input;
 use bopsie_core::media::{Album, Audiobook, MediaItem, MediaType, Track};
@@ -28,6 +29,22 @@ impl From<CatalogError> for Error {
 }
 
 pub type CatalogResult<T> = Result<T, CatalogError>;
+
+/// How far into an item listening is, for a catalog that keeps it, such as Audiobookshelf.
+/// Positions are from the item's start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Progress {
+    /// Playing, this far in; reported about once a second.
+    Playing(Duration),
+    /// Paused, this far in.
+    Paused(Duration),
+    /// Moved to this far in, as by a seek or a chapter skip.
+    Seeked(Duration),
+    /// Played to its end.
+    Ended,
+    /// Left this far in, for another item or none.
+    Stopped(Duration),
+}
 
 pub trait Catalog: Send + Sync {
     /// Its provider id, which is also its URIs' scheme, such as `spotify`.
@@ -77,6 +94,8 @@ pub trait Catalog: Send + Sync {
     ) -> BoxFuture<'a, CatalogResult<Vec<Audiobook>>> {
         Box::pin(async { Ok(Vec::new()) })
     }
+    /// How far into its item `id` listening is, as playback reports it. It must not block.
+    fn progress(&self, _id: &str, _progress: Progress) {}
     /// The bytes of an image it named by `path` with no URL of its own, as one its server
     /// serves only to those signed in to it. The library's image proxy serves it, once
     /// [`crate::Library::remember_images`] knows it.

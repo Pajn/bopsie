@@ -91,6 +91,8 @@ impl SavedQueue {
                 track,
                 input: playable.input,
                 loudness: playable.loudness,
+                // Where it was is kept with the queue.
+                start: Duration::ZERO,
             });
         }
         if current.is_none() {
