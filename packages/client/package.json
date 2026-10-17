@@ -2,7 +2,7 @@
   "name": "@bopsie/client",
   "version": "0.1.0",
   "private": true,
-  "description": "The Music Assistant API client shared by Bopsie and the server's web UI",
+  "description": "The API client shared by Bopsie and the server's web UI",
   "exports": {
     "./*": "./src/*.ts"
   },

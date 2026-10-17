@@ -1,7 +1,7 @@
 import * as z from 'zod/mini';
 import { booleanOr, stringOr } from './common';
 
-/** Music Assistant's `User`, as user management reads it. */
+/** A `User`, as user management reads it. */
 export const managedUser = z.looseObject({
   user_id: z.string(),
   username: z.string(),
@@ -12,7 +12,7 @@ export const managedUser = z.looseObject({
 });
 export type ManagedUser = z.infer<typeof managedUser>;
 
-/** Music Assistant's `AuthToken`: one sign-in. */
+/** An `AuthToken`: one sign-in. */
 export const authToken = z.looseObject({
   token_id: z.string(),
   user_id: z.string(),

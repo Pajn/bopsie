@@ -1,21 +1,21 @@
 # Bopsie
 
-A [Music Assistant](https://www.music-assistant.io/) client for iOS and Android, built with
-React Native and Expo. A sister project to Shelfie, the Audiobookshelf client, sharing its stack,
-structure and testing strategy.
+The Bopsie app for iOS and Android, built with React Native and Expo, for
+[the Bopsie server](../server). A sister project to Shelfie, the Audiobookshelf client, sharing
+its stack, structure and testing strategy.
 
-Architecture, stack choices and the roadmap live in [`docs/plans`](../docs/plans). What the
-Music Assistant API and the Sendspin protocol look like on the wire, with sources, is in
-[`docs/research`](../docs/research).
+Architecture, stack choices and the roadmap live in [`docs/plans`](../docs/plans). The app talks
+to the server over the Music Assistant API and Sendspin, reused as Bopsie's protocol; what they
+look like on the wire, with sources, is in [`docs/research`](../docs/research).
 
-What works today: sign in to Music Assistant 2.7.1 or later with a username and password; open on a
-home of what came into the library lately, its playlists and artists, and albums to rediscover;
+What works today: sign in to a Bopsie server with a username and password; open on a home of
+what came into the library lately, its playlists and artists, and albums to rediscover;
 browse albums, artists, tracks and playlists, sorted, filtered and as a grid; search; and, on
-Android, play on the phone itself. The phone joins Music Assistant as a player over Sendspin, so the
+Android, play on the phone itself. The phone joins the server as a player over Sendspin, so the
 server keeps its queue and other clients see it, with notification and lock-screen controls. iOS
 browses but does not play yet.
 
-The app also controls any other Music Assistant player. It works on one active group at a time — the
+The app also controls any other player on the server. It works on one active group at a time — the
 phone until you choose another — and the speaker button on the mini player, or the pill under the
 full player's track, which grows into it, opens the list of players: set each member's volume or the
 group's, remove members, and for any other player choose to join it to the group, move the queue to
@@ -29,7 +29,7 @@ or artwork down, or press back, to put it away again.
 The bar at the foot of the full player says what plays next, and grows into the group's queue
 over the player when tapped or dragged up; drag its header down, or press back, to close it. In
 the queue, play any track, drag tracks into a new order, move one up to play next, or remove it. The track playing, and the next one once the player has it, stay
-where they are, as Music Assistant requires.
+where they are, as the server requires.
 
 Press and hold a track, album, artist or playlist, or use its more button, to play it next, add it
 to the end of the queue, or go to its album or artists.
@@ -54,7 +54,7 @@ albums, newest first. A Spotify artist's singles and EPs, and compilations, are 
 - Android: the JDK and Android SDK from the Nix dev shell (`nix develop`, or `direnv allow`).
   `nix develop .#emulator` adds an emulator and a system image.
 - iOS: Xcode 27 or newer with an iOS simulator.
-- A Music Assistant server, 2.7.1 or later. Integration and end-to-end tests start their own.
+- A Bopsie server. Integration and end-to-end tests start their own.
 
 ## Development
 
@@ -159,8 +159,7 @@ pnpm server:stop
 
 `BOPSIE_IMAGE` names an image to use as it is instead of building one. Point `TEST_SERVER_URL`,
 `TEST_SERVER_USERNAME` and `TEST_SERVER_PASSWORD` at any other server to test against it instead.
-Without `TEST_SERVER_URL` the integration suites are skipped. `scripts/ma-server.sh` starts a Music
-Assistant server with the same library, for trying the app against it by hand.
+Without `TEST_SERVER_URL` the integration suites are skipped.
 
 ## End-to-end tests
 

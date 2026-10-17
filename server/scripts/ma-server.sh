@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Runs a throwaway Music Assistant server in a container, with the library the tests expect. The
-# tests run against Bopsie's own server (scripts/test-server.sh); this one is kept for checking the
-# app against Music Assistant by hand, and for recording the server's golden responses.
+# Runs a throwaway Music Assistant server in a container, with the test library, for recording the
+# golden responses in crates/api/tests/golden: the API this server follows, as Music Assistant
+# answers it.
 #
 #   scripts/ma-server.sh start   # start (or reuse) the server, create the user, add a library
 #   scripts/ma-server.sh stop    # remove the container and its data
-#   scripts/ma-server.sh env     # print the TEST_SERVER_* variables the tests read
+#   scripts/ma-server.sh env     # print the server's address and credentials as TEST_SERVER_*
 #
 # The library is generated inside the container with ffmpeg: two albums of short tones with
 # tags and cover art, enough to browse and to play.

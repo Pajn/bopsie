@@ -44,9 +44,7 @@ export async function signIn(
     await anonymous.ready();
     const info = anonymous.serverInfo;
     if (!info || info.schema_version < MIN_SCHEMA_VERSION) {
-      throw new SignInError(
-        `This server runs Music Assistant ${info?.server_version ?? 'of an unknown version'}. Bopsie needs 2.7 or later.`,
-      );
+      throw new SignInError('This server is too old for this version of Bopsie.');
     }
     const login = await anonymous.command(
       'auth/login',

@@ -2,7 +2,7 @@ import * as z from 'zod/mini';
 import { album, track } from './media';
 
 /**
- * What the server's admin commands answer: this server's own, not Music Assistant's. Fields the
+ * What the server's admin commands answer: the ones Bopsie adds to the protocol. Fields the
  * server leaves free in shape, such as a protocol's diagnostics, read as unknown.
  */
 

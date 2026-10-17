@@ -1,4 +1,4 @@
-/** Error codes from `music_assistant_models/errors.py` that the app treats specially. */
+/** Error codes from the server that the app treats specially. */
 export const ErrorCode = {
   mediaNotFound: 2,
   loginFailed: 6,
@@ -61,9 +61,7 @@ export class SchemaError extends Error {
 /** The server needs first-run setup in its web interface before anyone can sign in. */
 export class SetupRequiredError extends Error {
   constructor() {
-    super(
-      'This Music Assistant server has not been set up yet. Finish setup in its web interface.',
-    );
+    super('This server has not been set up yet. Finish setup in its web interface.');
     this.name = 'SetupRequiredError';
   }
 }

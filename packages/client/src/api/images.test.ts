@@ -20,24 +20,23 @@ describe('imageUrl', () => {
     const item = {
       metadata: { images: [image({ type: 'fanart', proxy_id: 'f' }), image({ proxy_id: 't' })] },
     };
-    expect(imageUrl('http://ma:8095', item, 80)).toContain('/imageproxy/t?');
+    expect(imageUrl('http://bopsie:8095', item, 80)).toContain('/imageproxy/t?');
   });
 
-  it('falls back to the stream port query form for servers before 2.10', () => {
-    const url = imageUrl('http://ma.local:8095', { image: image() }, 160);
-    expect(url).toBe(
-      'http://ma.local:8097/imageproxy?provider=filesystem_local--x&size=160&fmt=jpeg&path=%252Fmusic%252FA%252FB%252Fcover.jpg',
-    );
+  it('is null for an image the server neither proxies nor serves publicly', () => {
+    expect(imageUrl('http://bopsie:8095', { image: image() }, 160)).toBeNull();
   });
 
   it('uses a public image as it is when there is no proxy id', () => {
     const remote = image({ path: 'https://i.scdn.co/image/abc', remotely_accessible: true });
-    expect(imageUrl('http://ma:8095', { image: remote }, 256)).toBe('https://i.scdn.co/image/abc');
+    expect(imageUrl('http://bopsie:8095', { image: remote }, 256)).toBe(
+      'https://i.scdn.co/image/abc',
+    );
   });
 
   it('is null for an item without images', () => {
-    expect(imageUrl('http://ma:8095', { metadata: { images: [] } }, 80)).toBeNull();
-    expect(imageUrl('http://ma:8095', { image: null }, 80)).toBeNull();
+    expect(imageUrl('http://bopsie:8095', { metadata: { images: [] } }, 80)).toBeNull();
+    expect(imageUrl('http://bopsie:8095', { image: null }, 80)).toBeNull();
   });
 });
 

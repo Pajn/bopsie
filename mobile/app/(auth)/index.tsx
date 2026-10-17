@@ -52,7 +52,7 @@ export default function SignInScreen() {
               <Text muted>
                 {expired
                   ? 'The server no longer accepts this sign-in. Sign in again to continue.'
-                  : 'Sign in to your Music Assistant server.'}
+                  : 'Sign in to your Bopsie server.'}
               </Text>
             </Stack>
             <Stack>

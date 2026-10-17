@@ -10,7 +10,7 @@ const PLAYER_STATUS: Record<PlayerStatus, string> = {
   unsupported: 'Playing on this device is Android-only for now.',
   closed: 'Not connected.',
   connecting: 'Connecting…',
-  connected: 'Ready. Music Assistant lists this phone as a player.',
+  connected: 'Ready. The server lists this phone as a player.',
   reconnecting: 'Connection lost. Reconnecting…',
   unauthorized: 'The server refused this sign-in.',
 };
@@ -31,7 +31,7 @@ export function AccountScreen() {
           <Text testID="account-username">{account.username}</Text>
           <Text muted>
             {account.serverUrl}
-            {server ? ` · Music Assistant ${server.server_version}` : ''}
+            {server ? ` · Bopsie ${server.server_version}` : ''}
           </Text>
         </Stack>
         <Stack gap="sm">

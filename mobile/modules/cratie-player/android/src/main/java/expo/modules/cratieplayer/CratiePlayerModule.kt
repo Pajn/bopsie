@@ -34,7 +34,7 @@ class CratiePlayerModule : Module() {
     Name("CratiePlayer")
     Events("player")
 
-    /** This install's Sendspin client id, created on first use. It is the player's id in Music Assistant. */
+    /** This install's Sendspin client id, created on first use. It is the player's id on the server. */
     Function("clientId") {
       val preferences = context().getSharedPreferences("cratie-player", Context.MODE_PRIVATE)
       preferences.getString("clientId", null) ?: UUID.randomUUID().toString().also {

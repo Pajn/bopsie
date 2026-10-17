@@ -80,7 +80,7 @@ export async function registerPlayer(
   clientId: string,
   name: string,
   /**
-   * What the player says it is. Music Assistant counts a "Mobile Application" as someone's own
+   * What the player says it is. The server counts a "Mobile Application" as someone's own
    * phone, which other clients keep private; a speaker is shared.
    */
   productName = 'Mobile Application',

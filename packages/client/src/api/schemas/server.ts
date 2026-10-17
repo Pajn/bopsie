@@ -11,5 +11,5 @@ export const serverInfo = z.looseObject({
 });
 export type ServerInfo = z.infer<typeof serverInfo>;
 
-/** Schema 28 is Music Assistant 2.7, the first release with users and tokens. */
+/** The oldest schema the client speaks: 28 is where users and tokens arrived. */
 export const MIN_SCHEMA_VERSION = 28;

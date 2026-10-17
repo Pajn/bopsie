@@ -1,5 +1,5 @@
-//! The test library: the same two albums of tones that `mobile/scripts/ma-server.sh` gives
-//! Music Assistant, so tests make the same assertions against either server. The tracks are
+//! The test library: the same two albums of tones that `server/scripts/ma-server.sh` gives
+//! Music Assistant to record the golden responses from. The tracks are
 //! WAV files with ID3v2 tags, which need no encoder to write; each album folder has a
 //! `cover.jpg`. A playlist at the root lists two tracks from different albums.
 

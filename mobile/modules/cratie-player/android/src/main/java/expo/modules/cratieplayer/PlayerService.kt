@@ -32,7 +32,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import org.json.JSONObject
 
 /**
- * Owns the phone's Music Assistant player: the Sendspin connection, the audio
+ * Owns the phone as a player: the Sendspin connection, the audio
  * output and the media session that gives it a notification, lock-screen
  * controls and media buttons. Those controls go to the server as Sendspin
  * controller commands, so they work without the JavaScript runtime.
@@ -51,7 +51,7 @@ class PlayerService : MediaSessionService() {
   private lateinit var session: MediaSession
   private lateinit var audioManager: AudioManager
   private var client: SendspinClient? = null
-  /** The Music Assistant origin the app connected to, for rewriting artwork URLs. */
+  /** The server origin the app connected to, for rewriting artwork URLs. */
   private var serverUrl = ""
   private var output: AudioOutput? = null
   /** Identifies the current connection, so callbacks from a replaced one are ignored. */

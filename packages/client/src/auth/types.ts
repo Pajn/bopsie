@@ -1,4 +1,4 @@
-/** A signed-in user on a Music Assistant server. Everything user-specific is scoped by `id`. */
+/** A signed-in user on a Bopsie server. Everything user-specific is scoped by `id`. */
 export interface Account {
   /** Stable per server and user, so signing in again replaces rather than duplicates. */
   id: string;

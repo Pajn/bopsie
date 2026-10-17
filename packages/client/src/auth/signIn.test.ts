@@ -87,10 +87,10 @@ describe('signIn', () => {
     );
   });
 
-  it('refuses servers older than 2.7', async () => {
-    const server = fakeServer(() => null, { server_version: '2.6.3', schema_version: 27 });
+  it('refuses servers whose schema is older than the client speaks', async () => {
+    const server = fakeServer(() => null, { schema_version: 27 });
     await expect(signIn(input, { createSocket: server.createSocket })).rejects.toThrow(
-      'Bopsie needs 2.7 or later',
+      'This server is too old',
     );
     expect(server.commands).toEqual([]);
   });

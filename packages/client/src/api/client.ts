@@ -68,7 +68,7 @@ export function reconnectDelayMs(attempt: number): number {
 }
 
 /**
- * A connection to Music Assistant's WebSocket command API at `/ws`.
+ * A connection to the server's WebSocket command API at `/ws`.
  *
  * The server opens with its server info. With a token, the client then sends
  * `auth` and is ready once that succeeds; without one it is ready at once.

@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 fun monotonicUs(): Long = System.nanoTime() / 1000
 
 /**
- * A Sendspin player connection through Music Assistant's `/sendspin` route.
+ * A Sendspin player connection through the server's `/sendspin` route.
  *
  * Authenticates with the account token, says hello as a player, controller
  * and metadata client, synchronizes clocks, and only then reports itself
@@ -24,10 +24,10 @@ fun monotonicUs(): Long = System.nanoTime() / 1000
  */
 class SendspinClient(private val config: Config, private val listener: Listener) {
   data class Config(
-    /** `ws(s)://…/sendspin` on the Music Assistant API origin. */
+    /** `ws(s)://…/sendspin` on the server's API origin. */
     val url: String,
     val token: String,
-    /** Persisted per install; becomes the Music Assistant player and queue id. */
+    /** Persisted per install; becomes the server's player and queue id. */
     val clientId: String,
     val name: String,
     val softwareVersion: String,
@@ -263,7 +263,7 @@ class SendspinClient(private val config: Config, private val listener: Listener)
     private const val BURST_INTERVAL_MS = 10_000L
     private const val BURST_RETRY_MS = 1_000L
     private const val MAX_RECONNECT_ATTEMPTS = 8
-    /** The Music Assistant proxy closes with this when the token is refused. */
+    /** The server closes with this when the token is refused. */
     private const val UNAUTHORIZED_CLOSE_CODE = 4001
   }
 }

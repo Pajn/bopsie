@@ -7,12 +7,12 @@ export type PlayerStatus =
   | 'unauthorized';
 
 export interface PlayerConfig {
-  /** The Music Assistant origin the app connected to. */
+  /** The server origin the app connected to. */
   serverUrl: string;
   /** The `ws(s)://…/sendspin` route on that origin. */
   url: string;
   token: string;
-  /** How the phone is named in Music Assistant's player list. */
+  /** How the phone is named in the server's player list. */
   name: string;
   softwareVersion: string;
 }
@@ -53,9 +53,9 @@ export type RemoteCommand =
   | { command: 'volume'; level: number };
 
 /**
- * The phone as a Music Assistant player. The native side owns the Sendspin
+ * The phone as a player of the server. The native side owns the Sendspin
  * connection and audio; this is how the app starts and observes it. What
- * plays, and transport, go through the Music Assistant API on the player's
+ * plays, and transport, go through the server's API on the player's
  * queue, whose id is `clientId`.
  */
 export interface LocalPlayer {

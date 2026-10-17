@@ -47,7 +47,7 @@ function report(error: unknown) {
 }
 
 /**
- * Plays media on the active group and controls what it plays, through the Music Assistant API.
+ * Plays media on the active group and controls what it plays, through the server's API.
  * Each action settles once the server has answered, never rejecting, so a control can show it
  * is under way until then; a failure has already been reported.
  */

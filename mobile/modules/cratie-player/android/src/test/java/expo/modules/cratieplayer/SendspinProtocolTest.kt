@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SendspinProtocolTest {
-  @Test fun `hello registers a mobile application player under both support keys`() {
+  @Test fun `hello registers a mobile application player`() {
     val pcm = AudioFormat("pcm", 48_000, 2, 16)
     val hello = JSONObject(SendspinProtocol.hello("id-1", "Phone", "0.1.0", listOf(pcm), 1_048_576))
     assertEquals("client/hello", hello.getString("type"))
@@ -16,17 +16,14 @@ class SendspinProtocolTest {
     assertEquals("id-1", payload.getString("client_id"))
     assertEquals(1, payload.getInt("version"))
     assertEquals("Mobile Application", payload.getJSONObject("device_info").getString("product_name"))
-    for (key in listOf("player@v1_support", "player_support")) {
-      val format = payload.getJSONObject(key).getJSONArray("supported_formats").getJSONObject(0)
-      assertEquals("pcm", format.getString("codec"))
-      assertEquals(48_000, format.getInt("sample_rate"))
-    }
+    val format = payload.getJSONObject("player@v1_support").getJSONArray("supported_formats").getJSONObject(0)
+    assertEquals("pcm", format.getString("codec"))
+    assertEquals(48_000, format.getInt("sample_rate"))
   }
 
-  @Test fun `state carries both the 2_10 and the older availability fields`() {
+  @Test fun `state carries availability and volume`() {
     val payload = JSONObject(SendspinProtocol.state(true, 40, false, 200)).getJSONObject("payload")
     assertTrue(payload.getBoolean("available"))
-    assertEquals("synchronized", payload.getString("state"))
     assertEquals(40, payload.getJSONObject("player").getInt("volume"))
   }
 

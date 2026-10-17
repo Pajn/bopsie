@@ -1,4 +1,4 @@
-Responses from Music Assistant 2.10.6 serving the library `mobile/scripts/ma-server.sh` creates,
+Responses from Music Assistant 2.10.6 serving the library `server/scripts/ma-server.sh` creates,
 fetched over `POST /api`. The contract test in `../api.rs` checks that this server's responses to
 the same commands have the same keys at every depth; values are not compared.
 

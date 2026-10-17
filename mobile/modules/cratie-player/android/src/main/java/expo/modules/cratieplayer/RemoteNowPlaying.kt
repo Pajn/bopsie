@@ -5,7 +5,7 @@ import kotlin.math.roundToInt
 
 /**
  * What the app controls on another player, which the phone's media session shows while the
- * phone itself plays nothing: the app follows that player through the Music Assistant API and
+ * phone itself plays nothing: the app follows that player through the server's API and
  * hands its state over, and the session's commands go back to the app to send.
  */
 data class RemoteNowPlaying(

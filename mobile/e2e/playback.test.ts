@@ -35,15 +35,11 @@ describe('playback on the phone', () => {
     await expectVisible(byId('home'), { timeout: 20_000 });
   });
 
-  it('registers the phone as a Music Assistant player', async () => {
+  it('registers the phone as a player', async () => {
     await tap(byId('tab-account'));
-    await expectText(
-      byId('player-status'),
-      'Ready. Music Assistant lists this phone as a player.',
-      {
-        timeout: 20_000,
-      },
-    );
+    await expectText(byId('player-status'), 'Ready. The server lists this phone as a player.', {
+      timeout: 20_000,
+    });
     await eventually(async () => (await phonePlayer()) !== undefined);
     await tap(byId('tab-library'));
   });

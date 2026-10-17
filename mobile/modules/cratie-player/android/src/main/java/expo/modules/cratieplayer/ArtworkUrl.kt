@@ -3,7 +3,7 @@ package expo.modules.cratieplayer
 import java.net.URI
 
 /**
- * Sendspin metadata builds artwork URLs from the address Music Assistant
+ * Sendspin metadata builds artwork URLs from the address the server
  * believes it has, which inside a container or behind a reverse proxy is not
  * one the phone can reach. Image-proxy URLs are moved onto the origin the
  * app connected to, keeping any path prefix the proxy adds. Other URLs, such

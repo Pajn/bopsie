@@ -1,8 +1,7 @@
 # Bopsie server
 
 A music server in Rust. It scans a local library, plays it to AirPlay and Sendspin speakers in
-sync, and serves the part of the Music Assistant API that Bopsie uses, so the app works against it
-unchanged. The design and the milestones are in
+sync, and serves the app over an API that follows Music Assistant's. The design and the milestones are in
 [the server architecture plan](../docs/plans/2026-10-13-rust-server-architecture.md).
 
 ## Layout

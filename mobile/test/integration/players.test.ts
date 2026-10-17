@@ -14,7 +14,7 @@ import { activeLeaderId, describeOutputs } from '@/features/outputs/outputs';
 import { registerPlayer, type TestPlayer } from './sendspinPlayer';
 import { albumUri, connect, describeServer } from './server';
 
-/** Speakers, which Music Assistant lists for every client, unlike another client's phone. */
+/** Speakers, which the server lists for every client, unlike another client's phone. */
 const SPEAKER = 'Test Speaker';
 
 async function eventually(check: () => Promise<boolean>, timeoutMs = 20_000): Promise<void> {

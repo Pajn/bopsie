@@ -1,7 +1,8 @@
 # Bopsie
 
-A [Music Assistant](https://www.music-assistant.io/) client for iOS and Android, and a music
-server in Rust that speaks the part of the Music Assistant API the client uses.
+A music app for iOS and Android, and the music server in Rust it plays from. They talk over the
+[Music Assistant](https://www.music-assistant.io/) API and Sendspin, reused as Bopsie's protocol;
+the app is built for Bopsie's server, not as a Music Assistant client.
 
 - [`mobile`](mobile) — the app, built with React Native and Expo.
 - [`server`](server) — the music server, a Cargo workspace.

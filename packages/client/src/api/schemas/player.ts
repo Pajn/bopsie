@@ -117,7 +117,7 @@ export const playerQueue = z.looseObject({
   state: playbackState,
   /**
    * Bopsie's own: meant to be playing, but nothing heard yet, so `elapsed_time` stands still.
-   * Music Assistant's states have no such state.
+   * The protocol's states have no such state.
    */
   buffering: booleanOr(false),
   current_item: z.nullish(queueItem),

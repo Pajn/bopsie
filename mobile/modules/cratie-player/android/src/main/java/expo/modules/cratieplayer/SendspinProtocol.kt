@@ -29,15 +29,14 @@ sealed class ServerMessage {
 }
 
 /**
- * Sendspin's unencrypted wire as Music Assistant serves it from 2.7.1. JSON
+ * Sendspin's unencrypted wire as the server speaks it on `/sendspin`. JSON
  * messages are `{type, payload}` text frames; audio arrives in binary frames.
- * See docs/research/music-assistant-and-sendspin.md for the field history.
  */
 object SendspinProtocol {
   const val AUDIO_CHUNK = 4
   private const val AUDIO_HEADER_BYTES = 9
 
-  /** Music Assistant registers only these products as players that can be played to. */
+  /** The server registers only these products as players that can be played to. */
   private const val PRODUCT_NAME = "Mobile Application"
 
   private fun message(type: String, payload: JSONObject) =
@@ -63,19 +62,13 @@ object SendspinProtocol {
         .put("product_name", PRODUCT_NAME)
         .put("manufacturer", "Bopsie")
         .put("software_version", softwareVersion))
-      .put("player@v1_support", support)
-      // Music Assistant 2.7.0 to 2.7.10 only read the unversioned key.
-      .put("player_support", support))
+      .put("player@v1_support", support))
   }
 
-  /**
-   * The player's state. `available` is read from Music Assistant 2.10 and
-   * `state` before it; each ignores the other.
-   */
+  /** The player's state: whether it can play now, and its volume and timing. */
   fun state(available: Boolean, volume: Int, muted: Boolean, leadTimeMs: Int): String =
     message("client/state", JSONObject()
       .put("available", available)
-      .put("state", if (available) "synchronized" else "error")
       .put("player", JSONObject()
         .put("volume", volume)
         .put("muted", muted)

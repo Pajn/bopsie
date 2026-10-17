@@ -1,7 +1,7 @@
 import * as z from 'zod/mini';
 import { arrayOr, booleanOr, numberOr, stringOr } from './common';
 
-/** `MediaItemImage`. The server adds `proxy_id` from 2.10; 2.7–2.9 send provider and path only. */
+/** `MediaItemImage`. `proxy_id` names it on the server's image proxy. */
 export const image = z.looseObject({
   type: stringOr('thumb'),
   path: z.string(),
