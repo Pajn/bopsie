@@ -133,6 +133,9 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
         .map_err(|_| Error::unexpected())
 }
 
+/// How many changed items are read at a time to publish them.
+const PUBLISH_BATCH: usize = 200;
+
 /// A provider holding a track: its id there, and how loud the track is there.
 struct TrackSource {
     instance: String,
@@ -1407,18 +1410,40 @@ impl Library {
     /// Announces `changes`, and that a sync completed when `synced`.
     async fn publish(&self, changes: &Changes, synced: bool) -> Result<()> {
         let mut events = Vec::new();
-        for (event, items) in [
+        // Changed items are read in batches: a large sync changes thousands, which read one at
+        // a time would queue in front of everything else that reads the library, and read at
+        // once would hold it for seconds.
+        let changed: Vec<(EventType, MediaType, i64)> = [
             (EventType::MediaItemAdded, &changes.added),
             (EventType::MediaItemUpdated, &changes.updated),
-        ] {
-            for &(media_type, id) in items {
-                if let Some(item) = self.item(media_type, id).await? {
-                    events.push(Event {
-                        event,
-                        object_id: Some(library_uri(media_type, id)),
-                        data: serde_json::to_value(item).map_err(|_| Error::unexpected())?,
-                    });
-                }
+        ]
+        .into_iter()
+        .flat_map(|(event, items)| items.iter().map(move |&(t, id)| (event, t, id)))
+        .collect();
+        let mut items = Vec::with_capacity(changed.len());
+        for batch in changed.chunks(PUBLISH_BATCH) {
+            let batch = batch.to_vec();
+            items.extend(
+                self.read(move |conn| {
+                    batch
+                        .into_iter()
+                        .map(|(event, media_type, id)| {
+                            let resolved = query::resolve(conn, media_type, id)?;
+                            let item = query::item(conn, media_type, resolved)?;
+                            Ok((event, media_type, id, item))
+                        })
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .await?,
+            );
+        }
+        for (event, media_type, id, item) in items {
+            if let Some(item) = item {
+                events.push(Event {
+                    event,
+                    object_id: Some(library_uri(media_type, id)),
+                    data: serde_json::to_value(item).map_err(|_| Error::unexpected())?,
+                });
             }
         }
         // A deleted item cannot be read back, so its event names it by URI only.

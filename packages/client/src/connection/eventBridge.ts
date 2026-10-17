@@ -11,6 +11,40 @@ const LIBRARY_EVENTS = new Set([
   'music_sync_completed',
 ]);
 
+/** How often a burst of library events refreshes what is shown, at most. */
+export const LIBRARY_REFRESH_MS = 1000;
+
+/** Per client and account: whether a refresh waits, and whether events came meanwhile. */
+const refreshing = new WeakMap<QueryClient, Map<string, { more: boolean }>>();
+
+/**
+ * Marks the library's listings stale: at once for the first change, then at most once every
+ * {@link LIBRARY_REFRESH_MS} while more come, and once after the last. A sync that changes
+ * thousands of items sends an event for each, and refetching every listing on each would keep
+ * the server busy reading the same pages over and over.
+ */
+function libraryChanged(queryClient: QueryClient, accountId: string): void {
+  let accounts = refreshing.get(queryClient);
+  if (!accounts) {
+    accounts = new Map();
+    refreshing.set(queryClient, accounts);
+  }
+  const waiting = accounts.get(accountId);
+  if (waiting) {
+    waiting.more = true;
+    return;
+  }
+  void queryClient.invalidateQueries({ queryKey: queryKeys.library(accountId) });
+  const state = { more: false };
+  accounts.set(accountId, state);
+  const timer = setTimeout(() => {
+    accounts.delete(accountId);
+    if (state.more) libraryChanged(queryClient, accountId);
+  }, LIBRARY_REFRESH_MS);
+  // In Node, it would keep a process alive that has nothing else to do.
+  (timer as { unref?: () => void }).unref?.();
+}
+
 /**
  * Applies a server event to the query cache. Queue updates carry the whole
  * queue and replace the cached one; time updates move only the position, and
@@ -27,7 +61,7 @@ export function applyEvent(
   nowMs: number = Date.now(),
 ): void {
   if (LIBRARY_EVENTS.has(event.event)) {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.library(accountId) });
+    libraryChanged(queryClient, accountId);
     return;
   }
   if (!event.object_id) return;

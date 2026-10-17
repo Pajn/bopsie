@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { Player, PlayerQueue } from '../api/schemas/player';
-import { applyEvent } from './eventBridge';
+import { applyEvent, LIBRARY_REFRESH_MS } from './eventBridge';
 import { queryKeys } from './queryKeys';
 
 const QUEUE = {
@@ -132,5 +132,25 @@ describe('applyEvent', () => {
     client.setQueryData(key, []);
     applyEvent(client, 'acct', { event: 'media_item_added', object_id: 'x', data: {} });
     expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
+  it('refreshes the library once for a burst of changes, and again after it', () => {
+    jest.useFakeTimers();
+    try {
+      const { client } = setup();
+      const invalidate = jest.spyOn(client, 'invalidateQueries');
+      const change = { event: 'media_item_updated', object_id: 'x', data: {} };
+      for (let i = 0; i < 500; i++) applyEvent(client, 'acct', change);
+      expect(invalidate).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(LIBRARY_REFRESH_MS);
+      expect(invalidate).toHaveBeenCalledTimes(2);
+      jest.advanceTimersByTime(LIBRARY_REFRESH_MS);
+      expect(invalidate).toHaveBeenCalledTimes(2);
+      // A change on its own after that shows at once.
+      applyEvent(client, 'acct', change);
+      expect(invalidate).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
