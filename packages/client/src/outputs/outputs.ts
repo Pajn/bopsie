@@ -8,6 +8,8 @@ export interface Member {
   name: string;
   /** 0–100, or null when the player has no volume control. */
   volume: number | null;
+  /** Whether it is muted, or null when it cannot be. */
+  muted: boolean | null;
   /** The sync leader. Removing it hands the group to another member. */
   leads: boolean;
   /** False for a group player's fixed members and for the last member left. */
@@ -22,6 +24,8 @@ export interface ActiveGroup {
   available: boolean;
   members: Member[];
   volume: number | null;
+  /** A lone player's mute, as its member's; a group has none, its members are muted one by one. */
+  muted: boolean | null;
 }
 
 /** A player, or a group shown by its leader, that is not part of the active group. */
@@ -65,6 +69,11 @@ export function memberIds(leader: Player): string[] {
   if (leader.type === 'group') return leader.group_members;
   const followers = leader.group_members.filter((id) => id !== leader.player_id);
   return [leader.player_id, ...followers];
+}
+
+/** Whether a player is muted, or null when it cannot be. */
+function muted(player: Player): boolean | null {
+  return player.supported_features.includes('volume_mute') ? (player.volume_muted ?? false) : null;
 }
 
 function displayName(player: Player, phoneId: string | null): string {
@@ -146,6 +155,7 @@ export function describeOutputs(
           id,
           name: displayName(player, phoneId),
           volume: player.volume_level ?? null,
+          muted: muted(player),
           leads: leader.type !== 'group' && id === leader.player_id,
           removable: ids.length > 1 && !fixed.has(id),
         },
@@ -162,6 +172,7 @@ export function describeOutputs(
         : members.length > 1
           ? (leader.group_volume ?? null)
           : (leader.volume_level ?? null),
+      muted: members.length === 1 ? (members[0]?.muted ?? null) : null,
     };
   }
 

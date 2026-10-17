@@ -62,6 +62,11 @@ export function predictGroupVolume(
   return changes;
 }
 
+/** One player muted or unmuted. Its volume, and its group's, stay where they are. */
+export function predictMute(playerId: string, muted: boolean): PlayerChanges {
+  return { [playerId]: { volume_muted: muted } };
+}
+
 /** `playerId` follows the leader, which lists it as a member. */
 export function predictJoin(players: Player[], playerId: string, leaderId: string): PlayerChanges {
   const leader = players.find((p) => p.player_id === leaderId);

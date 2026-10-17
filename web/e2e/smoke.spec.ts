@@ -125,7 +125,7 @@ test('groups one speaker with another, and takes it out again', async ({ page })
   ).toBeVisible();
 });
 
-test('the players sheet groups a speaker with the one controlled, and controls another', async ({
+test('the players sheet groups a speaker with the one controlled, mutes it, and controls another', async ({
   page,
 }) => {
   await page.goto('/library');
@@ -140,6 +140,14 @@ test('the players sheet groups a speaker with the one controlled, and controls a
   await sheet.getByRole('button', { name: 'Join this group' }).click();
   const remove = sheet.getByRole('button', { name: `Remove ${BEDROOM.name} from the group` });
   await expect(remove).toBeVisible({ timeout: 15_000 });
+  // A member's speaker mutes it, and unmutes it again.
+  await sheet.getByRole('button', { name: `Mute ${BEDROOM.name}`, exact: true }).click();
+  const unmute = sheet.getByRole('button', { name: `Unmute ${BEDROOM.name}`, exact: true });
+  await expect(unmute).toBeVisible();
+  await unmute.click();
+  await expect(
+    sheet.getByRole('button', { name: `Mute ${BEDROOM.name}`, exact: true }),
+  ).toBeVisible();
   await remove.click();
   await expect(remove).toBeHidden({ timeout: 15_000 });
 

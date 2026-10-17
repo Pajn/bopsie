@@ -1,5 +1,11 @@
 import { type Player, player } from '../api/schemas/player';
-import { predictGroupVolume, predictJoin, predictLeave, predictVolume } from './predict';
+import {
+  predictGroupVolume,
+  predictJoin,
+  predictLeave,
+  predictMute,
+  predictVolume,
+} from './predict';
 
 const make = (id: string, fields: Record<string, unknown> = {}): Player =>
   player.parse({ player_id: id, provider: 'sendspin', name: id, available: true, ...fields });
@@ -39,6 +45,12 @@ describe('predictVolume', () => {
 
   it('sets only the player when it is not grouped', () => {
     expect(predictVolume(GROUP, 'patio', 'patio', 25)).toEqual({ patio: { volume_level: 25 } });
+  });
+});
+
+describe('predictMute', () => {
+  it('mutes the player alone, leaving its volume', () => {
+    expect(predictMute('living', true)).toEqual({ living: { volume_muted: true } });
   });
 });
 

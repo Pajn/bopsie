@@ -194,6 +194,10 @@ function ActiveCard({
               value={active.volume}
               label={grouped ? `the group ${active.name}` : active.name}
               onChange={actions.setGroupVolume}
+              {...(active.muted !== null && {
+                muted: active.muted,
+                onMute: (muted: boolean) => actions.setMuted(active.id, muted),
+              })}
             />
           </View>
           {/* Lines the group's slider up with the members'. */}
@@ -229,6 +233,10 @@ function ActiveCard({
                         value={member.volume}
                         label={member.name}
                         onChange={(level) => actions.setVolume(member.id, level)}
+                        {...(member.muted !== null && {
+                          muted: member.muted,
+                          onMute: (muted: boolean) => actions.setMuted(member.id, muted),
+                        })}
                       />
                     </View>
                     <View style={styles.end}>{remove}</View>

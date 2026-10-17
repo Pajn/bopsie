@@ -40,7 +40,15 @@ const group = (memberIds: string[], volume: number | null = 30): ActiveGroup => 
   name: 'Bedroom + Philips',
   available: true,
   volume,
-  members: memberIds.map((id) => ({ id, name: id, volume, leads: false, removable: true })),
+  muted: null,
+  members: memberIds.map((id) => ({
+    id,
+    name: id,
+    volume,
+    muted: null,
+    leads: false,
+    removable: true,
+  })),
 });
 
 describe('remoteNowPlaying', () => {

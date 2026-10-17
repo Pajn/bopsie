@@ -154,7 +154,12 @@ function ActiveCard({
         <Volume
           value={active.volume}
           label={grouped ? `Volume of ${active.name}` : 'Volume'}
+          name={active.name}
           onChange={actions.setGroupVolume}
+          {...(active.muted !== null && {
+            muted: active.muted,
+            onMute: (muted: boolean) => actions.setMuted(active.id, muted),
+          })}
           testID="outputs-volume"
           // Lines the group's slider up with the members'.
           end={grouped ? <View style={styles.end} /> : null}
@@ -192,7 +197,12 @@ function ActiveCard({
                   <Volume
                     value={member.volume}
                     label={`Volume of ${member.name}`}
+                    name={member.name}
                     onChange={(level) => actions.setVolume(member.id, level)}
+                    {...(member.muted !== null && {
+                      muted: member.muted,
+                      onMute: (muted: boolean) => actions.setMuted(member.id, muted),
+                    })}
                     testID={`member-volume-${member.id}`}
                     small
                     end={remove}
@@ -207,18 +217,28 @@ function ActiveCard({
   );
 }
 
-/** A volume slider that holds its own value while dragged and sends it on release. */
+/**
+ * A volume slider that holds its own value while dragged and sends it on release. Its speaker
+ * mutes and unmutes the player, for one that can be; a group's only shows the level.
+ */
 function Volume({
   value,
   label,
+  name,
   onChange,
+  muted,
+  onMute,
   testID,
   small,
   end,
 }: {
   value: number;
   label: string;
+  /** What it is the volume of, to name its mute button by. */
+  name: string;
   onChange: (level: number) => void;
+  muted?: boolean;
+  onMute?: (muted: boolean) => void;
   testID: string;
   small?: boolean;
   /** Shown after the level, such as a member's remove button. */
@@ -227,10 +247,28 @@ function Volume({
   const { theme } = useUnistyles();
   const [dragging, setDragging] = useState<number | null>(null);
   const shown = dragging ?? value;
+  const icon: IconName = muted || shown === 0 ? 'volume-x' : shown < 50 ? 'volume-1' : 'volume-2';
   return (
     <View style={styles.volume}>
+      {onMute ? (
+        <Pressable
+          onPress={() => onMute(!muted)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.speaker, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={muted ? `Unmute ${name}` : `Mute ${name}`}
+          accessibilityState={{ checked: muted ?? false }}
+          testID={`${testID}-mute`}
+        >
+          <Icon name={icon} size={18} color={muted ? theme.colors.accent : theme.colors.text} />
+        </Pressable>
+      ) : (
+        <View style={styles.speaker}>
+          <Icon name={icon} size={18} color={theme.colors.textMuted} />
+        </View>
+      )}
       <Slider
-        style={styles.slider}
+        style={[styles.slider, muted && styles.mutedSlider]}
         minimumValue={0}
         maximumValue={100}
         step={1}
@@ -420,6 +458,9 @@ const styles = StyleSheet.create((theme) => ({
   // track up with the names above it.
   slider: { flex: 1, marginHorizontal: Platform.OS === 'android' ? -14 : 0 },
   level: { width: 28, textAlign: 'right' },
+  speaker: { width: 24, alignItems: 'center' },
+  // Muted, the level stays where it was, faded until it is heard again.
+  mutedSlider: { opacity: 0.5 },
   end: { width: 32, height: 32 },
   remove: {
     borderRadius: 16,

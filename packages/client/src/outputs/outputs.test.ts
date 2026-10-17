@@ -65,8 +65,15 @@ describe('describeOutputs', () => {
     const { active } = describeOutputs(PLAYERS, 'kitchen', 'phone');
     expect(active).toMatchObject({ id: 'kitchen', name: 'Kitchen + Living room', volume: 62 });
     expect(active?.members).toEqual([
-      { id: 'kitchen', name: 'Kitchen', volume: 70, leads: true, removable: true },
-      { id: 'living', name: 'Living room', volume: 54, leads: false, removable: true },
+      { id: 'kitchen', name: 'Kitchen', volume: 70, muted: null, leads: true, removable: true },
+      {
+        id: 'living',
+        name: 'Living room',
+        volume: 54,
+        muted: null,
+        leads: false,
+        removable: true,
+      },
     ]);
   });
 
@@ -82,9 +89,30 @@ describe('describeOutputs', () => {
   it('lets no one remove the last member', () => {
     const { active } = describeOutputs(PLAYERS, 'bedroom', 'phone');
     expect(active?.members).toEqual([
-      { id: 'bedroom', name: 'Bedroom', volume: 50, leads: true, removable: false },
+      { id: 'bedroom', name: 'Bedroom', volume: 50, muted: null, leads: true, removable: false },
     ]);
     expect(active?.volume).toBe(50);
+  });
+
+  it('says which members are muted, of those that can be', () => {
+    const players = [
+      make('a', {
+        group_members: ['a', 'b', 'c'],
+        supported_features: ['set_members', 'volume_mute'],
+        volume_muted: true,
+      }),
+      make('b', { synced_to: 'a', supported_features: ['volume_mute'] }),
+      make('c', { synced_to: 'a' }),
+    ];
+    const { active } = describeOutputs(players, 'a', null);
+    expect(active?.members.map((member) => member.muted)).toEqual([true, false, null]);
+    // A group is muted member by member.
+    expect(active?.muted).toBeNull();
+  });
+
+  it('mutes a lone player as its only member', () => {
+    const players = [make('a', { supported_features: ['volume_mute'], volume_muted: true })];
+    expect(describeOutputs(players, 'a', null).active?.muted).toBe(true);
   });
 
   it('keeps a group player’s fixed members', () => {

@@ -2,6 +2,7 @@ import {
   joinGroup,
   leaveGroup,
   setGroupVolume,
+  setMuted,
   setVolume,
   transferQueue,
 } from '@bopsie/client/api/endpoints/players';
@@ -13,6 +14,7 @@ import {
   predictGroupVolume,
   predictJoin,
   predictLeave,
+  predictMute,
   predictVolume,
 } from '@bopsie/client/outputs/predict';
 import { useQueryClient } from '@tanstack/react-query';
@@ -132,6 +134,9 @@ export function useOutputActions() {
           setVolume(connection, playerId, level),
         );
       },
+
+      setMuted: (playerId: string, muted: boolean) =>
+        send(predictMute(playerId, muted), setMuted(connection, playerId, muted)),
 
       setGroupVolume: (level: number) => {
         if (!activeId || !players) return;

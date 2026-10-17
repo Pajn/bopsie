@@ -40,6 +40,10 @@ export const setVolume = (connection: MaConnection, playerId: string, level: num
     volume_level: Math.round(level),
   });
 
+/** Mutes or unmutes one player, for those whose `supported_features` list `volume_mute`. */
+export const setMuted = (connection: MaConnection, playerId: string, muted: boolean) =>
+  connection.command<void>('players/cmd/volume_mute', { player_id: playerId, muted });
+
 /**
  * A group's volume, 0–100. The server moves every member by the same
  * proportion; for a player that is not grouped it sets that player's volume.
