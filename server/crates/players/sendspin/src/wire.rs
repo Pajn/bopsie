@@ -11,8 +11,15 @@ pub const AUDIO_CHUNK: u8 = 4;
 /// Type byte and a big-endian `i64` timestamp.
 pub const AUDIO_HEADER_BYTES: usize = 9;
 
-/// The `product_name`s Music Assistant registers as standalone players with their own queue.
-pub const APP_PRODUCTS: &[&str] = &["Web Browser", "Web Player", "Mobile Application", "PWA"];
+/// The `product_name`s registered as standalone players with their own queue: Music Assistant's,
+/// and `Desktop Application` for Bopsie's desktop and headless players.
+pub const APP_PRODUCTS: &[&str] = &[
+    "Web Browser",
+    "Web Player",
+    "Mobile Application",
+    "PWA",
+    "Desktop Application",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceInfo {
@@ -387,6 +394,15 @@ mod tests {
                 bit_depth: 16
             }]
         );
+    }
+
+    #[test]
+    fn a_desktop_player_is_an_app() {
+        let hello = HELLO.replace("Mobile Application", "Desktop Application");
+        let ClientMessage::Hello(hello) = parse(&hello).unwrap() else {
+            panic!("not a hello");
+        };
+        assert!(hello.is_app());
     }
 
     #[test]
