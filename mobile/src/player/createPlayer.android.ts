@@ -2,7 +2,7 @@ import { requireNativeModule } from 'expo';
 import type { LocalPlayer, MicRecording, PlayerStatus } from './Player';
 import { parseRemoteCommand } from './remoteCommand';
 
-interface CratiePlayerModule {
+interface BopsiePlayerModule {
   clientId(): string;
   setup(): Promise<void>;
   connect(json: string): Promise<void>;
@@ -40,7 +40,7 @@ function parseStatus(json: string): { status: PlayerStatus; message?: string } |
 }
 
 export function createPlayer(): LocalPlayer {
-  const native = requireNativeModule<CratiePlayerModule>('CratiePlayer');
+  const native = requireNativeModule<BopsiePlayerModule>('BopsiePlayer');
   return {
     supported: true,
     clientId: () => native.clientId(),

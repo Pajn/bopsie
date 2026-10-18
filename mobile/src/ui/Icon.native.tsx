@@ -10,7 +10,7 @@ const NativeIcon = requireNativeView<{
   tint: ReturnType<typeof processColor>;
   style?: StyleProp<ViewStyle>;
   pointerEvents?: 'none';
-}>('CratieIcons');
+}>('BopsieIcons');
 
 /** Bundled native vector, assigned synchronously during the native prop update. */
 export function Icon({

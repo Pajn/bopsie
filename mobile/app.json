@@ -3,7 +3,7 @@
     "name": "Bopsie",
     "slug": "bopsie",
     "version": "0.1.0",
-    "scheme": ["bopsie", "cratie"],
+    "scheme": "bopsie",
     "orientation": "portrait",
     "icon": "./assets/brand/bopsie-icon.png",
     "userInterfaceStyle": "automatic",

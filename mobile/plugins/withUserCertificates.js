@@ -17,7 +17,7 @@ module.exports = (config) =>
     const dir = path.join(mod.modRequest.platformProjectRoot, 'app/src/main/res/xml');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
-      path.join(dir, 'cratie_network_security_config.xml'),
+      path.join(dir, 'bopsie_network_security_config.xml'),
       `<?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <base-config cleartextTrafficPermitted="${cleartext}">
@@ -29,6 +29,6 @@ module.exports = (config) =>
 </network-security-config>
 `,
     );
-    app.$['android:networkSecurityConfig'] = '@xml/cratie_network_security_config';
+    app.$['android:networkSecurityConfig'] = '@xml/bopsie_network_security_config';
     return mod;
   });

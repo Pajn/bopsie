@@ -86,10 +86,8 @@ pnpm check:icons       # the generated icon assets match the installed Feather f
 
 ## App identity
 
-Bopsie's launcher icon lives in [`assets/brand`](assets/brand). The app uses `bopsie://` links;
-the former `cratie://` scheme remains supported for existing links. The iOS bundle identifier
-and Android package are `io.github.pajn.bopsie`. The internal `cratie-player` and `cratie-icons`
-module names remain stable.
+Bopsie's launcher icon lives in [`assets/brand`](assets/brand). The app uses `bopsie://` links.
+The iOS bundle identifier and Android package are `io.github.pajn.bopsie`.
 
 ## Startup bench
 

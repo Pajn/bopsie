@@ -2,7 +2,7 @@
 
 A Sendspin player written once in Rust and used by every Bopsie client that plays audio: a macOS
 menu bar app first, then a headless Linux player, iOS playback and, in time, Android in place of
-the Kotlin client in `modules/cratie-player`. The macOS app is a Swift shell around it: a menu
+the Kotlin client in `modules/bopsie-player`. The macOS app is a Swift shell around it: a menu
 bar item and a settings window to sign in.
 
 The protocol facts are in [the MA and Sendspin research](../research/music-assistant-and-sendspin.md).
@@ -176,6 +176,6 @@ once the player works: Developer ID signing, notarization and an update mechanis
 6. **Distribution.** Developer ID, notarization, updates.
 7. **iOS.** The output sink in the fork, then iOS playback on the shared client, replacing the
    planned Swift Sendspin output.
-8. **Android.** Move `cratie-player` onto the shared client with an `AudioTrack` sink.
+8. **Android.** Move `bopsie-player` onto the shared client with an `AudioTrack` sink.
 9. **Sendspin 1.0.** Noise and pairing, once upstream implements the finalized specification:
    one change in `sendspin`, picked up by every client and the server.
