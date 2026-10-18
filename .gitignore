@@ -11,5 +11,10 @@ result
 /server/cliairplay
 /player/target/
 
+# macos
+/macos/Generated/
+/macos/build/
+/macos/Bopsie.xcodeproj/
+
 # node
 node_modules/

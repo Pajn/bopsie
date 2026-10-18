@@ -76,6 +76,9 @@
                 pkgs.rustfmt
                 pkgs.rust-analyzer
                 pkgs.ffmpeg
+              ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+                # Generates the macOS app's Xcode project from macos/project.yml.
+                pkgs.xcodegen
               ];
 
               JAVA_HOME = jdk.home;
