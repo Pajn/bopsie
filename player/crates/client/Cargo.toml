@@ -1,0 +1,22 @@
+[package]
+name = "bopsie-player"
+description = "Bopsie's Sendspin player: sign-in, the connection to a Bopsie server, and playback."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+sendspin.workspace = true
+tokio-tungstenite.workspace = true
+rustls.workspace = true
+futures-util.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

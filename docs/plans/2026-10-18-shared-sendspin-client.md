@@ -43,10 +43,11 @@ local Cargo `[patch]` that points at a checkout of the fork; it is not committed
    `serde` and `serde_json`; `client`, for the connection, clock and connection manager; and
    `player`, for `cpal`, the codecs and `SyncedPlayer`. `default` enables all of them, so nothing
    changes for existing users.
-2. **A hook before the handshake.** Bopsie's `/sendspin` route, like Music Assistant's proxy,
-   expects an `auth` frame carrying an API token before `client/hello`. The builder accepts custom
-   HTTP headers but cannot send a frame first. The hook is general: any message the transport
-   must exchange before the Sendspin handshake.
+2. **Authentication before the handshake.** Bopsie's `/sendspin` route, like Music Assistant's
+   proxy, expects an `auth` frame carrying an API token before `client/hello`. No hook is needed:
+   the builder's `accept` takes over an open WebSocket, so the client opens it, sends `auth`,
+   reads `auth_ok` and hands it over. The fork documents that use and re-exports
+   `tokio_tungstenite`, so the stream comes from the version the crate is built on.
 3. **Lenient field names.** Accept `output_delay_ms` as an alias of `static_delay_ms` in
    `client/state`, as the server's `wire.rs` does for clients that send the older name.
 4. **An output sink trait, when iOS starts.** Described below; not needed for macOS or Linux,
@@ -85,6 +86,20 @@ into `bopsie-players` types, stays in the server crate.
 This is evaluated before it is adopted: compare `cargo tree` and a clean build of the server
 before and after. If the features do not keep client dependencies out of the server build, the
 server keeps `wire.rs`.
+
+The dependencies pass: without default features the crate adds only `serde`, `log`, `thiserror`
+and `libc` on Linux, which the server already builds. Parsing does not yet. The crate's types are
+strict where `wire.rs` is lenient on purpose, and the switch waits until the fork accepts:
+
+- unknown message types, which the specification says to ignore, where today the whole message
+  fails to parse;
+- `available` in `client/state`, the field Bopsie's own Android player sends, and `state` values
+  it does not know, such as the older `error`;
+- player support without `supported_commands`.
+
+The older fallbacks `wire.rs` keeps, the `player_support` key and a `client/hello` without
+`client_id` or `version`, are Bopsie's policy rather than the protocol's: a small shim in the
+server, or a decision to stop accepting such old clients.
 
 ## Layout
 

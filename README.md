@@ -7,6 +7,8 @@ the app is built for Bopsie's server, not as a Music Assistant client.
 - [`mobile`](mobile) — the app, built with React Native and Expo.
 - [`server`](server) — the music server, a Cargo workspace.
 - [`web`](web) — the server's web UI, for managing it, served at `/`.
+- [`player`](player) — the Sendspin player desktop and headless clients share, in Rust, and a
+  headless player built on it.
 - [`packages/client`](packages/client) — the API client the app and the web UI share.
 - [`docs/plans`](docs/plans) — architecture, stack choices and roadmaps.
 - [`docs/research`](docs/research) — what the protocols and libraries look like, with sources.

@@ -9,6 +9,7 @@ result
 /server/target/
 /server/data/
 /server/cliairplay
+/player/target/
 
 # node
 node_modules/
