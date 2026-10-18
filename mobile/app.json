@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "io.github.pajn.cratie",
+      "bundleIdentifier": "io.github.pajn.bopsie",
       "supportsTablet": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -19,7 +19,7 @@
       }
     },
     "android": {
-      "package": "io.github.pajn.cratie",
+      "package": "io.github.pajn.bopsie",
       "adaptiveIcon": {
         "backgroundColor": "#3E1C78",
         "foregroundImage": "./assets/brand/android-icon-foreground.png",

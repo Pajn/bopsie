@@ -88,8 +88,8 @@ pnpm check:icons       # the generated icon assets match the installed Feather f
 
 Bopsie's launcher icon lives in [`assets/brand`](assets/brand). The app uses `bopsie://` links;
 the former `cratie://` scheme remains supported for existing links. The iOS bundle identifier
-and Android package remain `io.github.pajn.cratie` so updates retain installed app data.
-The internal `cratie-player` and `cratie-icons` module names also remain stable.
+and Android package are `io.github.pajn.bopsie`. The internal `cratie-player` and `cratie-icons`
+module names remain stable.
 
 ## Startup bench
 
@@ -138,9 +138,9 @@ set of launches, clear what the device learned, have `profileinstaller` install 
 and measure with the install's compilation:
 
 ```sh
-adb shell cmd package compile --reset io.github.pajn.cratie
+adb shell cmd package compile --reset io.github.pajn.bopsie
 adb shell am broadcast -a androidx.profileinstaller.action.INSTALL_PROFILE \
-  -n io.github.pajn.cratie/androidx.profileinstaller.ProfileInstallReceiver
+  -n io.github.pajn.bopsie/androidx.profileinstaller.ProfileInstallReceiver
 pnpm perf:startup:android -- --skip-install --compile speed-profile --out perf/after.json
 ```
 

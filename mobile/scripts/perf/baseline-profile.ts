@@ -26,7 +26,7 @@ import { adb, apiLevel, describeDevice, ensureUnlocked, installApk, sleep } from
 import { parseBenchLines } from './parse.ts';
 import { toBaselineProfile } from './profile.ts';
 
-const APP_ID = 'io.github.pajn.cratie';
+const APP_ID = 'io.github.pajn.bopsie';
 const PROFILE_DIR = '/data/misc/profman';
 const DEFAULT_OUT = 'profiles/baseline-prof.txt';
 

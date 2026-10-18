@@ -1,14 +1,14 @@
 import { gatesFromLog, imagesSettledAt, parseAmStart, parseBenchLines } from './parse.ts';
 import { compare, summarize } from './stats.ts';
 
-const APP = 'io.github.pajn.cratie';
+const APP = 'io.github.pajn.bopsie';
 
 const LOG = [
-  '1000.000000 100 200 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=io.github.pajn.cratie/.MainActivity} from uid 2000',
-  '1000.120000 100 200 I ActivityManager: Start proc 4242:io.github.pajn.cratie/u0a123 for pre-top-activity',
+  '1000.000000 100 200 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=io.github.pajn.bopsie/.MainActivity} from uid 2000',
+  '1000.120000 100 200 I ActivityManager: Start proc 4242:io.github.pajn.bopsie/u0a123 for pre-top-activity',
   '1000.600000 4242 4300 I ReactNativeJS: [bench] mark js-entry 12.5',
   '1000.900000 4242 4300 I ReactNativeJS: [bench] mark root-render 312.5',
-  '1001.000000 100 200 I ActivityTaskManager: Displayed io.github.pajn.cratie/.MainActivity for user 0: +1s5ms',
+  '1001.000000 100 200 I ActivityTaskManager: Displayed io.github.pajn.bopsie/.MainActivity for user 0: +1s5ms',
   '1001.100000 4242 4300 I ReactNativeJS: [bench] mark first-screen-commit 512.5',
   '1001.300000 4242 4300 I ReactNativeJS: [bench] mark home-render 712.5',
   '1001.400000 4242 4300 I ReactNativeJS: [bench] mark image 800',

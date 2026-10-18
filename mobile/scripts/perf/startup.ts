@@ -27,7 +27,7 @@ import {
 } from './parse.ts';
 import { compare, formatSummary, type Summary, summarize } from './stats.ts';
 
-const APP_ID = 'io.github.pajn.cratie';
+const APP_ID = 'io.github.pajn.bopsie';
 const SAMPLER_SOURCE = path.join(import.meta.dirname, 'sampler-android.sh');
 const SAMPLER_ON_DEVICE = '/data/local/tmp/bopsie-bench-sampler.sh';
 const SETTLE_TIMEOUT_MS = 20_000;
