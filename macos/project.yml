@@ -71,3 +71,6 @@ targets:
           CODE_SIGN_IDENTITY: Developer ID Application
           # Notarization requires a secure timestamp on every signature.
           OTHER_CODE_SIGN_FLAGS: --timestamp
+          # Xcode adds the debugger's get-task-allow entitlement to builds; notarization
+          # rejects an app that carries it.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO

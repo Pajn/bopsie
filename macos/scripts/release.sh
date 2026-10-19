@@ -18,7 +18,16 @@ codesign --verify --strict --verbose=1 "$app"
 zip="$MACOS/build/Bopsie.zip"
 rm -f "$zip"
 ditto -c -k --keepParent "$app" "$zip"
-xcrun notarytool submit "$zip" --keychain-profile "$PROFILE" --wait
+# notarytool exits successfully even when Apple rejects the app, so read the verdict.
+result="$(xcrun notarytool submit "$zip" --keychain-profile "$PROFILE" --wait \
+  --output-format json)"
+id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$result")"
+status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$result")"
+if [ "$status" != "Accepted" ]; then
+  echo "error: notarization: $status" >&2
+  xcrun notarytool log "$id" --keychain-profile "$PROFILE" >&2
+  exit 1
+fi
 xcrun stapler staple "$app"
 
 # Zipped again, so the archive carries the stapled ticket and opens offline.
