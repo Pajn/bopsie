@@ -228,6 +228,16 @@ async fn a_phone_joins_plays_pauses_and_resumes() {
         .result("player_queues/pause", json!({"queue_id": "phone"}))
         .await;
     phone.message("stream/end", |_| true).await;
+    // The phone keeps showing what it paused, stopped where it paused, so it can resume it.
+    let paused_metadata = phone
+        .message("server/state", |p| {
+            p["metadata"]["progress"]["playback_speed"] == 0
+        })
+        .await;
+    assert_eq!(paused_metadata["payload"]["metadata"]["title"], "Opening");
+    phone
+        .message("group/update", |p| p["playback_state"] == "stopped")
+        .await;
     let paused = client
         .result("player_queues/get", json!({"queue_id": "phone"}))
         .await;

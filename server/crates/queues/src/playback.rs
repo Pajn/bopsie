@@ -1317,7 +1317,8 @@ impl Playback {
 
     fn on_notice(&self, queue_id: &str, notice: Notice) {
         match notice {
-            Notice::Started(_) | Notice::Seeked => self.announce(queue_id),
+            // A paused group keeps showing what it paused, so that it can be resumed from there.
+            Notice::Started(_) | Notice::Seeked | Notice::Paused => self.announce(queue_id),
             Notice::Finished | Notice::Stopped => {
                 for id in self.group_of(queue_id) {
                     if let Ok((_, member)) = self.active(&id) {

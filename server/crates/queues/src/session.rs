@@ -39,8 +39,10 @@ pub enum Notice {
     },
     /// The queue played to its end.
     Finished,
-    /// Playback was stopped or paused.
+    /// Playback was stopped.
     Stopped,
+    /// Playback was paused where it is, to resume from there.
+    Paused,
     /// The output with this key failed and left the session.
     OutputFailed(String),
     /// The engine crashed: the session has none until one is attached again.
@@ -452,7 +454,12 @@ impl QueueSession {
                     }
                 }
                 self.send(Command::Stop { epoch });
-                let _ = self.notices.send(Notice::Stopped);
+                let notice = if effect == Effect::Stop {
+                    Notice::Stopped
+                } else {
+                    Notice::Paused
+                };
+                let _ = self.notices.send(notice);
             }
         }
     }
