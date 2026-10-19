@@ -32,6 +32,13 @@ targets:
       - sdk: CoreFoundation.framework
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
+    # Merged into the generated Info.plist. Artwork comes from the server, often over plain HTTP
+    # on the local network, which App Transport Security otherwise refuses.
+    info:
+      path: Generated/Info.plist
+      properties:
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     preBuildScripts:
       - name: Build the Rust player
         script: '"$SRCROOT/scripts/build-rust.sh"'
