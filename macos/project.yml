@@ -53,12 +53,21 @@ targets:
         # A menu bar app: no Dock icon, no main menu.
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Bopsie plays from a Bopsie server on your network.
-        # Ad-hoc signing, enough to run on the Mac that built it.
-        CODE_SIGN_IDENTITY: "-"
+        # Signed by the team's certificates in the login Keychain: Apple Development for Debug,
+        # Developer ID Application for Release, which scripts/release.sh notarizes. The team ID
+        # is public, written into every app it signs; another team overrides it with
+        # DEVELOPMENT_TEAM on the xcodebuild command line.
+        DEVELOPMENT_TEAM: TH9Z48BPVV
         CODE_SIGN_STYLE: Manual
-        DEVELOPMENT_TEAM: ""
-        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_IDENTITY: Apple Development
+        # Required for notarization.
+        ENABLE_HARDENED_RUNTIME: YES
         # The Rust build writes to Generated/, outside what a sandboxed script may touch.
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         # This Mac's architecture only, in Release too, until the Rust player is built for both.
         ONLY_ACTIVE_ARCH: YES
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: Developer ID Application
+          # Notarization requires a secure timestamp on every signature.
+          OTHER_CODE_SIGN_FLAGS: --timestamp

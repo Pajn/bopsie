@@ -14,7 +14,7 @@ Needs Xcode, and from the development shell `cargo` and `xcodegen`.
 
 ```sh
 scripts/build-app.sh            # Debug; prints where the app is
-scripts/build-app.sh Release
+scripts/build-app.sh Release   # needs the Developer ID certificate
 open "$(scripts/build-app.sh)"
 ```
 
@@ -31,8 +31,30 @@ To work in Xcode, run the first two and open `Bopsie.xcodeproj`. Each build runs
 which it has when Xcode is started from the development shell (`xed .`). Without it the build uses
 the Rust player built last.
 
-The app is signed ad hoc, which runs on the Mac that built it, and builds for that Mac's
-architecture only.
+It builds for the building Mac's architecture only.
+
+## Signing and distribution
+
+Builds are signed by the team in `project.yml` with certificates from the login Keychain: Debug
+with an Apple Development certificate, Release with a Developer ID Application certificate. To
+sign as another team, pass `DEVELOPMENT_TEAM=<team id>` to `xcodebuild`.
+
+`scripts/release.sh` builds Release, notarizes it with Apple, staples the ticket and writes
+`build/Bopsie.zip`, which opens on any Mac without a warning. It needs two things in the login
+Keychain, neither of which is in the repository:
+
+1. **The Developer ID Application certificate.** The team's Account Holder creates it in Xcode
+   under Settings › Accounts › Manage Certificates (+ › Developer ID Application), which also
+   puts it and its private key in the Keychain.
+2. **Notarization credentials**, saved once under a profile name with an app-specific password
+   from account.apple.com:
+
+   ```sh
+   xcrun notarytool store-credentials bopsie-notary \
+     --apple-id <Apple ID> --team-id <team id> --password <app-specific password>
+   ```
+
+   `BOPSIE_NOTARY_PROFILE` names another profile.
 
 ## Layout
 
