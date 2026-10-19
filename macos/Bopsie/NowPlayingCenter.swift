@@ -67,17 +67,20 @@ final class NowPlayingCenter {
                   !Task.isCancelled,
                   let self, self.artworkURL == url
             else { return }
-            // The handler may run on any thread, so it makes its image from the data rather
-            // than sharing this one.
-            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
-                NSImage(data: data) ?? NSImage()
-            }
+            let artwork = Self.artwork(size: image.size, data: data)
             self.artwork = artwork
             if var properties = self.info.nowPlayingInfo {
                 properties[MPMediaItemPropertyArtwork] = artwork
                 self.info.nowPlayingInfo = properties
             }
         }
+    }
+
+    /// MediaPlayer asks for the image on a queue of its own. Made outside the main actor, so the
+    /// handler does not inherit its isolation, which Swift would check, and trap on, there; and
+    /// it makes its image from the data rather than sharing one across threads.
+    private nonisolated static func artwork(size: CGSize, data: Data) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: size) { _ in NSImage(data: data) ?? NSImage() }
     }
 
     private func handle(
