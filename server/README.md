@@ -246,11 +246,11 @@ and an author's page ask Audiobookshelf as they are shown. An author is an artis
 Audiobookshelf source, so their page lists their books. A library of books most of whose items
 have no audio, such as one of ebooks, is left out, as is any book without audio.
 `music/in_progress_items` lists the books listening continues in, the most recently listened to
-first, from each library's Continue Listening as Audiobookshelf's own apps show it; the web UI's
-home has them as its first shelf. The server keeps them and answers with what it kept, asking
-Audiobookshelf again in the background once they are a minute old, and a few seconds after a
-book is paused, moved in, stopped or started; when they change, a `media_item_updated` event
-tells the clients to show them again. Books play through ffmpeg, which must be
+first, from each library's Continue Listening as Audiobookshelf's own apps show it; the app's
+and the web UI's homes have them as a shelf under Playlists. The server keeps them and answers
+with what it kept, asking Audiobookshelf again in the background once they are a minute old,
+and a few seconds after a book is paused, moved in, stopped or started; when they change, a
+`media_item_updated` event tells the clients to show them again. Books play through ffmpeg, which must be
 installed; without it the books can be browsed but not played.
 
 - **One item.** A book is one item in the queue, however many files it has. Its files play one

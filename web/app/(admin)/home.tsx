@@ -40,9 +40,9 @@ const bookCaption = (item: Item) => {
 };
 
 /**
- * Where the web UI opens, as the app's home: the audiobooks listening continues in, what came
- * into the library lately, the playlists and artists played most, and albums picked at random
- * to rediscover, each a shelf that scrolls sideways.
+ * Where the web UI opens, as the app's home: what came into the library lately, the playlists
+ * played most, the audiobooks listening continues in, the artists played most, and albums
+ * picked at random to rediscover, each a shelf that scrolls sideways.
  */
 export default function HomeScreen() {
   const { connection, account } = useConnection();
@@ -61,18 +61,18 @@ export default function HomeScreen() {
   return (
     <Page title={greeting(new Date().getHours())} wide actions={<TargetPicker />}>
       <InlineError message={error ? describeError(error) : null} />
+      <Shelf title="Recently added" items={added.data} loading={added.isPending}>
+        <ItemShelf items={added.data ?? []} loading={added.isPending} />
+      </Shelf>
+      <Shelf title="Playlists" items={playlists.data} loading={playlists.isPending}>
+        <ItemShelf items={playlists.data ?? []} loading={playlists.isPending} />
+      </Shelf>
       <Shelf title="Continue listening" items={listening.data} loading={listening.isPending}>
         <ItemShelf
           items={listening.data ?? []}
           caption={bookCaption}
           loading={listening.isPending}
         />
-      </Shelf>
-      <Shelf title="Recently added" items={added.data} loading={added.isPending}>
-        <ItemShelf items={added.data ?? []} loading={added.isPending} />
-      </Shelf>
-      <Shelf title="Playlists" items={playlists.data} loading={playlists.isPending}>
-        <ItemShelf items={playlists.data ?? []} loading={playlists.isPending} />
       </Shelf>
       <Shelf title="Artists" items={artists.data} loading={artists.isPending}>
         <ItemShelf items={artists.data ?? []} loading={artists.isPending} />

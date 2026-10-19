@@ -1,11 +1,15 @@
-import { type LibraryKind, libraryItems } from '@bopsie/client/api/endpoints/library';
+import {
+  inProgressItems,
+  type LibraryKind,
+  libraryItems,
+} from '@bopsie/client/api/endpoints/library';
 import type { Album, Artist, Playlist } from '@bopsie/client/api/schemas/media';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useConnection } from '@/connection/ConnectionProvider';
-import { AlbumRow, ArtistRow, PlaylistRow } from '@/features/library/rows';
+import { AlbumRow, ArtistRow, BookRow, PlaylistRow } from '@/features/library/rows';
 import { mark } from '@/lib/bench';
 import { Icon } from '@/ui/Icon';
 import { Screen, Text } from '@/ui/primitives';
@@ -26,19 +30,23 @@ function useShelf<T>(kind: Exclude<LibraryKind, 'tracks'>, orderBy: string, roun
 }
 
 /**
- * Where the app opens: what came into the library lately, the playlists and artists played
- * most, and a handful of albums picked at random to rediscover, each a shelf that scrolls
- * sideways.
+ * Where the app opens: what came into the library lately, the playlists played most, the
+ * audiobooks listening continues in, the artists played most, and a handful of albums picked at
+ * random to rediscover, each a shelf that scrolls sideways.
  */
 export function HomeScreen() {
   const { theme } = useUnistyles();
   const queryClient = useQueryClient();
-  const { account } = useConnection();
+  const { connection, account } = useConnection();
   const [round, setRound] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const added = useShelf<Album>('albums', 'timestamp_added_desc');
   // The most played first; never played, the newest.
   const playlists = useShelf<Playlist>('playlists', 'play_count_desc');
+  const listening = useQuery({
+    queryKey: ['library', account.id, 'shelf', 'in_progress'],
+    queryFn: () => inProgressItems(connection, SHELF),
+  });
   const artists = useShelf<Artist>('artists', 'play_count_desc');
   const random = useShelf<Album>('albums', 'random', round);
   mark('home-render');
@@ -77,6 +85,11 @@ export function HomeScreen() {
         <Shelf title="Playlists" loading={playlists.isPending}>
           {playlists.data?.map((playlist) => (
             <PlaylistRow key={playlist.uri} playlist={playlist} tile={TILE} />
+          ))}
+        </Shelf>
+        <Shelf title="Continue listening" loading={listening.isPending}>
+          {listening.data?.map((book) => (
+            <BookRow key={book.uri} book={book} tile={TILE} />
           ))}
         </Shelf>
         <Shelf title="Artists" loading={artists.isPending}>

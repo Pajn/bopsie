@@ -9,7 +9,8 @@ to the server over the Music Assistant API and Sendspin, reused as Bopsie's prot
 look like on the wire, with sources, is in [`docs/research`](../docs/research).
 
 What works today: sign in to a Bopsie server with a username and password; open on a home of
-what came into the library lately, its playlists and artists, and albums to rediscover;
+what came into the library lately, its playlists, the audiobooks you are listening to, its
+artists, and albums to rediscover;
 browse albums, artists, tracks and playlists, sorted, filtered and as a grid; search; and, on
 Android, play on the phone itself. The phone joins the server as a player over Sendspin, so the
 server keeps its queue and other clients see it, with notification and lock-screen controls. iOS
