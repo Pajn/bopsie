@@ -153,6 +153,9 @@ func userMessage(for error: Error) -> String {
         return message
     case let .WrongCredentials(message):
         return message.isEmpty ? "Wrong username or password." : message
+    case .Unreachable:
+        return "Could not reach the server. If it is on your local network, allow Bopsie under "
+            + "System Settings › Privacy & Security › Local Network."
     case .SetupRequired:
         return "This server has not been set up yet. Set it up in its web interface first."
     case .ServerTooOld:

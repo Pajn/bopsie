@@ -20,12 +20,33 @@ pub use player::{
     Repeat, Snapshot,
 };
 
+/// The error for a WebSocket that could not be opened.
+pub(crate) fn open_failed(error: tokio_tungstenite::tungstenite::Error) -> Error {
+    use std::io::ErrorKind;
+    use tokio_tungstenite::tungstenite::Error as WsError;
+    match &error {
+        WsError::Io(io)
+            if matches!(
+                io.kind(),
+                ErrorKind::HostUnreachable | ErrorKind::NetworkUnreachable
+            ) =>
+        {
+            Error::Unreachable(io.to_string())
+        }
+        _ => Error::Connection(error.to_string()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     #[error("not a server address: {0}")]
     InvalidAddress(String),
     #[error("could not reach the server: {0}")]
     Connection(String),
+    /// The system found no route to the server. On macOS this is also how a connection fails
+    /// while the user has not yet allowed the app to use the local network.
+    #[error("no route to the server: {0}")]
+    Unreachable(String),
     #[error("the server has not been set up yet")]
     SetupRequired,
     #[error("this server is too old for this version of Bopsie")]

@@ -307,9 +307,7 @@ fn apply_offline(command: Command, state: &watch::Sender<Snapshot>) -> bool {
 /// Opens `/sendspin`, authenticates with the token, and completes the Sendspin handshake.
 async fn connect(config: &PlayerConfig, (volume, muted): (u8, bool)) -> Result<Connection, Error> {
     let url = socket_url(&config.server_url, "/sendspin")?;
-    let (mut socket, _) = connect_async(url)
-        .await
-        .map_err(|e| Error::Connection(e.to_string()))?;
+    let (mut socket, _) = connect_async(url).await.map_err(crate::open_failed)?;
     let auth = json!({ "type": "auth", "token": config.token }).to_string();
     socket
         .send(WsMessage::Text(auth.into()))

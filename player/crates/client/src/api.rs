@@ -33,7 +33,7 @@ impl CommandSocket {
     pub(crate) async fn open(server_url: &str) -> Result<Self, Error> {
         let (mut socket, _) = connect_async(socket_url(server_url, "/ws")?)
             .await
-            .map_err(|e| Error::Connection(e.to_string()))?;
+            .map_err(crate::open_failed)?;
         let info = loop {
             let message = next_json(&mut socket).await?;
             if message.get("message_id").and_then(Value::as_str) == Some("connection")

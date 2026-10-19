@@ -16,6 +16,9 @@ pub enum PlayerError {
     InvalidAddress { message: String },
     #[error("{message}")]
     Connection { message: String },
+    /// No route to the server; on macOS also while the local network permission is undecided.
+    #[error("{message}")]
+    Unreachable { message: String },
     #[error("the server has not been set up yet")]
     SetupRequired,
     #[error("this server is too old for this version of Bopsie")]
@@ -34,6 +37,7 @@ impl From<client::Error> for PlayerError {
         match error {
             client::Error::InvalidAddress(_) => Self::InvalidAddress { message },
             client::Error::Connection(_) => Self::Connection { message },
+            client::Error::Unreachable(_) => Self::Unreachable { message },
             client::Error::SetupRequired => Self::SetupRequired,
             client::Error::ServerTooOld => Self::ServerTooOld,
             client::Error::WrongCredentials(message) => Self::WrongCredentials { message },
