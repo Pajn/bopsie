@@ -1142,7 +1142,8 @@ impl Playback {
 
     /// An output of `queue_id`'s group failed and left its engine: it is put back after a
     /// wait that grows while it keeps failing, unless by then it no longer plays in the group,
-    /// the group stopped or its engine was replaced.
+    /// the group stopped or its engine was replaced. A device that went to one of its own
+    /// inputs is released instead.
     fn output_failed(&self, queue_id: &str, device: &str) {
         if !self
             .inner
@@ -1185,6 +1186,36 @@ impl Playback {
             if !wanted {
                 // A device that comes back is put back by player_changed; a new engine
                 // already has it.
+                return;
+            }
+            // A device switched to one of its own inputs, as a WiiM to HDMI when its TV comes
+            // on, stopped the server's audio on purpose: it is let go as a speaker that went to
+            // another source is, not taken back.
+            let members = playback
+                .device(&device)
+                .map(|device| device.members)
+                .unwrap_or_default();
+            let own_input = tokio::task::spawn_blocking(move || {
+                members
+                    .into_iter()
+                    .find(|member| member.endpoint.on_own_input())
+                    .map(|member| member.id)
+            })
+            .await
+            .ok()
+            .flatten();
+            if let Some(endpoint) = own_input {
+                tracing::info!(
+                    queue = queue_id,
+                    device,
+                    endpoint,
+                    "the device went to one of its own inputs; it is let go"
+                );
+                playback
+                    .inner
+                    .devices
+                    .players()
+                    .remote(&endpoint, Remote::Released);
                 return;
             }
             playback.reconnect(&device);

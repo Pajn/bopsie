@@ -1,12 +1,12 @@
 //! LinkPlay devices in playback, against stand-ins: grouped by their own multiroom, groups made
-//! in the vendor's app shown as they are, and a follower whose AirPlay is withdrawn joining an
-//! AirPlay group.
+//! in the vendor's app shown as they are, a follower whose AirPlay is withdrawn joining an
+//! AirPlay group, and a device that went to its own input let go by its group.
 
 mod common;
 
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use bopsie_audio::OutputFormat;
 use bopsie_audio::sink::Sink;
@@ -30,6 +30,10 @@ struct Airplay {
     mac: String,
     available: AtomicBool,
     players: Players,
+    /// The next write to its output fails, as a speaker that stopped taking audio.
+    failing: Arc<AtomicBool>,
+    /// Outputs it was asked for.
+    outputs: AtomicUsize,
 }
 
 impl Airplay {
@@ -39,6 +43,8 @@ impl Airplay {
             mac: mac.into(),
             available: AtomicBool::new(available),
             players: players.clone(),
+            failing: Arc::default(),
+            outputs: AtomicUsize::new(0),
         });
         players.register(endpoint.clone());
         endpoint
@@ -48,15 +54,26 @@ impl Airplay {
         self.available.store(available, Ordering::SeqCst);
         self.players.changed(&self.id);
     }
+
+    fn fail(&self) {
+        self.failing.store(true, Ordering::SeqCst);
+    }
+
+    fn outputs(&self) -> usize {
+        self.outputs.load(Ordering::SeqCst)
+    }
 }
 
-struct Nowhere(OutputFormat);
+struct Nowhere(OutputFormat, Arc<AtomicBool>);
 
 impl Sink for Nowhere {
     fn format(&self) -> OutputFormat {
         self.0
     }
     fn write(&mut self, _: u64, _: &[u8]) -> io::Result<()> {
+        if self.1.swap(false, Ordering::SeqCst) {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
         std::thread::sleep(std::time::Duration::from_millis(5));
         Ok(())
     }
@@ -108,7 +125,8 @@ impl Endpoint for Airplay {
         }
     }
     fn output(&self, format: OutputFormat, _: Timeline) -> Box<dyn Sink> {
-        Box::new(Nowhere(format))
+        self.outputs.fetch_add(1, Ordering::SeqCst);
+        Box::new(Nowhere(format, self.failing.clone()))
     }
     fn set_volume(&self, _: u8) {}
     fn set_muted(&self, _: bool) {}
@@ -322,6 +340,42 @@ async fn a_follower_leaves_its_native_group_to_join_over_the_airplay_it_withdrew
     kitchen_airplay.set_available(true);
     assert!(eventually(|| s.player(kitchen)["synced_to"] == "apsonos").await);
     assert_eq!(s.player(&amp.id())["group_members"], serde_json::json!([]));
+    drop(sonos);
+    s.provider.shutdown();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_device_gone_to_its_own_input_leaves_its_group_rather_than_be_taken_back() {
+    let s = setup().await;
+    let amp = s.device("Living Room", "10.0.0.2", AMP).await;
+    // Played over another of its endpoints, as a WiiM's Cast receiver in a mixed group.
+    let mac = amp
+        .device
+        .lock()
+        .unwrap()
+        .mac
+        .replace(':', "")
+        .to_lowercase();
+    let amp_airplay = Airplay::register(&s.players, "apamp", &mac, true);
+    let sonos = Airplay::register(&s.players, "apsonos", "aabbcc00ff01", true);
+    assert!(eventually(|| s.playback.player("apsonos", None).is_some()).await);
+    s.playback.group(&amp.id(), "apsonos").unwrap();
+    s.playback
+        .play_media("apsonos", vec![s.track()], QueueOption::Replace, None)
+        .unwrap();
+    assert!(eventually(|| amp_airplay.outputs() == 1).await);
+
+    // Its output fails while it is on the network: it is put back.
+    amp_airplay.fail();
+    assert!(eventually(|| amp_airplay.outputs() == 2).await);
+    assert_eq!(s.player(&amp.id())["synced_to"], "apsonos");
+
+    // Its TV came on, and it went to HDMI: it leaves the group, which plays on.
+    amp.device.lock().unwrap().mode = "49".to_owned();
+    amp_airplay.fail();
+    assert!(eventually(|| s.player(&amp.id())["synced_to"].is_null()).await);
+    assert_eq!(amp_airplay.outputs(), 2, "not taken back");
+    assert_eq!(s.playback.queue("apsonos").unwrap()["state"], "playing");
     drop(sonos);
     s.provider.shutdown();
 }

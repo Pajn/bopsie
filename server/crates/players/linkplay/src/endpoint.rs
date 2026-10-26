@@ -49,6 +49,11 @@ const SETTLE: Duration = Duration::from_secs(5);
 const NETWORK_MODE: &str = "10";
 /// The input a device reports when it plays nothing.
 const IDLE_MODE: &str = "0";
+/// The device's own inputs, by LinkPlay's numbering: line-in, Bluetooth, optical, the second
+/// line-in, HDMI and USB DAC. One of them plays nothing the server sends.
+const OWN_INPUT_MODES: &[&str] = &["40", "41", "43", "47", "49", "51"];
+/// How long a reading of the device's input may take before the last one is used.
+const INPUT_READ_LIMIT: Duration = Duration::from_secs(2);
 /// How long after a device paused itself its play still resumes the group.
 const RESUMABLE: Duration = Duration::from_secs(30 * 60);
 
@@ -570,6 +575,19 @@ impl Endpoint for LinkplayEndpoint {
         }
         let _ = sink.drain();
         tracing::debug!(device = self.shared.id, playing, "woken over LinkPlay");
+    }
+
+    /// Whatever endpoint the server played through: a WiiM switched to HDMI as its TV came on
+    /// stops a Cast receiver as it would its own stream.
+    fn on_own_input(&self) -> bool {
+        let reading = self.shared.block_on(async {
+            tokio::time::timeout(INPUT_READ_LIMIT, self.shared.player_status()).await
+        });
+        let mode = match reading {
+            Ok(Ok(status)) => status.mode,
+            _ => self.shared.state.lock().unwrap().mode.clone(),
+        };
+        mode.is_some_and(|mode| OWN_INPUT_MODES.contains(&mode.as_str()))
     }
 
     fn diagnostics(&self) -> serde_json::Value {
