@@ -33,6 +33,10 @@ const AUDIO_TIMEOUT: Duration = Duration::from_secs(2);
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long a process gets to end its session cleanly when told to.
 const DISCONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long a process whose output has closed gets to be gone, for its exit status.
+const EXIT_STATUS_TIMEOUT: Duration = Duration::from_millis(500);
+/// How many of its last free-text lines an unasked exit is logged with.
+const SAID_LINES: usize = 5;
 /// How much later than asked a start may be and still count as on time.
 pub const LATE_TOLERANCE_MS: u64 = 20;
 
@@ -392,11 +396,13 @@ impl Supervisor {
                 if is_stderr { "stderr" } else { "stdout" }
             ))
             .spawn(move || {
+                let mut said = Said::default();
                 for line in BufReader::new(stream).lines() {
                     let Ok(line) = line else { break };
                     if !line.trim().is_empty() {
                         tracing::debug!(speaker = supervisor.inner.id, "{line}");
                     }
+                    said.push(&line);
                     if let Some(status) = status::parse(&line) {
                         supervisor.observe(generation, status);
                     }
@@ -405,15 +411,46 @@ impl Supervisor {
                 if is_stderr && *supervisor.inner.generation.lock().unwrap() == generation {
                     supervisor.signals_mut().exited = true;
                     supervisor.inner.changed.notify_all();
-                    tracing::info!(speaker = supervisor.inner.id, "cliairplay exited");
                     let expected = supervisor
                         .inner
                         .ending
                         .load(std::sync::atomic::Ordering::SeqCst);
+                    if expected {
+                        tracing::info!(speaker = supervisor.inner.id, "cliairplay exited");
+                    } else {
+                        // Its output is only logged at debug, so say here why it ended.
+                        tracing::warn!(
+                            speaker = supervisor.inner.id,
+                            status = supervisor.exit_status(generation),
+                            last_said = said.text(),
+                            "cliairplay exited unasked"
+                        );
+                    }
                     (supervisor.inner.on_exit)(expected);
                 }
             })
             .expect("spawning a reader thread");
+    }
+
+    /// How the process of `generation` ended, once it has: its exit code or the signal that
+    /// ended it. Its output closes just before it is gone, so this waits a moment for that.
+    fn exit_status(&self, generation: u64) -> String {
+        let deadline = Instant::now() + EXIT_STATUS_TIMEOUT;
+        loop {
+            {
+                let mut running = self.inner.running.lock().unwrap();
+                let Some(running) = running.as_mut().filter(|r| r.generation == generation) else {
+                    return "unknown".into();
+                };
+                if let Ok(Some(status)) = running.child.try_wait() {
+                    return status.to_string();
+                }
+            }
+            if Instant::now() >= deadline {
+                return "still running".into();
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn signals_mut(&self) -> MutexGuard<'_, Signals> {
@@ -601,5 +638,45 @@ impl Supervisor {
                 "cliairplay ended"
             );
         }
+    }
+}
+
+/// The last free-text lines a process said: what it explains an exit with. `[STATUS]` and
+/// `[EVENT]` lines are left out, being parsed and frequent, and an error among them is logged
+/// on its own.
+#[derive(Debug, Default)]
+struct Said(std::collections::VecDeque<String>);
+
+impl Said {
+    fn push(&mut self, line: &str) {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("[STATUS]") || line.starts_with("[EVENT]") {
+            return;
+        }
+        if self.0.len() == SAID_LINES {
+            self.0.pop_front();
+        }
+        self.0.push_back(line.to_owned());
+    }
+
+    fn text(&self) -> String {
+        Vec::from_iter(self.0.iter().map(String::as_str)).join(" | ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn said_keeps_the_last_free_text_lines() {
+        let mut said = Said::default();
+        for n in 0..SAID_LINES + 2 {
+            said.push(&format!("line {n}"));
+            said.push("[STATUS] playing elapsed_ms=1000");
+            said.push("[EVENT] remote command=play");
+            said.push("  ");
+        }
+        assert_eq!(said.text(), "line 2 | line 3 | line 4 | line 5 | line 6");
     }
 }
